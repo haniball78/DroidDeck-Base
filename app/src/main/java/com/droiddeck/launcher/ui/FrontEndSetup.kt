@@ -539,6 +539,15 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         }
     }
 
+    // Bridge status, same 4 s rhythm as the engine page: without it the
+    // card only reflects the last refresh someone else triggered.
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
+            delay(4_000)
+        }
+    }
+
     val state = ConnectionCardStateResolver.resolve(
         daemonActive = privStatus.isActive,
         authRejected = authRejected,
@@ -550,6 +559,9 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
 
     // Error-localization: log every computed state change (not every
     // recomposition), so a wrong display can be traced to its inputs.
+    // A genuine step advancement also tells the user what comes next:
+    // the primary button already points at it, and this is its notice.
+    var prevState by remember { mutableStateOf<ConnectionCardState?>(null) }
     LaunchedEffect(state) {
         DiagnosticsLog.log(
             ctx, "connection-card", "state-computed",
@@ -562,6 +574,15 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                 "failure" to (lastFailure?.category?.name ?: "none"),
             ),
         )
+        if (prevState != null && prevState != state) {
+            when (state) {
+                ConnectionCardState.NEED_WIRELESS_ADB -> Toast.makeText(ctx, ctx.getString(R.string.connection_card_advance_wireless), Toast.LENGTH_LONG).show()
+                ConnectionCardState.NEED_PAIRING -> Toast.makeText(ctx, ctx.getString(R.string.connection_card_advance_pair), Toast.LENGTH_LONG).show()
+                ConnectionCardState.READY_TO_START -> Toast.makeText(ctx, ctx.getString(R.string.connection_card_advance_ready), Toast.LENGTH_LONG).show()
+                else -> {}
+            }
+        }
+        prevState = state
     }
 
     var showPairDialog by remember { mutableStateOf(false) }
@@ -622,6 +643,12 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                         },
                         fontSize = 12.sp, color = colors.onSurfaceVariant,
                     )
+                    if (state == ConnectionCardState.ACTIVE && privStatus.mode == PrivilegedMode.EMBEDDED_DAEMON) {
+                        Text(
+                            stringResource(R.string.connection_card_note_daemon_survives),
+                            fontSize = 11.sp, color = colors.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
@@ -733,8 +760,8 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                     Box(Modifier.weight(1f)) {
                         SecondaryButton(stringResource(R.string.connection_card_action_notify), compact = true) {
                             logAction("pair-notification")
+                            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_watch_notification), Toast.LENGTH_LONG).show()
                             WirelessAdbPairingService.start(ctx)
-                            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_notify), Toast.LENGTH_LONG).show()
                         }
                     }
                     Box(Modifier.weight(1f)) {

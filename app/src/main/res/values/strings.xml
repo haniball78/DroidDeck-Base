@@ -3196,4 +3196,9 @@
     <string name="connection_card_toast_forgot">Identity forgotten. Pair again with a new code.</string>
     <string name="connection_card_toast_notify">Pull down notification shade to enter code</string>
     <string name="connection_card_toast_cleared">Pairing cleared. You can pair with a new code.</string>
+    <string name="connection_card_advance_wireless">Developer options are on — now turn on Wireless debugging.</string>
+    <string name="connection_card_advance_pair">Wireless debugging is on — now pair once with a code.</string>
+    <string name="connection_card_advance_ready">Paired — one tap to start.</string>
+    <string name="connection_card_toast_watch_notification">Watch the top of the screen — the pairing notification will pop up; enter the code there.</string>
+    <string name="connection_card_note_daemon_survives">Turning wireless debugging off does not stop a running daemon — it only blocks restarting it.</string>
 </resources>

@@ -147,6 +147,12 @@ class WirelessAdbPairingService : Service() {
                 }
                 com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(this, "adb.daemon", "failed", fields = fields)
             }
+            if (result.isSuccess) {
+                // The daemon just started (and the start wrapper cleared the
+                // plain-mode latch), so probe now: this updates the shared
+                // bridge status instead of leaving it stale until restart.
+                com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh()
+            }
             main.post {
                 working = false
                 finish(result.exceptionOrNull()?.let { Stage.Failed(it.localizedMessage ?: getString(R.string.adbpair_command_failed)) } ?: Stage.Done)
@@ -189,12 +195,16 @@ class WirelessAdbPairingService : Service() {
 
     private fun notification(stage: Stage): Notification {
         val manager = getSystemService(NotificationManager::class.java)
+        // The original channel was created silent (no sound, no vibration),
+        // which is why the pairing prompt went unnoticed. Channel settings
+        // freeze at creation, so a new channel id carries the audible and
+        // visible one; the old silent channel is deleted.
+        manager?.deleteNotificationChannel("wireless-adb-pairing")
         manager?.createNotificationChannel(NotificationChannel(CHANNEL_ID, getString(R.string.adbpair_channel_name),
             NotificationManager.IMPORTANCE_HIGH).apply {
             description = getString(R.string.adbpair_channel_description)
             setShowBadge(false)
-            setSound(null, null)
-            enableVibration(false)
+            enableVibration(true)
         })
         val open = PendingIntent.getActivity(this, 0,
             Intent(this, FrontEndActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
@@ -250,7 +260,7 @@ class WirelessAdbPairingService : Service() {
     }
 
     companion object {
-        private const val CHANNEL_ID = "wireless-adb-pairing"
+        private const val CHANNEL_ID = "wireless-adb-pairing-alert"
         private const val NOTIFICATION_ID = 3
         private const val PAIRING_TYPE = "_adb-tls-pairing._tcp"
         private const val ACTION_CODE = "com.droiddeck.launcher.action.WIRELESS_ADB_CODE"

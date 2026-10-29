@@ -3258,4 +3258,9 @@
     <string name="connection_card_toast_forgot">تم نسيان الهوية. اقترن من جديد برمز جديد.</string>
     <string name="connection_card_toast_notify">اسحب شريط الإشعارات لإدخال الرمز</string>
     <string name="connection_card_toast_cleared">تم مسح الإقران. يمكنك الاقتران برمز جديد.</string>
+    <string name="connection_card_advance_wireless">خيارات المطور مفعّلة — الآن شغّل التصحيح اللاسلكي.</string>
+    <string name="connection_card_advance_pair">التصحيح اللاسلكي مفعّل — الآن اقترن مرة واحدة برمز.</string>
+    <string name="connection_card_advance_ready">تم الإقران — اضغط زراً واحداً للتشغيل.</string>
+    <string name="connection_card_toast_watch_notification">راقب أعلى الشاشة — سيظهر إشعار الإقران؛ أدخل الرمز هناك.</string>
+    <string name="connection_card_note_daemon_survives">إطفاء التصحيح اللاسلكي لا يوقف خادماً يعمل — بل يمنع إعادة تشغيله فقط.</string>
 </resources>

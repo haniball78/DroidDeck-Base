@@ -244,6 +244,10 @@ object WirelessAdbFix {
         saveConnection(context, host, port)
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearDaemonFailure()
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearAuthRejected()
+        // A verified daemon start ends plain mode: unfreeze status probes
+        // so later refresh() calls report the live daemon instead of a
+        // stale NONE frozen by the plain-mode latch.
+        com.droiddeck.launcher.core.privileged.PrivilegedBridge.resetPlainModeLatch()
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             context, "adb.daemon", "started", fields = mapOf("port" to port.toString()),
         )
