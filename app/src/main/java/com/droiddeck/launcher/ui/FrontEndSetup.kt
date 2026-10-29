@@ -2,6 +2,8 @@ package com.droiddeck.launcher.ui
 
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
 import android.os.Build
@@ -71,6 +73,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.droiddeck.launcher.core.privileged.PrivilegedBridge
+import com.droiddeck.launcher.core.StepGuideNotifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
@@ -530,6 +533,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     val devOn = remember { mutableStateOf(isDevOptionsOn(ctx)) }
     val wirelessOn = remember { mutableStateOf(isWirelessAdbOn(ctx)) }
     val paired = remember { mutableStateOf(WirelessAdbFix.isPaired(ctx)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(Unit) {
         while (isActive) {
             devOn.value = isDevOptionsOn(ctx)
@@ -574,11 +578,29 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                 "failure" to (lastFailure?.category?.name ?: "none"),
             ),
         )
+        if (state == ConnectionCardState.ACTIVE) {
+            StepGuideNotifier.cancel(ctx)
+        }
         if (prevState != null && prevState != state) {
             when (state) {
-                ConnectionCardState.NEED_WIRELESS_ADB -> Toast.makeText(ctx, ctx.getString(R.string.connection_card_advance_wireless), Toast.LENGTH_LONG).show()
-                ConnectionCardState.NEED_PAIRING -> Toast.makeText(ctx, ctx.getString(R.string.connection_card_advance_pair), Toast.LENGTH_LONG).show()
-                ConnectionCardState.READY_TO_START -> Toast.makeText(ctx, ctx.getString(R.string.connection_card_advance_ready), Toast.LENGTH_LONG).show()
+                ConnectionCardState.NEED_WIRELESS_ADB,
+                ConnectionCardState.NEED_PAIRING,
+                ConnectionCardState.READY_TO_START -> {
+                    val toastText = when (state) {
+                        ConnectionCardState.NEED_WIRELESS_ADB -> R.string.connection_card_advance_wireless
+                        ConnectionCardState.NEED_PAIRING -> R.string.connection_card_advance_pair
+                        else -> R.string.connection_card_advance_ready
+                    }
+                    // The transition fires while the user is in Settings.
+                    // A Toast then is gone by their return, so a backgrounded
+                    // app posts the persistent guide notification instead;
+                    // a foregrounded app keeps the Toast, and a denied
+                    // notification permission falls back to it.
+                    val foreground = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+                    if (foreground || !StepGuideNotifier.post(ctx, state)) {
+                        Toast.makeText(ctx, ctx.getString(toastText), Toast.LENGTH_LONG).show()
+                    }
+                }
                 else -> {}
             }
         }
@@ -647,6 +669,12 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                         Text(
                             stringResource(R.string.connection_card_note_daemon_survives),
                             fontSize = 11.sp, color = colors.onSurfaceVariant,
+                        )
+                    }
+                    if (state == ConnectionCardState.ACTIVE && privStatus.mode == PrivilegedMode.EMBEDDED_DAEMON && !wirelessOn.value) {
+                        Text(
+                            stringResource(R.string.connection_card_warn_wireless_off),
+                            fontSize = 12.sp, color = colors.onSurfaceVariant,
                         )
                     }
                 }

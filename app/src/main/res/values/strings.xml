@@ -3201,4 +3201,10 @@
     <string name="connection_card_advance_ready">Paired — one tap to start.</string>
     <string name="connection_card_toast_watch_notification">Watch the top of the screen — the pairing notification will pop up; enter the code there.</string>
     <string name="connection_card_note_daemon_survives">Turning wireless debugging off does not stop a running daemon — it only blocks restarting it.</string>
+    <string name="connection_card_warn_wireless_off">Daemon running — wireless debugging is off. Sessions work, but restart or re-pairing needs wireless debugging.</string>
+    <string name="step_guide_channel_name">Setup guide</string>
+    <string name="step_guide_channel_desc">Next step while setting up wireless debugging.</string>
+    <string name="step_guide_title">Next step</string>
+    <string name="step_guide_text_dev">Developer options are off — turn them on first.</string>
+    <string name="step_guide_action_open">Open DroidDeck</string>
 </resources>

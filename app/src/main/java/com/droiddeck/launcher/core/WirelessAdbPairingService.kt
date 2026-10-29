@@ -162,7 +162,12 @@ class WirelessAdbPairingService : Service() {
 
     private fun show(stage: Stage) {
         publish(stage)
-        getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification(stage))
+        val manager = getSystemService(NotificationManager::class.java)
+        // A fresh post (not an update) is what makes the code prompt pop as
+        // a heads-up with sound/vibration; updates to the ongoing
+        // foreground-service notification do not reliably re-alert.
+        if (stage is Stage.CodeNeeded) manager?.cancel(NOTIFICATION_ID)
+        manager?.notify(NOTIFICATION_ID, notification(stage))
     }
 
     private fun finish(stage: Stage) {

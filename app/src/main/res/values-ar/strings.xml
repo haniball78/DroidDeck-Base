@@ -3263,4 +3263,10 @@
     <string name="connection_card_advance_ready">تم الإقران — اضغط زراً واحداً للتشغيل.</string>
     <string name="connection_card_toast_watch_notification">راقب أعلى الشاشة — سيظهر إشعار الإقران؛ أدخل الرمز هناك.</string>
     <string name="connection_card_note_daemon_survives">إطفاء التصحيح اللاسلكي لا يوقف خادماً يعمل — بل يمنع إعادة تشغيله فقط.</string>
+    <string name="connection_card_warn_wireless_off">الخادم يعمل — التصحيح اللاسلكي مطفأ. الجلسات تعمل، لكن إعادة التشغيل أو إعادة الإقران تحتاج التصحيح اللاسلكي.</string>
+    <string name="step_guide_channel_name">دليل الإعداد</string>
+    <string name="step_guide_channel_desc">الخطوة التالية أثناء إعداد التصحيح اللاسلكي.</string>
+    <string name="step_guide_title">الخطوة التالية</string>
+    <string name="step_guide_text_dev">خيارات المطور مطفأة — فعّلها أولاً.</string>
+    <string name="step_guide_action_open">فتح DroidDeck</string>
 </resources>
