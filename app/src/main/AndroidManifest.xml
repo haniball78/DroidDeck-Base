@@ -85,6 +85,14 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".PairingCodeEntryActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="${applicationId}.pairingcode"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity-alias
             android:name=".MainActivity"
             android:targetActivity=".FrontEndActivity"

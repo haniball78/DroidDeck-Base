@@ -1874,6 +1874,7 @@
     <string name="adbpair_waiting_long">Turn on Wireless debugging, then tap “Pair device with pairing code”. Stay in Settings: the code goes in this notification.</string>
     <string name="adbpair_code_label">6-digit pairing code</string>
     <string name="adbpair_code_hint">Tap Enter code and type the 6 digits shown in Settings.</string>
+    <string name="adbpair_code_big">Open Wireless debugging, tap “Pair device with pairing code”, then tap this notification and enter the 6-digit code.</string>
     <string name="adbpair_title_code">Enter the Wi-Fi pairing code</string>
     <string name="adbpair_title_retry">Try the code again</string>
     <string name="adbpair_enter_code">Enter code</string>
@@ -3177,6 +3178,7 @@
     <string name="connection_card_action_start">Start privileged engine (One-Tap)</string>
     <string name="connection_card_action_starting">Starting…</string>
     <string name="connection_card_action_notify">Pair via notification</string>
+    <string name="connection_card_action_notify_forget">Pair via notification (forget identity)</string>
     <string name="connection_card_action_wireless">Open wireless debugging screen</string>
     <string name="connection_card_action_clear">Clear pairing</string>
     <string name="connection_card_action_advanced">Advanced connection settings</string>

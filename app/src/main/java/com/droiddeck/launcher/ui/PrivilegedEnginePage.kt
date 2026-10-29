@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.droiddeck.launcher.core.privileged.PrivilegedBridge
+import com.droiddeck.launcher.core.WirelessAdbFix
 import com.droiddeck.launcher.core.ConnectionFailure
 import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.core.privileged.PrivilegedMode
@@ -288,15 +289,11 @@ internal fun isWirelessAdbOn(ctx: Context): Boolean = runCatching {
 }.getOrDefault(false)
 
 internal fun openDevOptions(ctx: Context) {
-    val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        putExtra(":settings:fragment_args_key", "toggle_adb_wireless")
-    }
     try {
-        ctx.startActivity(intent)
+        ctx.startActivity(WirelessAdbFix.wirelessDebuggingIntent())
     } catch (_: Exception) {
         try {
-            ctx.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            ctx.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         } catch (_: Exception) {}
     }
 }

@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import com.droiddeck.launcher.FrontEndActivity
+import com.droiddeck.launcher.PairingCodeEntryActivity
 import com.droiddeck.launcher.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,8 +46,9 @@ class WirelessAdbPairingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CODE -> {
-                val code = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(KEY_CODE)
+                val remoteCode = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(KEY_CODE)
                     ?.filter(Char::isDigit)?.toString().orEmpty()
+                val code = remoteCode.ifEmpty { intent?.getStringExtra(EXTRA_CODE)?.filter(Char::isDigit).orEmpty() }
                 onCode(code)
             }
             ACTION_CANCEL -> finish(Stage.Idle)
@@ -214,11 +216,24 @@ class WirelessAdbPairingService : Service() {
         val open = PendingIntent.getActivity(this, 0,
             Intent(this, FrontEndActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
             PendingIntent.FLAG_IMMUTABLE)
+        // Tapping the notification body must reach code entry, not just the
+        // app: the inline RemoteInput action cannot be opened from a body
+        // tap, so Waiting/CodeNeeded point at the code-entry activity
+        // (a bottom card floating over Settings, with the system code
+        // dialog still visible above it). Terminal stages keep opening
+        // the app, as before.
+        val codeEntry = PendingIntent.getActivity(this, 3,
+            Intent(this, PairingCodeEntryActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE)
         val cancel = PendingIntent.getService(this, 1,
             Intent(this, WirelessAdbPairingService::class.java).setAction(ACTION_CANCEL), PendingIntent.FLAG_IMMUTABLE)
+        // No setTimeoutAfter: the heads-up peek duration is system-controlled,
+        // and a timeout would cancel the pairing prompt itself mid-pairing.
+        // The notification is ongoing, so it never vanishes early on its own.
+        val contentIntent = if (stage is Stage.Waiting || stage is Stage.CodeNeeded) codeEntry else open
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_session)
-            .setContentIntent(open)
+            .setContentIntent(contentIntent)
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_STATUS)
         when (stage) {
@@ -239,7 +254,7 @@ class WirelessAdbPairingService : Service() {
                 builder
                     .setContentTitle(getString(if (stage.error == null) R.string.adbpair_title_code else R.string.adbpair_title_retry))
                     .setContentText(text)
-                    .setStyle(Notification.BigTextStyle().bigText(text))
+                    .setStyle(Notification.BigTextStyle().bigText(text + "\n" + getString(R.string.adbpair_code_big)))
                     .setOngoing(true)
                     .addAction(Notification.Action.Builder(null, getString(R.string.adbpair_enter_code), reply).addRemoteInput(input).build())
                     .addAction(Notification.Action.Builder(null, getString(R.string.common_cancel), cancel).build())
@@ -271,6 +286,7 @@ class WirelessAdbPairingService : Service() {
         private const val ACTION_CODE = "com.droiddeck.launcher.action.WIRELESS_ADB_CODE"
         private const val ACTION_CANCEL = "com.droiddeck.launcher.action.WIRELESS_ADB_CANCEL"
         private const val KEY_CODE = "code"
+        private const val EXTRA_CODE = "code_extra"
         private const val TIMEOUT_MS = 5 * 60_000L
 
         private val current = MutableStateFlow<Stage>(Stage.Idle)
@@ -291,6 +307,14 @@ class WirelessAdbPairingService : Service() {
                 return
             }
             context.startService(Intent(context, WirelessAdbPairingService::class.java).setAction(ACTION_CANCEL))
+        }
+
+        /** Code typed in the code-entry activity (not via RemoteInput). */
+        fun sendCode(context: Context, code: String) {
+            context.startService(
+                Intent(context, WirelessAdbPairingService::class.java)
+                    .setAction(ACTION_CODE).putExtra(EXTRA_CODE, code),
+            )
         }
 
         fun notificationsEnabled(context: Context): Boolean =

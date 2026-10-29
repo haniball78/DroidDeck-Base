@@ -619,8 +619,8 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         )
     }
 
-    fun startOneTap() {
-        logAction("one-tap")
+    fun startOneTap(auto: Boolean = false) {
+        logAction(if (auto) "one-tap-auto" else "one-tap")
         scope.launch {
             starting = true
             oneTapFailed = false
@@ -634,6 +634,35 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                 Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_pair_failed), Toast.LENGTH_LONG).show()
             }
             starting = false
+        }
+    }
+
+    // Forget the distrusted identity, then pair anew via the notification:
+    // entering a code with the same identity would fail for the same
+    // reason, so the AUTH box offers this single combined step instead.
+    fun startNotifyPairWithForget() {
+        logAction("notify-pair-forget")
+        WirelessAdbFix.forgetIdentity(ctx)
+        paired.value = false
+        oneTapFailed = false
+        PrivilegedBridge.clearDaemonFailure()
+        Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_watch_notification), Toast.LENGTH_LONG).show()
+        WirelessAdbPairingService.start(ctx)
+        openDevOptions(ctx)
+    }
+
+    // READY auto-attempt: when the card enters the paired-and-ready state,
+    // try the saved pairing once on its own instead of only showing the
+    // button as a required action. One attempt per READY episode: the flag
+    // resets when the state leaves READY, a failure sets oneTapFailed (no
+    // refire), and a success moves to ACTIVE. The button stays as fallback.
+    var readyAutoAttempted by remember { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        if (state != ConnectionCardState.READY_TO_START) {
+            readyAutoAttempted = false
+        } else if (!readyAutoAttempted && !starting && !oneTapFailed) {
+            readyAutoAttempted = true
+            startOneTap(auto = true)
         }
     }
 
@@ -718,9 +747,14 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                 )
             }
 
-            // Failure guidance: never on an ACTIVE card (stale failures hide).
-            val showFailureBox = state != ConnectionCardState.ACTIVE &&
-                (oneTapFailed || ConnectionCardStateResolver.showFailureGuidance(state, lastFailure != null))
+            // Failure guidance: only where an attempt happened or is the
+            // current step (resolver); never before pairing starts, and
+            // never on an ACTIVE card (stale failures hide).
+            val showFailureBox = ConnectionCardStateResolver.showFailureGuidance(state, lastFailure != null || oneTapFailed)
+            // While an AUTH failure is shown, entering a code with the same
+            // distrusted identity is futile — offer forget + notify-pair
+            // instead of the dialog wherever the card offers code entry.
+            val authFailure = showFailureBox && lastFailure?.category == ConnectionFailure.AUTH
             if (showFailureBox) {
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
@@ -770,16 +804,26 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                                     ) { startOneTap() }
                                 }
                                 Box(Modifier.weight(1f)) {
-                                    SecondaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
-                                        logAction("repair")
-                                        showPairDialog = true
+                                    SecondaryButton(
+                                        if (authFailure) stringResource(R.string.connection_card_action_notify_forget) else stringResource(R.string.connection_card_action_repair),
+                                        compact = true,
+                                    ) {
+                                        if (authFailure) startNotifyPairWithForget() else {
+                                            logAction("repair")
+                                            showPairDialog = true
+                                        }
                                     }
                                 }
                             } else {
                                 Box(Modifier.weight(1f)) {
-                                    PrimaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
-                                        logAction("repair")
-                                        showPairDialog = true
+                                    PrimaryButton(
+                                        if (authFailure) stringResource(R.string.connection_card_action_notify_forget) else stringResource(R.string.connection_card_action_repair),
+                                        compact = true,
+                                    ) {
+                                        if (authFailure) startNotifyPairWithForget() else {
+                                            logAction("repair")
+                                            showPairDialog = true
+                                        }
                                     }
                                 }
                                 Box(Modifier.weight(1f)) {
@@ -791,9 +835,14 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                             }
                         }
                     } else {
-                        PrimaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
-                            logAction("repair")
-                            showPairDialog = true
+                        PrimaryButton(
+                            if (authFailure) stringResource(R.string.connection_card_action_notify_forget) else stringResource(R.string.connection_card_action_repair),
+                            compact = true,
+                        ) {
+                            if (authFailure) startNotifyPairWithForget() else {
+                                logAction("repair")
+                                showPairDialog = true
+                            }
                         }
                     }
                 }
@@ -848,9 +897,14 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             if (state == ConnectionCardState.READY_TO_START) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Box(Modifier.weight(1f)) {
-                        SecondaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
-                            logAction("repair")
-                            showPairDialog = true
+                        SecondaryButton(
+                            if (authFailure) stringResource(R.string.connection_card_action_notify_forget) else stringResource(R.string.connection_card_action_repair),
+                            compact = true,
+                        ) {
+                            if (authFailure) startNotifyPairWithForget() else {
+                                logAction("repair")
+                                showPairDialog = true
+                            }
                         }
                     }
                     Box(Modifier.weight(1f)) {

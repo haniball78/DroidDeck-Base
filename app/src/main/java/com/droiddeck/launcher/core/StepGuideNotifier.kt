@@ -58,9 +58,7 @@ object StepGuideNotifier {
                 R.string.connection_card_action_wireless,
                 PendingIntent.getActivity(
                     context, 11,
-                    Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        .putExtra(":settings:fragment_args_key", "toggle_adb_wireless"),
+                    WirelessAdbFix.wirelessDebuggingIntent(),
                     PendingIntent.FLAG_IMMUTABLE,
                 ),
             )

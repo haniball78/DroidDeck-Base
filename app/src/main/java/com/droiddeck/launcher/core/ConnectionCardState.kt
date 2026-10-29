@@ -73,10 +73,18 @@ object ConnectionCardStateResolver {
     }
 
     /**
-     * The failure-guidance box is shown whenever a daemon failure was
-     * recorded and the card is not in the ACTIVE state. An ACTIVE card
-     * never shows stale failure guidance.
+     * The failure-guidance box is shown only where a start or pair attempt
+     * actually happened or is the current step: NEED_PAIRING, READY_TO_START
+     * and AUTH_REJECTED. It never shows in NEED_DEV_OPTIONS or
+     * NEED_WIRELESS_ADB — before wireless pairing starts, a red failure box
+     * is illogical (the step text itself is the guidance), and background
+     * auto-start failures would otherwise surface as an error the user
+     * never caused. An ACTIVE card never shows stale failure guidance.
      */
     fun showFailureGuidance(state: ConnectionCardState, hasRecordedFailure: Boolean): Boolean =
-        hasRecordedFailure && state != ConnectionCardState.ACTIVE
+        hasRecordedFailure && (
+            state == ConnectionCardState.NEED_PAIRING ||
+                state == ConnectionCardState.READY_TO_START ||
+                state == ConnectionCardState.AUTH_REJECTED
+            )
 }

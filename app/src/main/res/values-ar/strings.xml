@@ -1883,6 +1883,7 @@
     <string name="adbpair_waiting_long">فعِّل تصحيح الأخطاء اللاسلكي، ثم اضغط على «إقران الجهاز برمز الإقران». ابقَ في الإعدادات: يُكتب الرمز في هذا الإشعار.</string>
     <string name="adbpair_code_label">رمز الإقران المكوَّن من 6 أرقام</string>
     <string name="adbpair_code_hint">اضغط على «إدخال الرمز» وأدخِل الأرقام الستة الظاهرة في الإعدادات.</string>
+    <string name="adbpair_code_big">افتح التصحيح اللاسلكي واضغط «إقران جهاز برمز» ثم اضغط على هذا الإشعار وأدخل الرمز المكوّن من ٦ أرقام.</string>
     <string name="adbpair_title_code">أدخِل رمز إقران Wi-Fi</string>
     <string name="adbpair_title_retry">أعِد تجربة الرمز</string>
     <string name="adbpair_enter_code">إدخال الرمز</string>
@@ -3239,6 +3240,7 @@
     <string name="connection_card_action_start">تشغيل المحرك المميز (نقرة واحدة)</string>
     <string name="connection_card_action_starting">جارٍ التشغيل…</string>
     <string name="connection_card_action_notify">إقران عبر الإشعار</string>
+    <string name="connection_card_action_notify_forget">اقتران بالإشعار مع حذف الهوية</string>
     <string name="connection_card_action_wireless">افتح شاشة التصحيح اللاسلكي</string>
     <string name="connection_card_action_clear">مسح الإقران</string>
     <string name="connection_card_action_advanced">إعدادات الاتصال المتقدمة</string>

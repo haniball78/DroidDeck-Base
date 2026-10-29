@@ -106,7 +106,16 @@ class ConnectionCardStateTest {
         )
     }
 
-    @Test fun failureGuidanceShownUnlessActive() {
+    @Test fun failureGuidanceOnlyWhereAnAttemptIsPossible() {
+        assertFalse(
+            ConnectionCardStateResolver.showFailureGuidance(ConnectionCardState.NEED_DEV_OPTIONS, true),
+        )
+        assertFalse(
+            ConnectionCardStateResolver.showFailureGuidance(ConnectionCardState.NEED_WIRELESS_ADB, true),
+        )
+        assertTrue(
+            ConnectionCardStateResolver.showFailureGuidance(ConnectionCardState.NEED_PAIRING, true),
+        )
         assertTrue(
             ConnectionCardStateResolver.showFailureGuidance(ConnectionCardState.READY_TO_START, true),
         )
