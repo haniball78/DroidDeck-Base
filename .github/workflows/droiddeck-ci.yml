@@ -1,0 +1,250 @@
+name: DroidDeck CI
+
+on:
+  push:
+    paths:
+      - 'app/**'
+      - 'tools/**'
+      - 'gradle/**'
+      - 'build.gradle'
+      - 'gradle.properties'
+      - 'settings.gradle'
+      - '.github/workflows/droiddeck-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  checks: write
+
+concurrency:
+  group: droiddeck-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  xbox:
+    name: Xbox ARM64 backend
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Xbox backend
+        run: |
+          set -euo pipefail
+          python3 tools/components/prepare.py xbox
+
+      - name: Upload Xbox backend
+        uses: actions/upload-artifact@v4
+        with:
+          name: xbox-arm64
+          path: app/src/main/assets/linuxfs/usr/local/lib/droiddeck-xbox
+          retention-days: 14
+
+  build:
+    name: Build DroidDeck APK
+    needs: xbox
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Verify Android SDK and NDK
+        run: |
+          set -euo pipefail
+          echo "SDK=$ANDROID_SDK_ROOT"
+          echo "NDK=$ANDROID_SDK_ROOT/ndk/29.0.14206865"
+          test -d "$ANDROID_SDK_ROOT/platforms/android-35" || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Pre-pull Debian image from a mirror (avoid ECR rate limit)
+        run: |
+          set -euo pipefail
+          image="public.ecr.aws/docker/library/debian:bullseye"
+          if docker image inspect "$image" >/dev/null 2>&1; then
+            echo "Debian image already present locally."
+          else
+            pulled=""
+            for registry in docker.io/library/debian:bullseye mirror.gcr.io/library/debian:bullseye; do
+              for attempt in 1 2 3; do
+                if docker pull "$registry"; then
+                  docker tag "$registry" "$image"
+                  pulled="$registry"
+                  break 2
+                fi
+                echo "Pull from $registry failed (attempt $attempt); retrying..."
+                sleep 30
+              done
+            done
+            if [ -z "$pulled" ]; then
+              echo "::warning::Could not pre-pull debian:bullseye from any mirror; the x86 step will try the default registry."
+            else
+              echo "Using $pulled as $image"
+            fi
+          fi
+
+      - name: Prepare preload libraries (fake input / fast path)
+        run: |
+          set -euo pipefail
+          python3 tools/components/prepare.py arm64-preloads
+          python3 tools/components/prepare.py x86-preloads
+
+      - name: Prepare runtime components (gamescope, PipeWire, MangoApp, MSI tools, VR, desktop, esync)
+        run: |
+          set -euo pipefail
+          ANDROID_NDK_LATEST_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" python3 tools/components/prepare.py runtime
+          python3 tools/components/prepare.py esync
+
+      - name: Prepare audio components (DirectAudio relay + PulseAudio sinks)
+        run: |
+          set -euo pipefail
+          python3 tools/components/prepare.py directaudio
+          python3 tools/components/prepare.py pulseaudio-source
+          ANDROID_NDK_LATEST_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" python3 tools/components/prepare.py audio
+
+      - name: Download Xbox backend from ARM build
+        uses: actions/download-artifact@v4
+        with:
+          name: xbox-arm64
+          path: app/src/main/assets/linuxfs/usr/local/lib/droiddeck-xbox
+
+      - name: Prepare pack components and record runtime inputs (proot, comet, Quest drivers)
+        run: |
+          set -euo pipefail
+          ANDROID_NDK_LATEST_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" python3 tools/components/prepare.py proot
+          python3 tools/components/prepare.py comet
+          python3 tools/quest/build-driver.py "$ANDROID_SDK_ROOT/ndk/29.0.14206865"
+          python3 tools/release/runtime_inputs.py record
+
+      - name: Build DroidDeck Debug APK
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug \
+            -PndkVersion=29.0.14206865 \
+            -PskipRust=true \
+            -PallowMissingPacks=true \
+            --stacktrace --no-daemon 2>&1 | tee /tmp/droiddeck-gradle.log
+
+      - name: Publish Gradle failure summary
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let log = '';
+            try {
+              log = fs.readFileSync('/tmp/droiddeck-gradle.log', 'utf8');
+            } catch (error) {
+              log = String(error);
+            }
+            const lines = log.split('\n');
+            let start = lines.findIndex((line) => /^e: /.test(line));
+            if (start < 0) start = lines.findIndex((line) => line.includes('error:'));
+            if (start < 0) start = lines.findIndex((line) => line.includes('FAILURE:'));
+            if (start < 0) start = Math.max(0, lines.length - 200);
+            const details = lines.slice(start, start + 200).join('\n');
+            await core.summary
+              .addRaw('### DroidDeck Gradle Output\n```text\n' + details + '\n```\n')
+              .write();
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'droiddeck-build-failure',
+              head_sha: context.sha,
+              status: 'completed',
+              conclusion: 'failure',
+              output: {
+                title: 'DroidDeck Build failure',
+                summary: '```text\n' + details.slice(0, 60000) + '\n```',
+              },
+            });
+
+      - name: Locate and verify APK
+        run: |
+          set -euo pipefail
+          apk="$(find app/build/outputs/apk -type f -name '*.apk' -print -quit)"
+          if [ -z "$apk" ]; then
+            echo "::error::No APK found in app/build/outputs/apk"
+            exit 1
+          fi
+          echo "Built APK: $apk"
+          ls -lh "$apk"
+
+      - name: Verify APK contains preload libraries
+        run: |
+          set -euo pipefail
+          apk="$(find app/build/outputs/apk -type f -name '*.apk' -print -quit)"
+          if [ -z "$apk" ]; then
+            echo "::error::No APK found"
+            exit 1
+          fi
+          python3 - "$apk" <<'PYEOF'
+          import sys, zipfile
+          required = [
+              "assets/linuxfs/libfakeinput.so",
+              "assets/linuxfs/libblsession.so",
+              "assets/linuxfs/libblfastpath.so",
+              "assets/linuxfs/libblaudit.so",
+              "assets/linuxfs/libssbs.so",
+              "assets/linuxfs/x86_64/libfakeinput.so",
+              "assets/linuxfs/x86_64/libblsession.so",
+              "assets/linuxfs/i386/libfakeinput.so",
+              "assets/linuxfs/i386/libblsession.so",
+              "assets/pulseaudio.tzst",
+              "lib/arm64-v8a/libdirectaudiorelay.so",
+              "assets/linuxfs/usr/local/bin/gamescope",
+              "assets/linuxfs/usr/local/lib/droiddeck-pipewire.tzst",
+              "assets/linuxfs/usr/local/bin/mangoapp",
+              "assets/linuxfs/usr/local/lib/droiddeck-msitools/msiinfo",
+              "assets/linuxfs/usr/local/lib/droiddeck-vr/droiddeck/bin/linuxarm64/driver_droiddeck.so",
+              "assets/linuxfs/usr/local/bin/droiddeck-desktop",
+              "assets/linuxfs/usr/local/bin/droiddeck-clipboard",
+              "assets/linuxfs/x86_64/libfaultreport.so",
+              "assets/linuxfs/i386/libfaultreport.so",
+              "assets/linuxfs/x86_64/libvulkan-thunk.so",
+              "assets/linuxfs/x86_64/libwebkitinput.so",
+              "assets/droiddeck-esync/index.json",
+              "assets/droiddeck-esync/index.json.sig",
+          ]
+          with zipfile.ZipFile(sys.argv[1]) as package:
+            sizes = {info.filename: info.file_size for info in package.infolist()}
+            missing = [entry for entry in required if sizes.get(entry, 0) == 0]
+            if missing:
+              print("::error::APK is missing preload libraries: " + ", ".join(missing))
+              sys.exit(1)
+            print("APK contains all preload libraries.")
+          PYEOF
+
+      - name: Build add-on packs and run repo gates
+        run: |
+          set -euo pipefail
+          apk="$(find app/build/outputs/apk -type f -name '*.apk' -print -quit)"
+          if [ -z "$apk" ]; then
+            echo "::error::No APK found"
+            exit 1
+          fi
+          bash tools/packs/build.sh app/build/packs
+          python3 tools/release/check_session_assets.py "$apk"
+          python3 tools/release/runtime_inputs.py apk "$apk"
+
+      - name: Upload DroidDeck Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: droiddeck-updated-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
