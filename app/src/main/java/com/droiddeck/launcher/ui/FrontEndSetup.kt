@@ -91,6 +91,14 @@ import com.droiddeck.launcher.core.DeviceSupport
 import com.droiddeck.launcher.core.DownloadSource
 import com.droiddeck.launcher.core.PhantomProcessLimit
 import com.droiddeck.launcher.core.PhantomProcessStatus
+import com.droiddeck.launcher.core.ConnectionCardAction
+import com.droiddeck.launcher.core.ConnectionCardState
+import com.droiddeck.launcher.core.ConnectionCardStateResolver
+import com.droiddeck.launcher.core.ConnectionFailure
+import com.droiddeck.launcher.core.WirelessAdbFix
+import com.droiddeck.launcher.core.WirelessAdbPairingService
+import com.droiddeck.launcher.core.privileged.DiagnosticsLog
+import com.droiddeck.launcher.core.privileged.PrivilegedMode
 import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.stores.download.StoreDownloadTier
 import com.droiddeck.launcher.R
@@ -372,18 +380,7 @@ internal fun SetupPanel(
                         }
                         SettingsGroup(stringResource(R.string.setup_runtime)) { runtimeCheck(false) }
                         PhantomDisableCard(host, s.phantomProcessStatus, a.onSetPhantomProcessLimit, a.onRefreshPhantomStatus) { limitEnabled -> onRequestWirelessAdb(limitEnabled) }
-                        val privStatus by PrivilegedBridge.statusFlow.collectAsState()
-                        SettingsGroup("Privileged Engine (ADB / Shizuku)") {
-                            CheckRow(
-                                if (privStatus.isActive) CheckState.OK else CheckState.WARN,
-                                "Privileged Mode: ${privStatus.shortLabel}",
-                                if (privStatus.isActive) "Active (${privStatus.modeLabel}) · Full background protection & unlimited child processes"
-                                else "Inactive · Tap Manage to activate embedded daemon or connect Shizuku",
-                                divider = false,
-                            ) {
-                                SecondaryButton("Manage", compact = true) { onSelect("privileged") }
-                            }
-                        }
+                        ConnectionCard(onSelect = onSelect)
                     }
                     ADVANCED_TAB -> {
                         AdvancedSetupTab(host, s, a, wide, onSelect)
@@ -519,6 +516,318 @@ internal fun SetupPanel(
 }
 
 @Composable
+@Composable
+private fun ConnectionCard(onSelect: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val colors = MaterialTheme.colorScheme
+    val scope = rememberCoroutineScope()
+    val privStatus by PrivilegedBridge.statusFlow.collectAsState()
+    val authRejected by PrivilegedBridge.authRejectedFlow.collectAsState()
+    val lastFailure by PrivilegedBridge.lastDaemonFailureFlow.collectAsState()
+
+    // Same three checks the engine page's activation card polls, same 1.5 s
+    // rhythm. The loop is tied to this composition, so it stops when the
+    // user leaves the Overview tab.
+    val devOn = remember { mutableStateOf(isDevOptionsOn(ctx)) }
+    val wirelessOn = remember { mutableStateOf(isWirelessAdbOn(ctx)) }
+    val paired = remember { mutableStateOf(WirelessAdbFix.isPaired(ctx)) }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            devOn.value = isDevOptionsOn(ctx)
+            wirelessOn.value = isWirelessAdbOn(ctx)
+            paired.value = WirelessAdbFix.isPaired(ctx)
+            delay(1_500)
+        }
+    }
+
+    val state = ConnectionCardStateResolver.resolve(
+        daemonActive = privStatus.isActive,
+        authRejected = authRejected,
+        devOptionsOn = devOn.value,
+        wirelessAdbOn = wirelessOn.value,
+        paired = paired.value,
+    )
+    val action = ConnectionCardStateResolver.primaryAction(state)
+
+    // Error-localization: log every computed state change (not every
+    // recomposition), so a wrong display can be traced to its inputs.
+    LaunchedEffect(state) {
+        DiagnosticsLog.log(
+            ctx, "connection-card", "state-computed",
+            fields = mapOf(
+                "state" to state.name,
+                "mode" to privStatus.mode.name,
+                "dev" to devOn.value.toString(),
+                "wireless" to wirelessOn.value.toString(),
+                "paired" to paired.value.toString(),
+                "failure" to (lastFailure?.category?.name ?: "none"),
+            ),
+        )
+    }
+
+    var showPairDialog by remember { mutableStateOf(false) }
+    var showDetails by rememberSaveable { mutableStateOf(false) }
+    var starting by remember { mutableStateOf(false) }
+    var oneTapFailed by remember { mutableStateOf(false) }
+
+    fun logAction(name: String) {
+        DiagnosticsLog.log(
+            ctx, "connection-card", "action-invoked",
+            fields = mapOf("action" to name, "state" to state.name),
+        )
+    }
+
+    if (showPairDialog) {
+        PairingCodeDialog(
+            onDismiss = { showPairDialog = false },
+            onPair = { port, code ->
+                showPairDialog = false
+                logAction("pair-dialog")
+                scope.launch {
+                    starting = true
+                    val result = WirelessAdbFix.pairAndStartPrivilegedDaemon(ctx, port, code)
+                    if (result.isSuccess) {
+                        oneTapFailed = false
+                        withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
+                        Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_paired), Toast.LENGTH_SHORT).show()
+                    } else {
+                        val err = result.exceptionOrNull()?.localizedMessage ?: ""
+                        Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_error, err), Toast.LENGTH_LONG).show()
+                    }
+                    starting = false
+                }
+            },
+        )
+    }
+
+    SettingsGroup(stringResource(R.string.connection_card_title)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(privStatus.statusIcon, fontSize = 18.sp)
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        when (state) {
+                            ConnectionCardState.ACTIVE -> stringResource(R.string.connection_card_state_active)
+                            ConnectionCardState.READY_TO_START -> stringResource(R.string.connection_card_state_ready)
+                            ConnectionCardState.AUTH_REJECTED -> stringResource(R.string.connection_card_state_auth)
+                            else -> stringResource(R.string.connection_card_state_pending)
+                        },
+                        fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = colors.onBackground,
+                    )
+                    Text(
+                        when (state) {
+                            ConnectionCardState.ACTIVE -> stringResource(R.string.connection_card_active_detail, privStatus.modeLabel)
+                            ConnectionCardState.READY_TO_START -> stringResource(R.string.connection_card_why_ready)
+                            ConnectionCardState.AUTH_REJECTED -> stringResource(R.string.connection_card_auth_detail)
+                            else -> stringResource(R.string.connection_card_pending_detail)
+                        },
+                        fontSize = 12.sp, color = colors.onSurfaceVariant,
+                    )
+                }
+            }
+
+            // Setup progress: only while the user still has steps to do.
+            if (state == ConnectionCardState.NEED_DEV_OPTIONS ||
+                state == ConnectionCardState.NEED_WIRELESS_ADB ||
+                state == ConnectionCardState.NEED_PAIRING
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ConnectionStepRow(devOn.value, state == ConnectionCardState.NEED_DEV_OPTIONS, stringResource(R.string.connection_card_step_dev))
+                    ConnectionStepRow(wirelessOn.value, state == ConnectionCardState.NEED_WIRELESS_ADB, stringResource(R.string.connection_card_step_wireless))
+                    ConnectionStepRow(paired.value, state == ConnectionCardState.NEED_PAIRING, stringResource(R.string.connection_card_step_pair))
+                }
+                Text(
+                    when (state) {
+                        ConnectionCardState.NEED_DEV_OPTIONS -> stringResource(R.string.connection_card_why_dev)
+                        ConnectionCardState.NEED_WIRELESS_ADB -> stringResource(R.string.connection_card_why_wireless)
+                        else -> stringResource(R.string.connection_card_why_pair)
+                    },
+                    fontSize = 12.sp, color = colors.onSurfaceVariant,
+                )
+            }
+
+            // Failure guidance: never on an ACTIVE card (stale failures hide).
+            if (state != ConnectionCardState.ACTIVE &&
+                (oneTapFailed || ConnectionCardStateResolver.showFailureGuidance(state, lastFailure != null))
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
+                        .background(colors.error.copy(alpha = 0.12f))
+                        .border(1.dp, colors.error.copy(alpha = 0.40f), RoundedCornerShape(6.dp))
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(stringResource(R.string.connection_card_failure_title), fontWeight = FontWeight.Bold, color = colors.error, fontSize = 12.sp)
+                    lastFailure?.let { failure ->
+                        Text(
+                            when (failure.category) {
+                                ConnectionFailure.AUTH -> stringResource(R.string.connection_card_failure_auth)
+                                ConnectionFailure.TLS -> stringResource(R.string.connection_card_failure_tls)
+                                ConnectionFailure.UNREACHABLE -> stringResource(R.string.connection_card_failure_unreachable)
+                                ConnectionFailure.UNKNOWN -> stringResource(R.string.connection_card_failure_unknown)
+                            },
+                            fontSize = 11.sp, color = colors.onBackground,
+                        )
+                        if (failure.tried.isNotEmpty()) {
+                            Text(
+                                stringResource(R.string.connection_card_tried, failure.tried),
+                                fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = colors.onSurfaceVariant,
+                            )
+                        }
+                        if (failure.category == ConnectionFailure.AUTH) {
+                            SecondaryButton(stringResource(R.string.connection_card_action_forget), compact = true) {
+                                logAction("forget-identity")
+                                WirelessAdbFix.forgetIdentity(ctx)
+                                paired.value = false
+                                oneTapFailed = false
+                                PrivilegedBridge.clearDaemonFailure()
+                                Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_forgot), Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    PrimaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
+                        logAction("repair")
+                        showPairDialog = true
+                    }
+                }
+            }
+
+            // One primary action per state — the same actions the engine page uses.
+            when (action) {
+                ConnectionCardAction.OPEN_ABOUT_PHONE -> PrimaryButton(stringResource(R.string.connection_card_action_about), compact = true) {
+                    logAction("open-about-phone")
+                    openAboutPhone(ctx)
+                }
+                ConnectionCardAction.OPEN_DEV_OPTIONS -> PrimaryButton(stringResource(R.string.connection_card_action_dev), compact = true) {
+                    logAction("open-dev-options")
+                    openDevOptions(ctx)
+                }
+                ConnectionCardAction.OPEN_PAIRING_DIALOG -> PrimaryButton(stringResource(R.string.connection_card_action_pair), compact = true) {
+                    logAction("open-pair-dialog")
+                    showPairDialog = true
+                }
+                ConnectionCardAction.ONE_TAP_START -> PrimaryButton(
+                    if (starting) stringResource(R.string.connection_card_action_starting) else stringResource(R.string.connection_card_action_start),
+                    compact = true, enabled = !starting,
+                ) {
+                    logAction("one-tap")
+                    scope.launch {
+                        starting = true
+                        oneTapFailed = false
+                        PrivilegedBridge.clearDaemonFailure()
+                        val ok = withContext(Dispatchers.IO) { WirelessAdbFix.startPrivilegedDaemonWithSavedPairing(ctx) }
+                        if (ok) {
+                            withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
+                            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_started), Toast.LENGTH_SHORT).show()
+                        } else {
+                            oneTapFailed = true
+                            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_pair_failed), Toast.LENGTH_LONG).show()
+                        }
+                        starting = false
+                    }
+                }
+                ConnectionCardAction.NONE -> {}
+            }
+
+            if (state == ConnectionCardState.NEED_PAIRING) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Box(Modifier.weight(1f)) {
+                        SecondaryButton(stringResource(R.string.connection_card_action_notify), compact = true) {
+                            logAction("pair-notification")
+                            WirelessAdbPairingService.start(ctx)
+                            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_notify), Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        SecondaryButton(stringResource(R.string.connection_card_action_wireless), compact = true) {
+                            logAction("open-dev-options")
+                            openDevOptions(ctx)
+                        }
+                    }
+                }
+            }
+
+            if (state == ConnectionCardState.READY_TO_START) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Box(Modifier.weight(1f)) {
+                        SecondaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
+                            logAction("repair")
+                            showPairDialog = true
+                        }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        SecondaryButton(stringResource(R.string.connection_card_action_clear), compact = true) {
+                            logAction("clear-pairing")
+                            WirelessAdbFix.clearPairing(ctx)
+                            paired.value = false
+                            oneTapFailed = false
+                            PrivilegedBridge.clearDaemonFailure()
+                            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_cleared), Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+
+            if (state == ConnectionCardState.ACTIVE) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { showDetails = !showDetails },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (showDetails) stringResource(R.string.connection_card_hide) else stringResource(R.string.connection_card_details),
+                        fontSize = 12.sp, color = colors.onSurfaceVariant,
+                    )
+                    Text(if (showDetails) "▲" else "▼", fontSize = 12.sp, color = colors.onSurfaceVariant)
+                }
+                AnimatedVisibility(
+                    showDetails,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ConnectionDetailRow(stringResource(R.string.connection_card_detail_mode), privStatus.modeLabel)
+                        if (privStatus.daemonPid > 0) ConnectionDetailRow(stringResource(R.string.connection_card_detail_pid), "${privStatus.daemonPid}")
+                        if (privStatus.daemonUid > 0) ConnectionDetailRow(stringResource(R.string.connection_card_detail_uid), "${privStatus.daemonUid}")
+                        if (privStatus.shizukuVersion > 0) ConnectionDetailRow(stringResource(R.string.connection_card_detail_shizuku), "${privStatus.shizukuVersion}")
+                        if (privStatus.mode == PrivilegedMode.EMBEDDED_DAEMON) ConnectionDetailRow(stringResource(R.string.connection_card_detail_port), "127.0.0.1:28751")
+                        if (privStatus.phantomDisabled) ConnectionDetailRow(stringResource(R.string.connection_card_detail_phantom), stringResource(R.string.connection_card_detail_phantom_off))
+                    }
+                }
+            }
+
+            SecondaryButton(stringResource(R.string.connection_card_action_advanced), compact = true) { onSelect("privileged") }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionStepRow(done: Boolean, current: Boolean, label: String) {
+    val colors = MaterialTheme.colorScheme
+    val pal = LocalPalette.current
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            if (done) "✓" else if (current) "➤" else "○",
+            fontSize = 13.sp,
+            color = if (done) pal.good else if (current) colors.primary else colors.onSurfaceVariant,
+        )
+        Text(
+            label,
+            fontSize = 12.sp,
+            color = if (current) colors.onBackground else colors.onSurfaceVariant,
+            fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
+        )
+    }
+}
+
+@Composable
+private fun ConnectionDetailRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onBackground)
+    }
+}
+
 internal fun PhantomDisableCard(
     host: MenuHost,
     status: PhantomProcessStatus,

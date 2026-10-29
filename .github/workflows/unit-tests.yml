@@ -3,7 +3,7 @@ name: Unit Tests
 on:
   push:
     branches:
-      - feat/stable-connection
+      - feat/overview-connection-ui
   workflow_dispatch:
 
 permissions:
@@ -42,6 +42,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.privileged.PlainModeLatchTest" \
             --tests "com.droiddeck.launcher.session.SafetyMonitorPlainModeTest" \
             --tests "com.droiddeck.launcher.session.PlainResumePolicyTest" \
+            --tests "com.droiddeck.launcher.core.ConnectionCardStateTest" \
             -PndkVersion=29.0.14206865 \
             -PskipRust=true \
             --stacktrace --no-daemon 2>&1 | tee /tmp/unified-unit-tests.log

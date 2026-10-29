@@ -271,7 +271,7 @@ private fun DaemonActiveCard(status: PrivilegedStatus) {
     }
 }
 
-private fun isDevOptionsOn(ctx: Context): Boolean = runCatching {
+internal fun isDevOptionsOn(ctx: Context): Boolean = runCatching {
     android.provider.Settings.Global.getInt(
         ctx.contentResolver,
         android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,
@@ -279,7 +279,7 @@ private fun isDevOptionsOn(ctx: Context): Boolean = runCatching {
     ) != 0
 }.getOrDefault(false)
 
-private fun isWirelessAdbOn(ctx: Context): Boolean = runCatching {
+internal fun isWirelessAdbOn(ctx: Context): Boolean = runCatching {
     android.provider.Settings.Global.getInt(
         ctx.contentResolver,
         "adb_wifi_enabled",
@@ -287,7 +287,7 @@ private fun isWirelessAdbOn(ctx: Context): Boolean = runCatching {
     ) != 0
 }.getOrDefault(false)
 
-private fun openDevOptions(ctx: Context) {
+internal fun openDevOptions(ctx: Context) {
     val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         putExtra(":settings:fragment_args_key", "toggle_adb_wireless")
@@ -301,7 +301,7 @@ private fun openDevOptions(ctx: Context) {
     }
 }
 
-private fun openAboutPhone(ctx: Context) {
+internal fun openAboutPhone(ctx: Context) {
     val intent = Intent(android.provider.Settings.ACTION_DEVICE_INFO_SETTINGS).apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
@@ -315,7 +315,7 @@ private fun openAboutPhone(ctx: Context) {
 }
 
 @Composable
-private fun PairingCodeDialog(
+internal fun PairingCodeDialog(
     onDismiss: () -> Unit,
     onPair: (port: Int, code: String) -> Unit,
 ) {
