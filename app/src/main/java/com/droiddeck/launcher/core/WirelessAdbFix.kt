@@ -89,6 +89,14 @@ object WirelessAdbFix {
         }
     }.getOrDefault(address is Inet4Address)
 
+    fun localLanHosts(): List<String> = runCatching {
+        NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            .flatMap { it.inetAddresses.toList() }
+            .filter { it is Inet4Address && !it.isLoopbackAddress }
+            .mapNotNull { it.hostAddress }
+            .distinct()
+    }.getOrDefault(emptyList())
+
     fun localConnectPort(context: Context): Int? =
         tlsPortProperty()
             ?: findConnectPort(context, LOOPBACK)
@@ -296,32 +304,23 @@ object WirelessAdbFix {
         val appContext = context.applicationContext
         runCatching { com.droiddeck.launcher.core.privileged.DeviceBaselineCapture.ensureViaSavedPairing(appContext) }
         val saved = savedConnection(appContext)
-        val host = saved?.host ?: LOOPBACK
-        // Always try to discover current live connect port first (since port changes on reboot / toggle)
         val discovered = localConnectPort(appContext)
-        val port = discovered ?: saved?.port ?: return false
+        val candidates = orderConnectCandidates(saved?.host, saved?.port, discovered, localLanHosts())
+        if (candidates.isEmpty()) return false
         var firstError: Throwable? = null
-        val firstAttempt = runCatching {
-            startPrivilegedDaemonViaAdb(appContext, host, port)
-            true
-        }.onFailure { firstError = it }.getOrDefault(false)
-        if (firstAttempt) return true
-
-        // If the first attempt failed and we used discovered port, try saved port (or vice versa)
-        val altPort = if (port == discovered) saved?.port else discovered
-        if (altPort != null && altPort != port) {
-            val secondAttempt = runCatching {
-                startPrivilegedDaemonViaAdb(appContext, host, altPort)
+        for (candidate in candidates) {
+            val ok = runCatching {
+                startPrivilegedDaemonViaAdb(appContext, candidate.host, candidate.port)
                 true
-            }.getOrDefault(false)
-            if (secondAttempt) return true
+            }.onFailure { if (firstError == null) firstError = it }.getOrDefault(false)
+            if (ok) return true
         }
         val reason = firstError?.javaClass?.simpleName ?: "unknown"
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             appContext, "adb.daemon", "failed",
             fields = mapOf(
-                "port" to port.toString(),
-                "host" to host,
+                "port" to candidates.first().port.toString(),
+                "tried" to candidates.joinToString(",") { "${it.host}:${it.port}" },
                 "reason" to reason,
                 "category" to classifyConnectionFailure(reason).name.lowercase(),
             ),

@@ -36,6 +36,7 @@ jobs:
           set -o pipefail
           ./gradlew :app:testDebugUnitTest \
             --tests "com.droiddeck.launcher.core.ConnectionFailureTest" \
+            --tests "com.droiddeck.launcher.core.ConnectionCandidatesTest" \
             --tests "com.droiddeck.launcher.core.CpuAllocationDefaultsTest" \
             --tests "com.droiddeck.launcher.session.CoreAllocationPrefsTest" \
             -PndkVersion=29.0.14206865 \

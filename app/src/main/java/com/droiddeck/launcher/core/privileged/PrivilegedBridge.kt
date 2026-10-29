@@ -92,6 +92,7 @@ object PrivilegedBridge {
 
     private val _status = MutableStateFlow(PrivilegedStatus(PrivilegedMode.NONE))
     val statusFlow: StateFlow<PrivilegedStatus> = _status.asStateFlow()
+    private var lastAutoStartAttemptMs = 0L
 
     @Volatile private var sessionToken: String? = null
 
@@ -158,6 +159,9 @@ object PrivilegedBridge {
 
     fun tryAutoStart(context: Context) {
         if (_status.value.isActive) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastAutoStartAttemptMs < 60_000) return
+        lastAutoStartAttemptMs = now
         Thread {
             try {
                 if (com.droiddeck.launcher.core.WirelessAdbFix.startPrivilegedDaemonWithSavedPairing(context)) {

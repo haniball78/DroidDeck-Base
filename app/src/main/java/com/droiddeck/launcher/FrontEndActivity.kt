@@ -1323,6 +1323,7 @@ class FrontEndActivity : ComponentActivity() {
         }
         refreshPhantomStatus()
         Thread { com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh() }.start()
+        com.droiddeck.launcher.core.privileged.PrivilegedBridge.tryAutoStart(this)
         syncLossless()
         updates.onResume()
         drivers.checkOnOpen()
