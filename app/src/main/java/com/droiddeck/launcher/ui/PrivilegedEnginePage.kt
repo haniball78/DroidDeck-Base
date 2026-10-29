@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.droiddeck.launcher.core.privileged.PrivilegedBridge
+import com.droiddeck.launcher.core.ConnectionFailure
 import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.core.privileged.PrivilegedMode
 import com.droiddeck.launcher.core.privileged.PrivilegedStatus
@@ -206,7 +207,9 @@ private fun StatusBanner(status: PrivilegedStatus, refreshing: Boolean, onRefres
     val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
     val good = status.isActive
-    val animColor by animateColorAsState(if (good) pal.good else MaterialTheme.colorScheme.error, label = "bannerColor")
+    val authRejected by PrivilegedBridge.authRejectedFlow.collectAsState()
+    val bannerGood = good && !authRejected
+    val animColor by animateColorAsState(if (bannerGood) pal.good else MaterialTheme.colorScheme.error, label = "bannerColor")
     val scope = rememberCoroutineScope()
 
     Box(
@@ -230,11 +233,14 @@ private fun StatusBanner(status: PrivilegedStatus, refreshing: Boolean, onRefres
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    if (good) "Active — ${status.modeLabel}" else "Privileged Engine Inactive",
+                    if (good && authRejected) "Daemon responding — auth rejected"
+                    else if (good) "Active — ${status.modeLabel}"
+                    else "Privileged Engine Inactive",
                     fontWeight = FontWeight.Bold, fontSize = 15.sp, color = colors.onBackground,
                 )
                 Text(
-                    if (good) "Full system access granted · phantom limit disabled"
+                    if (good && authRejected) "The daemon answers but rejects commands: its token does not match. Start the daemon again with One-Tap below."
+                    else if (good) "Full system access granted · phantom limit disabled"
                     else "One ADB command away from full activation",
                     fontSize = 12.sp, color = colors.onSurfaceVariant,
                 )
@@ -327,6 +333,11 @@ private fun PairingCodeDialog(
                     fontSize = 12.sp,
                     color = colors.onSurfaceVariant,
                 )
+                Text(
+                    "⚠️ Use the pairing port from that dialog — not the 'IP address & Port' on the main Wireless debugging screen (that is the connect port, and pairing to it always fails).\n⚠️ استخدم منفذ الإقران من نافذة الإقران نفسها — وليس عنوان 'IP address & Port' في الشاشة الرئيسية (ذلك منفذ الاتصال، والإقران إليه يفشل دائماً).",
+                    fontSize = 12.sp,
+                    color = colors.onSurfaceVariant,
+                )
                 OutlinedTextField(
                     value = portText,
                     onValueChange = { portText = it.filter(Char::isDigit) },
@@ -373,6 +384,7 @@ private fun DaemonActivationCard(ctx: Context) {
     var startingAdb by remember { mutableStateOf(false) }
     var showPairDialog by remember { mutableStateOf(false) }
     var oneTapFailed by remember { mutableStateOf(false) }
+    val lastFailure by PrivilegedBridge.lastDaemonFailureFlow.collectAsState()
 
     val devOptionsOn = remember { mutableStateOf(isDevOptionsOn(ctx)) }
     val wirelessAdbOn = remember { mutableStateOf(isWirelessAdbOn(ctx)) }
@@ -488,6 +500,7 @@ private fun DaemonActivationCard(ctx: Context) {
                     scope.launch {
                         startingAdb = true
                         oneTapFailed = false
+                        PrivilegedBridge.clearDaemonFailure()
                         val ok = withContext(Dispatchers.IO) {
                             com.droiddeck.launcher.core.WirelessAdbFix.startPrivilegedDaemonWithSavedPairing(ctx)
                         }
@@ -514,6 +527,31 @@ private fun DaemonActivationCard(ctx: Context) {
                             "قد يكون منفذ التصحيح تغير بعد إعادة تشغيل الهاتف أو أزال نظام أندرويد الإقران السابق. يمكنك إعادة إدخال رمز إقران جديد فوراً:",
                             fontSize = 11.sp, color = colors.onBackground
                         )
+                        lastFailure?.let { failure ->
+                            Text(
+                                when (failure.category) {
+                                    ConnectionFailure.AUTH -> "السبب: الجهاز لا يثق بالمفتاح الحالي رغم نجاح الإقران. أعد الإقران برمز جديد، وإن تكرر الفشل انسَ الهوية بالكامل ثم اقترن من جديد."
+                                    ConnectionFailure.TLS -> "السبب: فشل تأمين الاتصال. تحقق أن المنفذ المدخل هو منفذ الإقران وليس منفذ الاتصال."
+                                    ConnectionFailure.UNREACHABLE -> "السبب: تعذر الوصول. تأكد أن التصحيح اللاسلكي مفعل ثم أعد المحاولة."
+                                    ConnectionFailure.UNKNOWN -> "السبب غير محدد. أعد المحاولة، وإن تكرر أرسل سجل التشخيص."
+                                },
+                                fontSize = 11.sp, color = colors.onBackground
+                            )
+                            if (failure.tried.isNotEmpty()) {
+                                Text("المحاولات: ${failure.tried}", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = colors.onSurfaceVariant)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Box(Modifier.weight(1f)) {
+                                    SecondaryButton("نسيان الهوية بالكامل", compact = true) {
+                                        com.droiddeck.launcher.core.WirelessAdbFix.forgetIdentity(ctx)
+                                        isPaired.value = false
+                                        oneTapFailed = false
+                                        PrivilegedBridge.clearDaemonFailure()
+                                        Toast.makeText(ctx, "تم نسيان الهوية. اقترن من جديد برمز جديد.", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             Box(Modifier.weight(1f)) {
                                 PrimaryButton("إدخال رمز إقران جديد", compact = true) { showPairDialog = true }
@@ -540,6 +578,7 @@ private fun DaemonActivationCard(ctx: Context) {
                             com.droiddeck.launcher.core.WirelessAdbFix.clearPairing(ctx)
                             isPaired.value = false
                             oneTapFailed = false
+                            PrivilegedBridge.clearDaemonFailure()
                             Toast.makeText(ctx, "تم مسح الإقران. يمكنك الآن الاقتران برمز جديد.", Toast.LENGTH_SHORT).show()
                         }
                     }

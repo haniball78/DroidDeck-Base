@@ -242,6 +242,8 @@ object WirelessAdbFix {
             fields = mapOf("steps" to steps.toString()),
         )
         saveConnection(context, host, port)
+        com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearDaemonFailure()
+        com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearAuthRejected()
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             context, "adb.daemon", "started", fields = mapOf("port" to port.toString()),
         )
@@ -291,6 +293,17 @@ object WirelessAdbFix {
             result
         }
 
+    fun forgetIdentity(context: Context) {
+        val directory = context.applicationContext.noBackupFilesDir
+        File(directory, CERT_FILE).delete()
+        File(directory, KEY_FILE).delete()
+        File(directory, HOST_FILE).delete()
+        File(directory, CONNECTION_FILE).delete()
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "adb.pair", "identity-cleared",
+        )
+    }
+
     fun clearPairing(context: Context) {
         val directory = context.applicationContext.noBackupFilesDir
         File(directory, HOST_FILE).delete()
@@ -316,15 +329,18 @@ object WirelessAdbFix {
             if (ok) return true
         }
         val reason = firstError?.javaClass?.simpleName ?: "unknown"
+        val category = classifyConnectionFailure(reason)
+        val tried = candidates.joinToString(",") { "${it.host}:${it.port}" }
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             appContext, "adb.daemon", "failed",
             fields = mapOf(
                 "port" to candidates.first().port.toString(),
-                "tried" to candidates.joinToString(",") { "${it.host}:${it.port}" },
+                "tried" to tried,
                 "reason" to reason,
-                "category" to classifyConnectionFailure(reason).name.lowercase(),
+                "category" to category.name.lowercase(),
             ),
         )
+        com.droiddeck.launcher.core.privileged.PrivilegedBridge.noteDaemonFailure(reason, category, tried)
         return false
     }
 }

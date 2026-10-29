@@ -3,6 +3,7 @@ package com.droiddeck.launcher.core.privileged
 import android.content.Context
 import android.util.Base64
 import android.util.Log
+import com.droiddeck.launcher.core.ConnectionFailure
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,12 @@ data class PrivilegedResult(
     val exitCode: Int,
     val output: String,
     val mode: PrivilegedMode,
+)
+
+data class DaemonFailure(
+    val reason: String,
+    val category: ConnectionFailure,
+    val tried: String = "",
 )
 
 /** Rich status snapshot exposed to the UI panel via StateFlow. */
@@ -93,6 +100,23 @@ object PrivilegedBridge {
     private val _status = MutableStateFlow(PrivilegedStatus(PrivilegedMode.NONE))
     val statusFlow: StateFlow<PrivilegedStatus> = _status.asStateFlow()
     private var lastAutoStartAttemptMs = 0L
+
+    private val _lastDaemonFailure = MutableStateFlow<DaemonFailure?>(null)
+    val lastDaemonFailureFlow: StateFlow<DaemonFailure?> = _lastDaemonFailure.asStateFlow()
+    private val _authRejected = MutableStateFlow(false)
+    val authRejectedFlow: StateFlow<Boolean> = _authRejected.asStateFlow()
+
+    fun noteDaemonFailure(reason: String, category: ConnectionFailure, tried: String = "") {
+        _lastDaemonFailure.value = DaemonFailure(reason, category, tried)
+    }
+
+    fun clearDaemonFailure() {
+        _lastDaemonFailure.value = null
+    }
+
+    fun clearAuthRejected() {
+        _authRejected.value = false
+    }
 
     @Volatile private var sessionToken: String? = null
 
@@ -385,8 +409,12 @@ object PrivilegedBridge {
                 val encoded = Base64.encodeToString(command.toByteArray(StandardCharsets.UTF_8), Base64.NO_WRAP)
                 writer.println("EXEC:$encoded")
                 val resp = reader.readLine() ?: return PrivilegedResult(-1, "No response", PrivilegedMode.EMBEDDED_DAEMON)
-                if (resp == "UNAUTHORIZED") DiagnosticsLog.log("adb.bridge", "auth-failed", fields = mapOf("action" to "EXEC"))
+                if (resp == "UNAUTHORIZED") {
+                    _authRejected.value = true
+                    DiagnosticsLog.log("adb.bridge", "auth-failed", fields = mapOf("action" to "EXEC"))
+                }
                 if (resp.startsWith("EXIT:")) {
+                    _authRejected.value = false
                     val parts = resp.split(":")
                     val exitCode = parts.getOrNull(1)?.toIntOrNull() ?: -1
                     val outEncoded = parts.getOrNull(2) ?: ""
@@ -430,7 +458,12 @@ object PrivilegedBridge {
                 sessionToken?.let { writer.println("AUTH:$it") }
                 writer.println(action)
                 val reply = reader.readLine()
-                if (reply == "UNAUTHORIZED") DiagnosticsLog.log("adb.bridge", "auth-failed", fields = mapOf("action" to action))
+                if (reply == "UNAUTHORIZED") {
+                    _authRejected.value = true
+                    DiagnosticsLog.log("adb.bridge", "auth-failed", fields = mapOf("action" to action))
+                } else if (reply == "OK") {
+                    _authRejected.value = false
+                }
                 reply == "OK"
             }
         } catch (_: Exception) { false }
