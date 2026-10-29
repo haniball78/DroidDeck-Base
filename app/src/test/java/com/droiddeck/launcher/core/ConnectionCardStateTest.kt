@@ -89,7 +89,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.primaryAction(ConnectionCardState.NEED_WIRELESS_ADB),
         )
         assertEquals(
-            ConnectionCardAction.OPEN_PAIRING_DIALOG,
+            ConnectionCardAction.PAIR_NOTIFICATION,
             ConnectionCardStateResolver.primaryAction(ConnectionCardState.NEED_PAIRING),
         )
         assertEquals(

@@ -619,6 +619,24 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         )
     }
 
+    fun startOneTap() {
+        logAction("one-tap")
+        scope.launch {
+            starting = true
+            oneTapFailed = false
+            PrivilegedBridge.clearDaemonFailure()
+            val ok = withContext(Dispatchers.IO) { WirelessAdbFix.startPrivilegedDaemonWithSavedPairing(ctx) }
+            if (ok) {
+                withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
+                Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_started), Toast.LENGTH_SHORT).show()
+            } else {
+                oneTapFailed = true
+                Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_pair_failed), Toast.LENGTH_LONG).show()
+            }
+            starting = false
+        }
+    }
+
     if (showPairDialog) {
         PairingCodeDialog(
             onDismiss = { showPairDialog = false },
@@ -701,9 +719,9 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             }
 
             // Failure guidance: never on an ACTIVE card (stale failures hide).
-            if (state != ConnectionCardState.ACTIVE &&
+            val showFailureBox = state != ConnectionCardState.ACTIVE &&
                 (oneTapFailed || ConnectionCardStateResolver.showFailureGuidance(state, lastFailure != null))
-            ) {
+            if (showFailureBox) {
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
                         .background(colors.error.copy(alpha = 0.12f))
@@ -739,9 +757,44 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                             }
                         }
                     }
-                    PrimaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
-                        logAction("repair")
-                        showPairDialog = true
+                    // In the READY state the first option is retrying the
+                    // saved pairing (One-Tap); only after it fails does
+                    // entering a new code become the blue primary.
+                    if (state == ConnectionCardState.READY_TO_START) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            if (!oneTapFailed) {
+                                Box(Modifier.weight(1f)) {
+                                    PrimaryButton(
+                                        if (starting) stringResource(R.string.connection_card_action_starting) else stringResource(R.string.connection_card_action_start),
+                                        compact = true, enabled = !starting,
+                                    ) { startOneTap() }
+                                }
+                                Box(Modifier.weight(1f)) {
+                                    SecondaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
+                                        logAction("repair")
+                                        showPairDialog = true
+                                    }
+                                }
+                            } else {
+                                Box(Modifier.weight(1f)) {
+                                    PrimaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
+                                        logAction("repair")
+                                        showPairDialog = true
+                                    }
+                                }
+                                Box(Modifier.weight(1f)) {
+                                    SecondaryButton(
+                                        if (starting) stringResource(R.string.connection_card_action_starting) else stringResource(R.string.connection_card_action_start),
+                                        compact = true, enabled = !starting,
+                                    ) { startOneTap() }
+                                }
+                            }
+                        }
+                    } else {
+                        PrimaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
+                            logAction("repair")
+                            showPairDialog = true
+                        }
                     }
                 }
             }
@@ -760,25 +813,17 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                     logAction("open-pair-dialog")
                     showPairDialog = true
                 }
-                ConnectionCardAction.ONE_TAP_START -> PrimaryButton(
-                    if (starting) stringResource(R.string.connection_card_action_starting) else stringResource(R.string.connection_card_action_start),
-                    compact = true, enabled = !starting,
-                ) {
-                    logAction("one-tap")
-                    scope.launch {
-                        starting = true
-                        oneTapFailed = false
-                        PrivilegedBridge.clearDaemonFailure()
-                        val ok = withContext(Dispatchers.IO) { WirelessAdbFix.startPrivilegedDaemonWithSavedPairing(ctx) }
-                        if (ok) {
-                            withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
-                            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_started), Toast.LENGTH_SHORT).show()
-                        } else {
-                            oneTapFailed = true
-                            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_pair_failed), Toast.LENGTH_LONG).show()
-                        }
-                        starting = false
-                    }
+                ConnectionCardAction.PAIR_NOTIFICATION -> PrimaryButton(stringResource(R.string.connection_card_action_notify), compact = true) {
+                    logAction("pair-notification")
+                    Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_watch_notification), Toast.LENGTH_LONG).show()
+                    WirelessAdbPairingService.start(ctx)
+                    openDevOptions(ctx)
+                }
+                ConnectionCardAction.ONE_TAP_START -> if (!showFailureBox) {
+                    PrimaryButton(
+                        if (starting) stringResource(R.string.connection_card_action_starting) else stringResource(R.string.connection_card_action_start),
+                        compact = true, enabled = !starting,
+                    ) { startOneTap() }
                 }
                 ConnectionCardAction.NONE -> {}
             }
@@ -786,10 +831,9 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             if (state == ConnectionCardState.NEED_PAIRING) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Box(Modifier.weight(1f)) {
-                        SecondaryButton(stringResource(R.string.connection_card_action_notify), compact = true) {
-                            logAction("pair-notification")
-                            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_watch_notification), Toast.LENGTH_LONG).show()
-                            WirelessAdbPairingService.start(ctx)
+                        SecondaryButton(stringResource(R.string.connection_card_action_pair), compact = true) {
+                            logAction("open-pair-dialog")
+                            showPairDialog = true
                         }
                     }
                     Box(Modifier.weight(1f)) {
