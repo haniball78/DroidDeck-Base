@@ -516,7 +516,6 @@ internal fun SetupPanel(
 }
 
 @Composable
-@Composable
 private fun ConnectionCard(onSelect: (String) -> Unit) {
     val ctx = LocalContext.current
     val colors = MaterialTheme.colorScheme
@@ -828,6 +827,7 @@ private fun ConnectionDetailRow(label: String, value: String) {
     }
 }
 
+@Composable
 internal fun PhantomDisableCard(
     host: MenuHost,
     status: PhantomProcessStatus,
