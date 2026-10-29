@@ -1088,7 +1088,14 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                     failures = SessionState.resumeFailures,
                     frame = pausedFrame,
                     title = pausedTitle(),
-                    onResume = { SessionService.resume(this@SessionActivity) },
+                    onResume = {
+                        if (!com.droiddeck.launcher.core.privileged.PrivilegedBridge.isPrivilegedAvailable() &&
+                            !com.droiddeck.launcher.core.privileged.GameModeEngine.isActive()) {
+                            SessionService.resumeWithoutOptimizations(this@SessionActivity)
+                        } else {
+                            SessionService.resume(this@SessionActivity)
+                        }
+                    },
                     onFrameNeeded = ::requestPausedFrame,
                     onHidden = {
                         pausedFrame = null

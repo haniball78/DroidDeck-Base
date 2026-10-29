@@ -31,7 +31,7 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Run the stable connection unit tests
+      - name: Run the unified unit tests
         run: |
           set -o pipefail
           ./gradlew :app:testDebugUnitTest \
@@ -39,9 +39,12 @@ jobs:
             --tests "com.droiddeck.launcher.core.ConnectionCandidatesTest" \
             --tests "com.droiddeck.launcher.core.CpuAllocationDefaultsTest" \
             --tests "com.droiddeck.launcher.session.CoreAllocationPrefsTest" \
+            --tests "com.droiddeck.launcher.core.privileged.PlainModeLatchTest" \
+            --tests "com.droiddeck.launcher.session.SafetyMonitorPlainModeTest" \
+            --tests "com.droiddeck.launcher.session.PlainResumePolicyTest" \
             -PndkVersion=29.0.14206865 \
             -PskipRust=true \
-            --stacktrace --no-daemon 2>&1 | tee /tmp/stable-connection-unit-tests.log
+            --stacktrace --no-daemon 2>&1 | tee /tmp/unified-unit-tests.log
 
       - name: Upload test reports
         if: always()

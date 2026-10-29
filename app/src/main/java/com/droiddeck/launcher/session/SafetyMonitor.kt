@@ -49,6 +49,7 @@ class SafetyMonitor(
     private var tweaksEnded = false
     private var warnedAt15 = false
     private var bridgeReported = false
+    private var lastBridgeStatus: BridgeStatus? = null
     private var tweaksActive = true
     @Volatile private var running = false
     @Volatile private var countdownActive = false
@@ -99,12 +100,14 @@ class SafetyMonitor(
         val now = clock.nowMs()
         val battery = batterySource.read()
         if (battery != null) trend.add(battery)
-        val bridgeStatus = if (now - lastHeartbeatMs >= heartbeatMs) {
+        val probedStatus = if (now - lastHeartbeatMs >= heartbeatMs) {
             lastHeartbeatMs = now
             bridgeProbe.status()
         } else {
             null
         }
+        if (probedStatus != null) lastBridgeStatus = probedStatus
+        val bridgeStatus = lastBridgeStatus
         val thermalStatus = thermalSource.thermalStatus()
         if (thermalStatus == SafetyPolicy.THERMAL_UNKNOWN) {
             if (!thermalUnknownLogged) {
@@ -118,8 +121,8 @@ class SafetyMonitor(
             SafetyInput(
                 battery = battery,
                 thermalStatus = thermalStatus,
-                bridgeOk = bridgeStatus != BridgeStatus.LOST,
-                bridgeUnknown = bridgeStatus == BridgeStatus.UNKNOWN,
+                bridgeOk = bridgeStatus == BridgeStatus.OK,
+                bridgeUnknown = bridgeStatus == null || bridgeStatus == BridgeStatus.UNKNOWN,
                 tweaksActive = tweaksActive,
                 tweaksAlreadyEnded = tweaksEnded,
                 warnedAt15 = warnedAt15,
