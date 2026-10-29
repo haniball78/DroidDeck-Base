@@ -103,6 +103,7 @@ class SessionService : Service() {
     private var freezeCancelled = false
     private var tweaksEndedForSafety = false
     private var safetyMonitorGen = 0
+    private var recoveryNotificationPosted = false
     private var explicitResumeRequested = false
     private var resumeWithoutOptimizations = false
     private var leaveTimer: Runnable? = null
@@ -499,6 +500,11 @@ class SessionService : Service() {
             if (com.droiddeck.launcher.core.privileged.RecoveryCoordinator.recoveryPending(this)) {
                 Log.w(TAG, "tweaks blocked: unrecovered journal or legacy marker from a previous session")
                 SessionEvents.record("session.start_blocked_recovery_pending", mapOf("gen" to gen))
+            } else if (!com.droiddeck.launcher.core.privileged.PrivilegedBridge.isPrivilegedAvailable() &&
+                com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh().mode ==
+                    com.droiddeck.launcher.core.privileged.PrivilegedMode.NONE) {
+                Log.i(TAG, "advanced performance engines: SKIPPED (no privileged bridge, plain mode)")
+                SessionEvents.record("session.start_plain_mode", mapOf("gen" to gen))
             } else {
                 Log.i(TAG, applyGameModeNotingSuspect(gen))
                 Log.i(TAG, com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen))
@@ -1589,21 +1595,48 @@ class SessionService : Service() {
             }
         } else {
             val suspendKind = SessionState.suspendKind ?: SuspendKind.USER
-            val resumeCheck = SuspendPolicy.checkResume(
+            val bridgeOk = com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh().isActive
+            var resumeCheck = SuspendPolicy.checkResume(
                 kind = suspendKind,
                 wantsOptimizations = !resumeWithoutOptimizations,
-                bridgeOk = com.droiddeck.launcher.core.privileged.PrivilegedBridge.isPrivilegedAvailable(),
+                bridgeOk = bridgeOk,
                 batteryLevel = readBatteryLevel(),
                 charging = readBatteryCharging(),
                 thermalStatus = readThermalStatus(),
                 explicitResume = explicitResumeRequested,
             )
+            if (!resumeCheck.allowed &&
+                ResumeOptimizationPolicy.fallbackWithoutOptimizations(
+                    resumeCheck.block,
+                    com.droiddeck.launcher.core.privileged.GameModeEngine.isActive(),
+                )) {
+                resumeWithoutOptimizations = true
+                resumeCheck = SuspendPolicy.checkResume(
+                    kind = suspendKind,
+                    wantsOptimizations = false,
+                    bridgeOk = bridgeOk,
+                    batteryLevel = readBatteryLevel(),
+                    charging = readBatteryCharging(),
+                    thermalStatus = readThermalStatus(),
+                    explicitResume = explicitResumeRequested,
+                )
+            }
             if (!resumeCheck.allowed) {
                 explicitResumeRequested = false
                 SessionState.resumeRequested = false
+                SessionState.resumeFailed = true
+                SessionState.resumeFailures++
                 SessionEvents.record(
                     "session.resume_blocked", mapOf("block" to resumeCheck.block, "kind" to suspendKind),
                 )
+                val reason = when (resumeCheck.block) {
+                    ResumeBlock.BRIDGE_UNAVAILABLE -> "Privileged bridge unavailable: connect it, or use Resume without optimizations."
+                    ResumeBlock.BATTERY_LOW_SAFETY -> "Battery too low to resume safely: connect the charger."
+                    ResumeBlock.THERMAL_SEVERE_SAFETY -> "Device too hot to resume safely: let it cool down."
+                    ResumeBlock.EXPLICIT_REQUIRED -> "Resume needs an explicit tap."
+                    ResumeBlock.NONE -> "Resume blocked."
+                }
+                postSafetyNotification("Cannot resume: $reason")
                 refreshNotification()
                 return
             }
@@ -2399,7 +2432,12 @@ class SessionService : Service() {
     private fun refreshNotification() {
         getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, buildNotification())
         if (com.droiddeck.launcher.core.privileged.Tweaks.recoveryNeeded(this)) {
-            Thread({ postRecoveryNotification() }, "session-recovery-notify").start()
+            if (!recoveryNotificationPosted) {
+                recoveryNotificationPosted = true
+                Thread({ postRecoveryNotification() }, "session-recovery-notify").start()
+            }
+        } else {
+            recoveryNotificationPosted = false
         }
     }
 

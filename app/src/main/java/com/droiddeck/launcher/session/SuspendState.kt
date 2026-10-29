@@ -227,3 +227,9 @@ internal object SuspendPolicy {
         return true
     }
 }
+
+internal object ResumeOptimizationPolicy {
+    fun fallbackWithoutOptimizations(block: ResumeBlock, tweaksActive: Boolean): Boolean {
+        return block == ResumeBlock.BRIDGE_UNAVAILABLE && !tweaksActive
+    }
+}

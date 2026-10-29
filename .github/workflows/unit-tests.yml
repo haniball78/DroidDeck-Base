@@ -1,0 +1,55 @@
+name: Unit Tests
+
+on:
+  push:
+    branches:
+      - feat/plain-mode-fix
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plain-mode-unit-tests:
+    name: Plain-mode + CPU unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run plain-mode and CPU unit tests
+        run: |
+          set -o pipefail
+          ./gradlew :app:testDebugUnitTest \
+            --tests "com.droiddeck.launcher.core.CpuAllocationDefaultsTest" \
+            --tests "com.droiddeck.launcher.session.CoreAllocationPrefsTest" \
+            --tests "com.droiddeck.launcher.core.privileged.PlainModeLatchTest" \
+            --tests "com.droiddeck.launcher.session.SafetyMonitorPlainModeTest" \
+            --tests "com.droiddeck.launcher.session.PlainResumePolicyTest" \
+            -PndkVersion=29.0.14206865 \
+            -PskipRust=true \
+            --stacktrace --no-daemon 2>&1 | tee /tmp/plain-mode-unit-tests.log
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plain-mode-unit-test-results
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          retention-days: 14

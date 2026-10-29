@@ -88,12 +88,22 @@ internal object FixedPerformanceState {
 
 object PrivilegedBridge {
     const val DEFAULT_TIMEOUT_MS = 4000
+    const val MAX_FAILED_PROBES_BEFORE_PLAIN_MODE = 3
     private const val TOKEN_FILE = "daemon-session-token.txt"
 
     private val _status = MutableStateFlow(PrivilegedStatus(PrivilegedMode.NONE))
     val statusFlow: StateFlow<PrivilegedStatus> = _status.asStateFlow()
 
     @Volatile private var sessionToken: String? = null
+    @Volatile private var failedProbeCount = 0
+    @Volatile private var plainModeLatched = false
+
+    fun isPlainModeLatched(): Boolean = plainModeLatched
+
+    fun resetPlainModeLatch() {
+        plainModeLatched = false
+        failedProbeCount = 0
+    }
 
     fun ensureSessionToken(context: Context): String {
         sessionToken?.let { return it }
@@ -136,10 +146,13 @@ object PrivilegedBridge {
 
     fun refresh(): PrivilegedStatus {
         val previous = _status.value
+        if (plainModeLatched && !previous.isActive) return previous
         val (embMode, daemonUid, daemonPid) = probeEmbedded()
         if (embMode == PrivilegedMode.EMBEDDED_DAEMON) {
             val s = PrivilegedStatus(embMode, daemonUid, daemonPid)
             _status.value = s
+            failedProbeCount = 0
+            plainModeLatched = false
             if (!previous.isActive) DiagnosticsLog.log("adb.bridge", "restored", fields = mapOf("mode" to s.mode.name))
             return s
         }
@@ -147,11 +160,15 @@ object PrivilegedBridge {
         if (shizMode == PrivilegedMode.SHIZUKU_APP) {
             val s = PrivilegedStatus(shizMode, shizukuVersion = shizVer)
             _status.value = s
+            failedProbeCount = 0
+            plainModeLatched = false
             if (!previous.isActive) DiagnosticsLog.log("adb.bridge", "restored", fields = mapOf("mode" to s.mode.name))
             return s
         }
         val s = PrivilegedStatus(PrivilegedMode.NONE)
         _status.value = s
+        failedProbeCount += 1
+        if (failedProbeCount >= MAX_FAILED_PROBES_BEFORE_PLAIN_MODE) plainModeLatched = true
         if (previous.isActive) DiagnosticsLog.log("adb.bridge", "lost", fields = mapOf("previous_mode" to previous.mode.name))
         return s
     }
@@ -162,6 +179,7 @@ object PrivilegedBridge {
             try {
                 if (com.droiddeck.launcher.core.WirelessAdbFix.startPrivilegedDaemonWithSavedPairing(context)) {
                     Thread.sleep(600)
+                    resetPlainModeLatch()
                     refresh()
                 }
             } catch (_: Exception) {}
