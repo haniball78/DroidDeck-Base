@@ -239,6 +239,14 @@ object WirelessAdbFix {
         )
     }
 
+    fun verifyConnection(context: Context, host: String, port: Int) {
+        loadOrCreateIdentity(context.applicationContext)
+        Kadb.create(host, port).use { adb ->
+            val result = adb.shell("echo ok")
+            check(result.exitCode == 0) { "Verification command failed with exit ${result.exitCode}" }
+        }
+    }
+
     fun isPaired(context: Context): Boolean {
         val directory = context.applicationContext.noBackupFilesDir
         val cert = File(directory, CERT_FILE)
@@ -259,11 +267,17 @@ object WirelessAdbFix {
                 val connectPort = localConnectPort(context)
                     ?: error("Connect port not discovered. Ensure Wireless Debugging is active.")
                 startPrivilegedDaemonViaAdb(context, LOOPBACK, connectPort)
+                verifyConnection(context, LOOPBACK, connectPort)
+                check(com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh().isActive) { "Daemon did not respond after start" }
             }
             if (result.isFailure) {
+                val reason = result.exceptionOrNull()?.javaClass?.simpleName ?: "unknown"
                 com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                     context, "adb.pair", "failed",
-                    fields = mapOf("reason" to (result.exceptionOrNull()?.javaClass?.simpleName ?: "unknown")),
+                    fields = mapOf(
+                        "reason" to reason,
+                        "category" to classifyConnectionFailure(reason).name.lowercase(),
+                    ),
                 )
             }
             result
@@ -286,10 +300,11 @@ object WirelessAdbFix {
         // Always try to discover current live connect port first (since port changes on reboot / toggle)
         val discovered = localConnectPort(appContext)
         val port = discovered ?: saved?.port ?: return false
+        var firstError: Throwable? = null
         val firstAttempt = runCatching {
             startPrivilegedDaemonViaAdb(appContext, host, port)
             true
-        }.getOrDefault(false)
+        }.onFailure { firstError = it }.getOrDefault(false)
         if (firstAttempt) return true
 
         // If the first attempt failed and we used discovered port, try saved port (or vice versa)
@@ -301,8 +316,15 @@ object WirelessAdbFix {
             }.getOrDefault(false)
             if (secondAttempt) return true
         }
+        val reason = firstError?.javaClass?.simpleName ?: "unknown"
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
-            appContext, "adb.daemon", "failed", fields = mapOf("port" to port.toString()),
+            appContext, "adb.daemon", "failed",
+            fields = mapOf(
+                "port" to port.toString(),
+                "host" to host,
+                "reason" to reason,
+                "category" to classifyConnectionFailure(reason).name.lowercase(),
+            ),
         )
         return false
     }

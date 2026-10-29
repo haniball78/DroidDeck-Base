@@ -129,11 +129,23 @@ class WirelessAdbPairingService : Service() {
                 stopDiscovery()
                 show(Stage.Working(getString(R.string.adbpair_connecting)))
             }
+            var attemptedPort: Int? = null
             val result = runCatching {
                 val connectPort = WirelessAdbFix.localConnectPort(this)
                     ?: error(getString(R.string.adbpair_port_not_found))
+                attemptedPort = connectPort
                 main.post { show(Stage.Working(getString(R.string.adbpair_applying))) }
                 WirelessAdbFix.startPrivilegedDaemonViaAdb(this, WirelessAdbFix.LOOPBACK, connectPort)
+            }
+            if (result.isFailure) {
+                val reason = result.exceptionOrNull()?.javaClass?.simpleName ?: "unknown"
+                val fields = buildMap {
+                    attemptedPort?.let { put("port", it.toString()) }
+                    put("reason", reason)
+                    put("category", classifyConnectionFailure(reason).name.lowercase())
+                    put("source", "notification")
+                }
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(this, "adb.daemon", "failed", fields = fields)
             }
             main.post {
                 working = false
