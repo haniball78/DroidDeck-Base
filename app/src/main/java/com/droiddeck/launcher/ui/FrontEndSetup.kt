@@ -547,7 +547,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     // card only reflects the last refresh someone else triggered.
     LaunchedEffect(Unit) {
         while (isActive) {
-            withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
+            withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "card") }
             delay(4_000)
         }
     }
@@ -627,7 +627,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             PrivilegedBridge.clearDaemonFailure()
             val ok = withContext(Dispatchers.IO) { WirelessAdbFix.startPrivilegedDaemonWithSavedPairing(ctx) }
             if (ok) {
-                withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
+                withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "card-start") }
                 Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_started), Toast.LENGTH_SHORT).show()
             } else {
                 oneTapFailed = true
@@ -677,7 +677,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                     val result = WirelessAdbFix.pairAndStartPrivilegedDaemon(ctx, port, code)
                     if (result.isSuccess) {
                         oneTapFailed = false
-                        withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
+                        withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "card-pair") }
                         Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_paired), Toast.LENGTH_SHORT).show()
                     } else {
                         val err = result.exceptionOrNull()?.localizedMessage ?: ""

@@ -283,7 +283,7 @@ object WirelessAdbFix {
                     ?: error("Connect port not discovered. Ensure Wireless Debugging is active.")
                 startPrivilegedDaemonViaAdb(context, LOOPBACK, connectPort)
                 verifyConnection(context, LOOPBACK, connectPort)
-                check(com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh().isActive) { "Daemon did not respond after start" }
+                check(com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(caller = "start-verify").isActive) { "Daemon did not respond after start" }
             }
             if (result.isFailure) {
                 val reason = result.exceptionOrNull()?.javaClass?.simpleName ?: "unknown"

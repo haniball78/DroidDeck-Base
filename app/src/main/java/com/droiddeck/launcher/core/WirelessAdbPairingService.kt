@@ -153,7 +153,7 @@ class WirelessAdbPairingService : Service() {
                 // The daemon just started (and the start wrapper cleared the
                 // plain-mode latch), so probe now: this updates the shared
                 // bridge status instead of leaving it stale until restart.
-                com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh()
+                com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(caller = "pairing-start")
             }
             main.post {
                 working = false

@@ -103,7 +103,7 @@ fun DebugMonitorPanel(onBack: () -> Unit) {
         while (isActive) {
             delay(2_000)
             withContext(Dispatchers.IO) {
-                PrivilegedBridge.refresh()
+                PrivilegedBridge.refresh(caller = "debug-panel")
                 snapshot = collectSnapshot(ctx, snapshot.logLines)
                 liveMetrics = com.droiddeck.launcher.core.privileged.GameModeEngine.runLiveVerification(ctx) +
                     com.droiddeck.launcher.core.privileged.AppFreezerEngine.runDiagnostic(ctx) +

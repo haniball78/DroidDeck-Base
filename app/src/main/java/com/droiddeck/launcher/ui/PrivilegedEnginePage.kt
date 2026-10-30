@@ -62,7 +62,7 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
     // Auto-refresh every 4 seconds in background
     LaunchedEffect(Unit) {
         while (isActive) {
-            withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
+            withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "engine-page") }
             delay(4_000)
         }
     }
@@ -77,7 +77,7 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
         // ── Header status banner ────────────────────────────────────
         StatusBanner(status, refreshing) {
             refreshing = true
-            withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
+            withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "engine-page") }
             refreshing = false
         }
         Spacer(Modifier.height(12.dp))
@@ -406,7 +406,7 @@ private fun DaemonActivationCard(ctx: Context) {
                     startingAdb = true
                     val result = com.droiddeck.launcher.core.WirelessAdbFix.pairAndStartPrivilegedDaemon(ctx, port, code)
                     if (result.isSuccess) {
-                        withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
+                        withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "engine-pair") }
                         Toast.makeText(ctx, "Paired & Privileged Daemon Started!", Toast.LENGTH_SHORT).show()
                     } else {
                         val err = result.exceptionOrNull()?.localizedMessage ?: "Pairing failed"
@@ -502,7 +502,7 @@ private fun DaemonActivationCard(ctx: Context) {
                             com.droiddeck.launcher.core.WirelessAdbFix.startPrivilegedDaemonWithSavedPairing(ctx)
                         }
                         if (ok) {
-                            withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
+                            withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "engine-start") }
                             Toast.makeText(ctx, "Privileged Daemon started successfully!", Toast.LENGTH_SHORT).show()
                         } else {
                             oneTapFailed = true

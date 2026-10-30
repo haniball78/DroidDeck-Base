@@ -251,7 +251,7 @@ object SafetySources {
     fun bridge(): BridgeProbe = object : BridgeProbe {
         override fun status(): BridgeStatus {
             return try {
-                if (com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh().isActive) BridgeStatus.OK
+                if (com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(caller = "monitor").isActive) BridgeStatus.OK
                 else BridgeStatus.LOST
             } catch (_: Exception) {
                 BridgeStatus.UNKNOWN

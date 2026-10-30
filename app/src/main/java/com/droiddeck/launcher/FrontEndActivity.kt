@@ -755,8 +755,8 @@ class FrontEndActivity : ComponentActivity() {
         displayManager = getSystemService(DISPLAY_SERVICE) as DisplayManager
         refreshPhantomStatus()
         Thread {
-            com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh()
-            com.droiddeck.launcher.core.privileged.PrivilegedBridge.tryAutoStart(applicationContext)
+            com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(caller = "activity-start")
+            com.droiddeck.launcher.core.privileged.PrivilegedBridge.tryAutoStart(applicationContext, caller = "activity-start")
             com.droiddeck.launcher.core.privileged.RecoveryCoordinator.attemptOnBridgeReady(applicationContext)
         }.start()
         theme = SessionPrefs.theme(this)
@@ -1322,8 +1322,8 @@ class FrontEndActivity : ComponentActivity() {
             returning = ReturningFlood(c, com.droiddeck.launcher.ui.LaunchOrigin.takeReturn())
         }
         refreshPhantomStatus()
-        Thread { com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh() }.start()
-        com.droiddeck.launcher.core.privileged.PrivilegedBridge.tryAutoStart(this)
+        Thread { com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(caller = "activity-resume") }.start()
+        com.droiddeck.launcher.core.privileged.PrivilegedBridge.tryAutoStart(this, caller = "activity-resume")
         syncLossless()
         updates.onResume()
         drivers.checkOnOpen()

@@ -504,7 +504,7 @@ class SessionService : Service() {
                 Log.w(TAG, "tweaks blocked: unrecovered journal or legacy marker from a previous session")
                 SessionEvents.record("session.start_blocked_recovery_pending", mapOf("gen" to gen))
             } else if (!com.droiddeck.launcher.core.privileged.PrivilegedBridge.isPrivilegedAvailable() &&
-                com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh().mode ==
+                com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(caller = "session-start").mode ==
                     com.droiddeck.launcher.core.privileged.PrivilegedMode.NONE) {
                 Log.i(TAG, "advanced performance engines: SKIPPED (no privileged bridge, plain mode)")
                 SessionEvents.record("session.start_plain_mode", mapOf("gen" to gen))
@@ -1604,11 +1604,11 @@ class SessionService : Service() {
         } else {
             val suspendKind = SessionState.suspendKind ?: SuspendKind.USER
             // A single refused PING must not strand the session: tolerate transient failures.
-            var bridgeStatus = com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(bypassLatch = true)
+            var bridgeStatus = com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(bypassLatch = true, caller = "resume")
             var probeRetries = 0
             while (!bridgeStatus.isActive && probeRetries < 2) {
                 runCatching { Thread.sleep(150) }
-                bridgeStatus = com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(bypassLatch = true)
+                bridgeStatus = com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(bypassLatch = true, caller = "resume")
                 probeRetries++
             }
             val bridgeOk = bridgeStatus.isActive
@@ -1655,7 +1655,7 @@ class SessionService : Service() {
                         // exists, so a restart should restore it; re-evaluate once after.
                         bridgeRecoveryPending = true
                         val recoverySeq = suspendSeq
-                        com.droiddeck.launcher.core.privileged.PrivilegedBridge.tryAutoStart(this)
+                        com.droiddeck.launcher.core.privileged.PrivilegedBridge.tryAutoStart(this, caller = "resume-recovery")
                         mainHandler.postDelayed(Runnable {
                             bridgeRecoveryPending = false
                             bridgeRecoveryExhausted = true
