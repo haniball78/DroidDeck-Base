@@ -107,6 +107,8 @@ class SessionService : Service() {
     private var explicitResumeRequested = false
     private var resumeWithoutOptimizations = false
     private var bridgeRecoveryPending = false
+    private var bridgeRecoveryExhausted = false
+    private var suspendSeq = 0
     private var leaveTimer: Runnable? = null
     private var leaveRestored = false
     private var pendingSteamGameId: String? = null
@@ -1550,6 +1552,9 @@ class SessionService : Service() {
         if (shouldSuspend) {
             // A new suspension starts fresh resume state.
             SessionState.resumeFailed = false
+            suspendSeq++
+            bridgeRecoveryPending = false
+            bridgeRecoveryExhausted = false
             freezePending = true
             freezeCancelled = false
             val freezeSteamToken = steamSleepToken
@@ -1644,16 +1649,29 @@ class SessionService : Service() {
                 ),
             )
             if (!resumeCheck.allowed) {
-                if (resumeCheck.block == ResumeBlock.BRIDGE_UNAVAILABLE && !bridgeRecoveryPending) {
-                    // Heal the bridge instead of stranding the session: a saved pairing
-                    // exists, so a restart should restore it; re-evaluate once after.
-                    bridgeRecoveryPending = true
-                    com.droiddeck.launcher.core.privileged.PrivilegedBridge.tryAutoStart(this)
-                    mainHandler.postDelayed(Runnable {
-                        bridgeRecoveryPending = false
+                if (resumeCheck.block == ResumeBlock.BRIDGE_UNAVAILABLE) {
+                    if (!bridgeRecoveryPending && !bridgeRecoveryExhausted) {
+                        // Heal the bridge instead of stranding the session: a saved pairing
+                        // exists, so a restart should restore it; re-evaluate once after.
+                        bridgeRecoveryPending = true
+                        val recoverySeq = suspendSeq
+                        com.droiddeck.launcher.core.privileged.PrivilegedBridge.tryAutoStart(this)
+                        mainHandler.postDelayed(Runnable {
+                            bridgeRecoveryPending = false
+                            bridgeRecoveryExhausted = true
+                            explicitResumeRequested = true
+                            if (recoverySeq == suspendSeq && SessionState.running && SessionState.suspended) updateSuspendPolicy()
+                        }, 5000L)
+                    } else if (bridgeRecoveryExhausted && !resumeWithoutOptimizations) {
+                        // Recovery already tried and failed: continue without optimizations
+                        // instead of looping on the same block.
+                        resumeWithoutOptimizations = true
                         explicitResumeRequested = true
-                        if (SessionState.running && SessionState.suspended) updateSuspendPolicy()
-                    }, 5000L)
+                        mainHandler.post {
+                            if (SessionState.running && SessionState.suspended) updateSuspendPolicy()
+                        }
+                        return
+                    }
                 }
                 explicitResumeRequested = false
                 SessionState.resumeRequested = false
@@ -1689,6 +1707,7 @@ class SessionService : Service() {
                         SessionState.suspended = false
                         SessionState.suspendKind = null
                         SessionState.resumeFailed = false
+                        getSystemService(NotificationManager::class.java)?.cancel(SAFETY_NOTIFICATION_ID)
                         SessionEvents.transition(SessionEvents.resumePhase(), "session.resumed")
                         SuspendStore.clear(noBackupFilesDir)
                         if (wantOptimizations) {
