@@ -414,8 +414,8 @@ object PrivilegedBridge {
             EmbeddedProbe(PrivilegedMode.NONE, -1, -1, "timeout")
         } catch (_: java.net.ConnectException) {
             EmbeddedProbe(PrivilegedMode.NONE, -1, -1, "refused")
-        } catch (_: Exception) {
-            EmbeddedProbe(PrivilegedMode.NONE, -1, -1, "error")
+        } catch (e: Exception) {
+            EmbeddedProbe(PrivilegedMode.NONE, -1, -1, "error:" + e.javaClass.simpleName)
         }
     }
 

@@ -1667,6 +1667,7 @@ class SessionService : Service() {
                         // instead of looping on the same block.
                         resumeWithoutOptimizations = true
                         explicitResumeRequested = true
+                        suspendOperationPending = false
                         mainHandler.post {
                             if (SessionState.running && SessionState.suspended) updateSuspendPolicy()
                         }
@@ -1689,6 +1690,9 @@ class SessionService : Service() {
                 }
                 postSafetyNotification("Cannot resume: $reason")
                 refreshNotification()
+                // The operation concluded with no callback coming: release the guard,
+                // or the recovery re-evaluation and every later tap would return early.
+                suspendOperationPending = false
                 return
             }
             acquireLocks()
