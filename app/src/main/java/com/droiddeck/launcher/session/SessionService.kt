@@ -1505,6 +1505,18 @@ class SessionService : Service() {
         syncWatcher = watcher
     }
 
+    // Network on the main thread throws NetworkOnMainThreadException, so the
+    // bridge probe runs on a worker thread and the caller waits for it (bounded).
+    private fun probeBridgeActiveOffMain(): Boolean {
+        var result: Boolean? = null
+        val worker = Thread({
+            result = com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(bypassLatch = true, caller = "resume").isActive
+        }, "resume-bridge-probe")
+        worker.start()
+        worker.join(2000L)
+        return result ?: com.droiddeck.launcher.core.privileged.PrivilegedBridge.isPrivilegedAvailable()
+    }
+
     private fun updateSuspendPolicy() {
         if (!SessionState.running) return
         val hidden = !hasVisibleSurface
@@ -1604,14 +1616,13 @@ class SessionService : Service() {
         } else {
             val suspendKind = SessionState.suspendKind ?: SuspendKind.USER
             // A single refused PING must not strand the session: tolerate transient failures.
-            var bridgeStatus = com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(bypassLatch = true, caller = "resume")
+            var bridgeOk = probeBridgeActiveOffMain()
             var probeRetries = 0
-            while (!bridgeStatus.isActive && probeRetries < 2) {
+            while (!bridgeOk && probeRetries < 2) {
                 runCatching { Thread.sleep(150) }
-                bridgeStatus = com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(bypassLatch = true, caller = "resume")
+                bridgeOk = probeBridgeActiveOffMain()
                 probeRetries++
             }
-            val bridgeOk = bridgeStatus.isActive
             var resumeCheck = SuspendPolicy.checkResume(
                 kind = suspendKind,
                 wantsOptimizations = !resumeWithoutOptimizations,
