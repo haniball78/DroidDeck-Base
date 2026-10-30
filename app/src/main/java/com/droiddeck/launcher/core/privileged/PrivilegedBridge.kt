@@ -126,6 +126,7 @@ object PrivilegedBridge {
     fun isPlainModeLatched(): Boolean = plainModeLatched
 
     fun resetPlainModeLatch() {
+        if (plainModeLatched) DiagnosticsLog.log("adb.bridge", "plain-latch-cleared")
         plainModeLatched = false
         failedProbeCount = 0
     }
@@ -169,14 +170,15 @@ object PrivilegedBridge {
     fun getActiveMode(): PrivilegedMode = _status.value.mode
     fun isPrivilegedAvailable(): Boolean = _status.value.isActive
 
-    fun refresh(): PrivilegedStatus {
+    fun refresh(bypassLatch: Boolean = false): PrivilegedStatus {
         val previous = _status.value
-        if (plainModeLatched && !previous.isActive) return previous
-        val (embMode, daemonUid, daemonPid) = probeEmbedded()
-        if (embMode == PrivilegedMode.EMBEDDED_DAEMON) {
-            val s = PrivilegedStatus(embMode, daemonUid, daemonPid)
+        if (plainModeLatched && !previous.isActive && !bypassLatch) return previous
+        val probe = probeEmbedded()
+        if (probe.mode == PrivilegedMode.EMBEDDED_DAEMON) {
+            val s = PrivilegedStatus(probe.mode, probe.uid, probe.pid)
             _status.value = s
             failedProbeCount = 0
+            if (plainModeLatched) DiagnosticsLog.log("adb.bridge", "plain-latch-cleared")
             plainModeLatched = false
             if (!previous.isActive) DiagnosticsLog.log("adb.bridge", "restored", fields = mapOf("mode" to s.mode.name))
             return s
@@ -186,6 +188,7 @@ object PrivilegedBridge {
             val s = PrivilegedStatus(shizMode, shizukuVersion = shizVer)
             _status.value = s
             failedProbeCount = 0
+            if (plainModeLatched) DiagnosticsLog.log("adb.bridge", "plain-latch-cleared")
             plainModeLatched = false
             if (!previous.isActive) DiagnosticsLog.log("adb.bridge", "restored", fields = mapOf("mode" to s.mode.name))
             return s
@@ -193,8 +196,11 @@ object PrivilegedBridge {
         val s = PrivilegedStatus(PrivilegedMode.NONE)
         _status.value = s
         failedProbeCount += 1
-        if (failedProbeCount >= MAX_FAILED_PROBES_BEFORE_PLAIN_MODE) plainModeLatched = true
-        if (previous.isActive) DiagnosticsLog.log("adb.bridge", "lost", fields = mapOf("previous_mode" to previous.mode.name))
+        if (failedProbeCount >= MAX_FAILED_PROBES_BEFORE_PLAIN_MODE && !plainModeLatched) {
+            plainModeLatched = true
+            DiagnosticsLog.log("adb.bridge", "plain-latch-set", fields = mapOf("failed_probes" to failedProbeCount.toString()))
+        }
+        if (previous.isActive) DiagnosticsLog.log("adb.bridge", "lost", fields = mapOf("previous_mode" to previous.mode.name, "probe" to probe.reason))
         return s
     }
 
@@ -381,7 +387,7 @@ object PrivilegedBridge {
 
     // ── Probing ──────────────────────────────────────────────────────────
 
-    private data class EmbeddedProbe(val mode: PrivilegedMode, val uid: Int, val pid: Int)
+    private data class EmbeddedProbe(val mode: PrivilegedMode, val uid: Int, val pid: Int, val reason: String = "")
 
     private fun probeEmbedded(): EmbeddedProbe {
         return try {
@@ -390,14 +396,20 @@ object PrivilegedBridge {
                 val writer = PrintWriter(OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true)
                 val reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
                 writer.println("PING")
-                val response = reader.readLine() ?: return EmbeddedProbe(PrivilegedMode.NONE, -1, -1)
+                val response = reader.readLine() ?: return EmbeddedProbe(PrivilegedMode.NONE, -1, -1, "closed")
                 if (response.startsWith("PONG")) {
                     val uid = response.substringAfter("uid=", "-1").substringBefore(" ").toIntOrNull() ?: -1
                     val pid = response.substringAfter("pid=", "-1").toIntOrNull() ?: -1
                     EmbeddedProbe(PrivilegedMode.EMBEDDED_DAEMON, uid, pid)
-                } else EmbeddedProbe(PrivilegedMode.NONE, -1, -1)
+                } else EmbeddedProbe(PrivilegedMode.NONE, -1, -1, "non-pong")
             }
-        } catch (_: Exception) { EmbeddedProbe(PrivilegedMode.NONE, -1, -1) }
+        } catch (_: java.net.SocketTimeoutException) {
+            EmbeddedProbe(PrivilegedMode.NONE, -1, -1, "timeout")
+        } catch (_: java.net.ConnectException) {
+            EmbeddedProbe(PrivilegedMode.NONE, -1, -1, "refused")
+        } catch (_: Exception) {
+            EmbeddedProbe(PrivilegedMode.NONE, -1, -1, "error")
+        }
     }
 
     private data class ShizukuProbe(val mode: PrivilegedMode, val version: Int)

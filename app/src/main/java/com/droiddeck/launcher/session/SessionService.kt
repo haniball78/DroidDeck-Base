@@ -106,6 +106,7 @@ class SessionService : Service() {
     private var recoveryNotificationPosted = false
     private var explicitResumeRequested = false
     private var resumeWithoutOptimizations = false
+    private var bridgeRecoveryPending = false
     private var leaveTimer: Runnable? = null
     private var leaveRestored = false
     private var pendingSteamGameId: String? = null
@@ -1547,6 +1548,8 @@ class SessionService : Service() {
             "nativeSleep" to (nativeSleepToken != null),
         ))
         if (shouldSuspend) {
+            // A new suspension starts fresh resume state.
+            SessionState.resumeFailed = false
             freezePending = true
             freezeCancelled = false
             val freezeSteamToken = steamSleepToken
@@ -1595,7 +1598,15 @@ class SessionService : Service() {
             }
         } else {
             val suspendKind = SessionState.suspendKind ?: SuspendKind.USER
-            val bridgeOk = com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh().isActive
+            // A single refused PING must not strand the session: tolerate transient failures.
+            var bridgeStatus = com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(bypassLatch = true)
+            var probeRetries = 0
+            while (!bridgeStatus.isActive && probeRetries < 2) {
+                runCatching { Thread.sleep(150) }
+                bridgeStatus = com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(bypassLatch = true)
+                probeRetries++
+            }
+            val bridgeOk = bridgeStatus.isActive
             var resumeCheck = SuspendPolicy.checkResume(
                 kind = suspendKind,
                 wantsOptimizations = !resumeWithoutOptimizations,
@@ -1621,7 +1632,29 @@ class SessionService : Service() {
                     explicitResume = explicitResumeRequested,
                 )
             }
+            com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                this, "session", "resume-decision",
+                fields = mapOf(
+                    "allowed" to resumeCheck.allowed.toString(),
+                    "block" to resumeCheck.block.name,
+                    "bridge_ok" to bridgeOk.toString(),
+                    "tweaks_active" to com.droiddeck.launcher.core.privileged.GameModeEngine.isActive().toString(),
+                    "kind" to suspendKind.name,
+                    "wants_optimizations" to (!resumeWithoutOptimizations).toString(),
+                ),
+            )
             if (!resumeCheck.allowed) {
+                if (resumeCheck.block == ResumeBlock.BRIDGE_UNAVAILABLE && !bridgeRecoveryPending) {
+                    // Heal the bridge instead of stranding the session: a saved pairing
+                    // exists, so a restart should restore it; re-evaluate once after.
+                    bridgeRecoveryPending = true
+                    com.droiddeck.launcher.core.privileged.PrivilegedBridge.tryAutoStart(this)
+                    mainHandler.postDelayed(Runnable {
+                        bridgeRecoveryPending = false
+                        explicitResumeRequested = true
+                        if (SessionState.running && SessionState.suspended) updateSuspendPolicy()
+                    }, 5000L)
+                }
                 explicitResumeRequested = false
                 SessionState.resumeRequested = false
                 SessionState.resumeFailed = true

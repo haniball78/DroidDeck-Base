@@ -1068,6 +1068,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                             withoutOptimizationsEnabled = withoutEnabled,
                             withoutOptimizationsDisabledReason = if (withoutEnabled) null else
                                 "Connect the charger or wait until the battery reaches 20%.",
+                            highlightWithoutOptimizations = SessionState.resumeFailed,
                             onResumeWithOptimizations = { SessionService.resumeWithOptimizations(this@SessionActivity) },
                             onResumeWithoutOptimizations = { SessionService.resumeWithoutOptimizations(this@SessionActivity) },
                             onFinish = {

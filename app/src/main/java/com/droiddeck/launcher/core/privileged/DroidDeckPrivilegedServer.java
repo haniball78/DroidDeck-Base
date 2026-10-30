@@ -59,7 +59,8 @@ public class DroidDeckPrivilegedServer {
         System.out.println(TAG + ": Starting daemon with UID=" + uid + ", PID=" + pid);
 
         int port = daemonPort();
-        try (ServerSocket serverSocket = new ServerSocket(port, 10, InetAddress.getByName("127.0.0.1"))) {
+        // Generous backlog: return-to-foreground bursts must not refuse PINGs.
+        try (ServerSocket serverSocket = new ServerSocket(port, 50, InetAddress.getByName("127.0.0.1"))) {
             serverSocketRef = serverSocket;
             System.out.println(TAG + ": Listening on 127.0.0.1:" + port);
 
