@@ -65,6 +65,35 @@ internal class TierActionQueue {
     }
 }
 
+// Tier commands as (name, command) pairs, in execution order, so each step's exit is logged separately.
+internal fun buildTierCommands(
+    tier: DynamicAdaptiveGovernor.AdaptiveTier,
+    pid: Int,
+): List<Pair<String, String>> {
+    val commands = mutableListOf<Pair<String, String>>()
+    when (tier) {
+        DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF -> {
+            commands += "kill-all" to "am kill-all 2>/dev/null"
+            if (pid > 1) {
+                commands += "renice" to "renice -n -5 -p $pid 2>/dev/null"
+                commands += "taskset" to "taskset -p 7c $pid 2>/dev/null"
+            }
+        }
+        DynamicAdaptiveGovernor.AdaptiveTier.BALANCED_COOL -> {
+            if (pid > 1) {
+                commands += "renice" to "renice -n -10 -p $pid 2>/dev/null"
+                commands += "taskset" to "taskset -p 7c $pid 2>/dev/null"
+            }
+        }
+        DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST -> {
+            if (pid > 1) {
+                commands += "renice" to "renice -n -14 -p $pid 2>/dev/null"
+            }
+        }
+    }
+    return commands
+}
+
 object DynamicAdaptiveGovernor {
     private const val TAG = "AdaptiveGovernor"
 
@@ -234,28 +263,6 @@ object DynamicAdaptiveGovernor {
             AdaptiveTier.HEADROOM_BOOST -> "4"
         }
         val limitCmd = "settings put global background_process_limit $limit 2>/dev/null"
-        val script = buildString {
-            when (tier) {
-                AdaptiveTier.COOLING_RELIEF -> {
-                    append("am kill-all 2>/dev/null; ")
-                    if (pid > 1) {
-                        append("renice -n -5 -p $pid 2>/dev/null; ")
-                        append("taskset -p 7c $pid 2>/dev/null; ")
-                    }
-                }
-                AdaptiveTier.BALANCED_COOL -> {
-                    if (pid > 1) {
-                        append("renice -n -10 -p $pid 2>/dev/null; ")
-                        append("taskset -p 7c $pid 2>/dev/null; ")
-                    }
-                }
-                AdaptiveTier.HEADROOM_BOOST -> {
-                    if (pid > 1) {
-                        append("renice -n -14 -p $pid 2>/dev/null; ")
-                    }
-                }
-            }
-        }
 
         actionQueue.submit(
             guard = { running && (activeSessionGen == 0 || sessionGen == activeSessionGen) },
@@ -269,8 +276,13 @@ object DynamicAdaptiveGovernor {
                         context, "device.change", "governor-tier",
                         fields = mapOf("tier" to tier.name, "limit" to limit),
                     )
-                    if (script.isNotEmpty()) {
-                        PrivilegedBridge.executeChecked(script, PrivilegedBridge.DEFAULT_TIMEOUT_MS)
+                    // One exec per command: a single script exit cannot name the failing step.
+                    for ((name, cmd) in buildTierCommands(tier, pid)) {
+                        val exit = PrivilegedBridge.executeChecked(cmd, PrivilegedBridge.DEFAULT_TIMEOUT_MS).exitCode
+                        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                            context, "device.change", "governor-cmd",
+                            fields = mapOf("tier" to tier.name, "cmd" to name, "exit" to exit.toString()),
+                        )
                     }
                 } catch (t: Throwable) {
                     Log.w(TAG, "applyTierAction error: $limitCmd", t)
