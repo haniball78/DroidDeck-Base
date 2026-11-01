@@ -1,6 +1,7 @@
 package com.droiddeck.launcher.core.privileged
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GovernorTierCommandsTest {
@@ -30,15 +31,17 @@ class GovernorTierCommandsTest {
         )
     }
 
-    @Test fun boostHasNoPidCommandsBecauseReniceIsDropped() {
+    @Test fun boostPinsPidAndThreadsToFcAppSide() {
         assertEquals(
             emptyList<Pair<String, String>>(),
             buildDaemonTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST),
         )
-        assertEquals(
-            emptyList<Pair<String, String>>(),
-            buildAppTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST, 1234),
-        )
+        val cmds = buildAppTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST, 1234)
+        assertEquals(2, cmds.size)
+        assertEquals("taskset" to "taskset -p fc 1234 2>/dev/null", cmds[0])
+        assertEquals("taskset-threads", cmds[1].first)
+        assertTrue(cmds[1].second.contains("/proc/1234/task"))
+        assertTrue(cmds[1].second.contains("taskset -p fc"))
     }
 
     @Test fun pidAtMostOneSkipsAppCommands() {

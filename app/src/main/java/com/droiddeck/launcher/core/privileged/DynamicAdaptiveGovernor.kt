@@ -89,7 +89,17 @@ internal fun buildAppTierCommands(
         DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF,
         DynamicAdaptiveGovernor.AdaptiveTier.BALANCED_COOL ->
             listOf("taskset" to "taskset -p 7c $pid 2>/dev/null")
-        DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST -> emptyList()
+        // HEADROOM_BOOST is now a real boost, app-side only: pin the
+        // game pid and its threads to fc (cores 2-7, performance +
+        // prime), the TURBO mask. No renice, no kill-all, no daemon
+        // command, and no background-limit change beyond 4, so the
+        // tier is reversible: BALANCED_COOL re-pins to 7c, and the
+        // pinning dies with the game process at session end.
+        DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST ->
+            listOf(
+                "taskset" to "taskset -p fc $pid 2>/dev/null",
+                "taskset-threads" to buildBoostThreadsCommand(pid, "fc"),
+            )
     }
 }
 

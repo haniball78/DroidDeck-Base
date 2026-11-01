@@ -1489,13 +1489,20 @@ private fun AdvancedSetupTab(
 
     val gameModeGroup: @Composable () -> Unit = {
         SettingsGroup(stringResource(R.string.setup_adv_group_gamemode)) {
+            if (s.sessionRunning) {
+                Text(
+                    stringResource(R.string.setup_adv_toggles_next_session),
+                    fontSize = 12.sp, color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                )
+            }
             ToggleRow(
                 host = host,
                 key = "adv-gamemode-engine",
                 label = stringResource(R.string.setup_adv_gamemode),
                 hint = stringResource(R.string.setup_adv_gamemode_hint),
                 checked = gameModeEngine,
-                enabled = masterEnabled,
+                enabled = com.droiddeck.launcher.core.privileged.AdvancedTogglePolicy.enabled(masterEnabled, s.sessionRunning),
             ) { on ->
                 gameModeEngine = on
                 SessionPrefs.setGameModeEngine(ctx, on)
@@ -1506,7 +1513,7 @@ private fun AdvancedSetupTab(
                 label = stringResource(R.string.setup_adv_aggressive),
                 hint = stringResource(R.string.setup_adv_aggressive_hint),
                 checked = gameModeAggressive,
-                enabled = masterEnabled && gameModeEngine,
+                enabled = com.droiddeck.launcher.core.privileged.AdvancedTogglePolicy.enabled(masterEnabled, s.sessionRunning, gameModeEngine),
             ) { on ->
                 gameModeAggressive = on
                 SessionPrefs.setGameModeAggressive(ctx, on)
@@ -1517,7 +1524,7 @@ private fun AdvancedSetupTab(
                 label = stringResource(R.string.setup_adv_dynamic_gov),
                 hint = stringResource(R.string.setup_adv_dynamic_gov_hint),
                 checked = dynamicGovernor,
-                enabled = masterEnabled && gameModeEngine,
+                enabled = com.droiddeck.launcher.core.privileged.AdvancedTogglePolicy.enabled(masterEnabled, s.sessionRunning, gameModeEngine),
             ) { on ->
                 dynamicGovernor = on
                 SessionPrefs.setDynamicGovernor(ctx, on)
@@ -1527,13 +1534,20 @@ private fun AdvancedSetupTab(
 
     val freezerGroup: @Composable () -> Unit = {
         SettingsGroup(stringResource(R.string.setup_adv_group_freezer)) {
+            if (s.sessionRunning) {
+                Text(
+                    stringResource(R.string.setup_adv_toggles_next_session),
+                    fontSize = 12.sp, color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                )
+            }
             ToggleRow(
                 host = host,
                 key = "adv-deep-doze",
                 label = stringResource(R.string.setup_adv_deep_doze),
                 hint = stringResource(R.string.setup_adv_deep_doze_hint),
                 checked = deepSystemDoze,
-                enabled = masterEnabled,
+                enabled = com.droiddeck.launcher.core.privileged.AdvancedTogglePolicy.enabled(masterEnabled, s.sessionRunning),
             ) { on ->
                 deepSystemDoze = on
                 SessionPrefs.setDeepSystemDoze(ctx, on)
@@ -1544,7 +1558,7 @@ private fun AdvancedSetupTab(
                 label = stringResource(R.string.setup_adv_freeze_bloat),
                 hint = stringResource(R.string.setup_adv_freeze_bloat_hint),
                 checked = freezeBloatware,
-                enabled = masterEnabled,
+                enabled = com.droiddeck.launcher.core.privileged.AdvancedTogglePolicy.enabled(masterEnabled, s.sessionRunning),
             ) { on ->
                 freezeBloatware = on
                 SessionPrefs.setFreezeBloatware(ctx, on)
@@ -1555,7 +1569,7 @@ private fun AdvancedSetupTab(
                 label = stringResource(R.string.setup_adv_freeze_user_apps),
                 hint = stringResource(R.string.setup_adv_freeze_user_apps_hint),
                 checked = freezeUserApps,
-                enabled = masterEnabled,
+                enabled = com.droiddeck.launcher.core.privileged.AdvancedTogglePolicy.enabled(masterEnabled, s.sessionRunning),
             ) { on ->
                 freezeUserApps = on
                 SessionPrefs.setFreezeUserApps(ctx, on)

@@ -50,6 +50,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.privileged.SessionStartTweaksDecisionTest" \
             --tests "com.droiddeck.launcher.core.privileged.PackagesVerifyChunksTest" \
             --tests "com.droiddeck.launcher.core.privileged.AdvancedGeneralFixesTest" \
+            --tests "com.droiddeck.launcher.core.privileged.AdvancedTogglePolicyTest" \
             -PndkVersion=29.0.14206865 \
             -PskipRust=true \
             --stacktrace --no-daemon 2>&1 | tee /tmp/unified-unit-tests.log
