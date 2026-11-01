@@ -98,10 +98,11 @@ internal fun parseThreadsDiag(output: String?): ThreadsDiag? {
 // App-side boost commands only: the guest pid is app-owned, so the shell
 // daemon cannot taskset it cross-UID. Negative renice is dropped entirely:
 // it requires CAP_SYS_NICE, which neither the app nor the daemon has.
+// Writing -1000 to oom_score_adj is dropped for the same reason: it
+// requires CAP_SYS_RESOURCE, and a device log read back 0 after the attempt.
 internal fun buildBoostAppCommands(pid: Int, mask: String): List<Pair<String, String>> {
     return listOf(
         "taskset-pid" to "taskset -p $mask $pid 2>/dev/null",
-        "oom" to "echo -1000 > /proc/$pid/oom_score_adj 2>/dev/null",
         "taskset-threads" to buildBoostThreadsCommand(pid, mask),
     )
 }
@@ -316,13 +317,12 @@ object GameModeEngine {
         }
         val tasksetExit = exits["taskset-pid"] ?: -1
         val threadsExit = exits["taskset-threads"] ?: -1
-        val oomExit = exits["oom"] ?: -1
         val (oomReadExit, oomReadOutput) = runAppCommandOutput("cat /proc/$pid/oom_score_adj 2>/dev/null")
         val pidBoostFields = mutableMapOf(
             "mask" to mask,
             "taskset" to tasksetExit.toString(),
             "threads" to threadsExit.toString(),
-            "oom" to oomExit.toString(),
+            "oom" to "skipped",
             "oom_value" to if (oomReadExit == 0) oomReadOutput else "unreadable",
             "renice" to "skipped",
             "source" to "app",
@@ -361,7 +361,7 @@ object GameModeEngine {
             } catch (_: Exception) {}
         }, "pid-affinity-followup").start()
 
-        val desc = "pid $pid boost attempted (affinity=0x$mask [cores=${if (aggressiveActive) "2-7" else "2-6"}], taskset=$tasksetExit, threads=$threadsExit, oom=$oomExit, renice=skipped)"
+        val desc = "pid $pid boost attempted (affinity=0x$mask [cores=${if (aggressiveActive) "2-7" else "2-6"}], taskset=$tasksetExit, threads=$threadsExit, oom=skipped, renice=skipped)"
         Log.i(TAG, "boostSessionProcess: $desc")
         return desc
     }

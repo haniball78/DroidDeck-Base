@@ -359,8 +359,9 @@ object PrivilegedBridge {
             val action = if (aggressive) "BOOST_PERFORMANCE_TURBO:$targetPid" else "BOOST_PERFORMANCE:$targetPid"
             runEmbeddedAction(action)
         } else {
+            // No oom_score_adj write: -1000 requires CAP_SYS_RESOURCE, and a
+            // device log read back 0 after the attempt.
             val script = buildString {
-                append("echo -1000 > /proc/$targetPid/oom_score_adj 2>/dev/null || true; ")
                 append("renice -n $nice -p $targetPid 2>/dev/null || true; ")
                 if (aggressive) append("cmd power set-fixed-performance-mode-enabled true 2>/dev/null || true")
             }

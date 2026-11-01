@@ -7,18 +7,16 @@ import org.junit.Test
 class GameModeBoostTest {
 
     @Test
-    fun boostCommandsHaveNoReniceAndUseAppSideTaskset() {
+    fun boostCommandsHaveNoReniceOrOomWriteAndUseAppSideTaskset() {
         val commands = buildBoostAppCommands(1234, "7c")
-        assertEquals(3, commands.size)
+        assertEquals(2, commands.size)
         assertEquals("taskset-pid", commands[0].first)
         assertEquals("taskset -p 7c 1234 2>/dev/null", commands[0].second)
-        assertEquals("oom", commands[1].first)
-        assertTrue(commands[1].second.contains("/proc/1234/oom_score_adj"))
-        assertTrue(commands[1].second.contains("-1000"))
-        assertEquals("taskset-threads", commands[2].first)
-        assertTrue(commands[2].second.contains("/proc/1234/task"))
-        assertTrue(commands[2].second.contains("taskset -p 7c"))
+        assertEquals("taskset-threads", commands[1].first)
+        assertTrue(commands[1].second.contains("/proc/1234/task"))
+        assertTrue(commands[1].second.contains("taskset -p 7c"))
         assertTrue(commands.all { !it.second.contains("renice") })
+        assertTrue(commands.all { !it.second.contains("oom_score_adj") })
     }
 
     @Test
