@@ -26,16 +26,44 @@ class PlainResumePolicyTest {
     }
 
     @Test
+    fun thermalSevereFallsBackWhenNoTweaksAreActive() {
+        assertTrue(
+            ResumeOptimizationPolicy.fallbackWithoutOptimizations(
+                ResumeBlock.THERMAL_SEVERE_SAFETY,
+                tweaksActive = false,
+            ),
+        )
+    }
+
+    @Test
+    fun thermalSevereDoesNotFallBackWhenTweaksAreActive() {
+        assertFalse(
+            ResumeOptimizationPolicy.fallbackWithoutOptimizations(
+                ResumeBlock.THERMAL_SEVERE_SAFETY,
+                tweaksActive = true,
+            ),
+        )
+    }
+
+    @Test
+    fun safetyPlainResumeSkipsThermalCheck() {
+        val check = SuspendPolicy.checkResume(
+            kind = SuspendKind.SAFETY,
+            wantsOptimizations = false,
+            bridgeOk = true,
+            batteryLevel = 80,
+            charging = false,
+            thermalStatus = 3,
+            explicitResume = true,
+        )
+        assertTrue(check.allowed)
+    }
+
+    @Test
     fun otherBlocksNeverFallBack() {
         assertFalse(
             ResumeOptimizationPolicy.fallbackWithoutOptimizations(
                 ResumeBlock.BATTERY_LOW_SAFETY,
-                tweaksActive = false,
-            ),
-        )
-        assertFalse(
-            ResumeOptimizationPolicy.fallbackWithoutOptimizations(
-                ResumeBlock.THERMAL_SEVERE_SAFETY,
                 tweaksActive = false,
             ),
         )

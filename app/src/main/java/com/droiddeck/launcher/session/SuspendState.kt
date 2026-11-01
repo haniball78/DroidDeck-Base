@@ -230,6 +230,9 @@ internal object SuspendPolicy {
 
 internal object ResumeOptimizationPolicy {
     fun fallbackWithoutOptimizations(block: ResumeBlock, tweaksActive: Boolean): Boolean {
-        return block == ResumeBlock.BRIDGE_UNAVAILABLE && !tweaksActive
+        // Thermal fallback is safe only when tweaks are already off: resuming
+        // plain then continues the current state instead of dropping tweaks.
+        return (block == ResumeBlock.BRIDGE_UNAVAILABLE && !tweaksActive) ||
+            (block == ResumeBlock.THERMAL_SEVERE_SAFETY && !tweaksActive)
     }
 }

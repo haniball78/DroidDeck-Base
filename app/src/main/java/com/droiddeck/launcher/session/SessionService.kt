@@ -105,6 +105,8 @@ class SessionService : Service() {
     private var safetyMonitorGen = 0
     private var recoveryNotificationPosted = false
     private var explicitResumeRequested = false
+    private var lastResumeBlockedNotifySeq = -1
+    private var lastResumeBlockedNotifyBlock: ResumeBlock? = null
     private var resumeWithoutOptimizations = false
     private var bridgeRecoveryPending = false
     private var bridgeRecoveryExhausted = false
@@ -1698,7 +1700,13 @@ class SessionService : Service() {
                         return
                     }
                 }
-                explicitResumeRequested = false
+                // A thermal block must not consume the explicit tap: the user
+                // already tapped, so the next visible re-evaluation should
+                // succeed once the device cools instead of looping back to
+                // EXPLICIT_REQUIRED.
+                if (resumeCheck.block != ResumeBlock.THERMAL_SEVERE_SAFETY) {
+                    explicitResumeRequested = false
+                }
                 SessionState.resumeRequested = false
                 SessionState.resumeFailed = true
                 SessionState.resumeFailures++
@@ -1712,7 +1720,16 @@ class SessionService : Service() {
                     ResumeBlock.EXPLICIT_REQUIRED -> "Resume needs an explicit tap."
                     ResumeBlock.NONE -> "Resume blocked."
                 }
-                postSafetyNotification("Cannot resume: $reason")
+                // EXPLICIT_REQUIRED is a waiting state, not an error to notify,
+                // and a repeated block in one suspend episode notifies once.
+                if (resumeCheck.block != ResumeBlock.EXPLICIT_REQUIRED &&
+                    !(suspendSeq == lastResumeBlockedNotifySeq &&
+                        resumeCheck.block == lastResumeBlockedNotifyBlock)
+                ) {
+                    lastResumeBlockedNotifySeq = suspendSeq
+                    lastResumeBlockedNotifyBlock = resumeCheck.block
+                    postSafetyNotification("Cannot resume: $reason")
+                }
                 refreshNotification()
                 // The operation concluded with no callback coming: release the guard,
                 // or the recovery re-evaluation and every later tap would return early.
