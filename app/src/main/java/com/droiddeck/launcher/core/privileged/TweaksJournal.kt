@@ -234,6 +234,7 @@ internal object JournalRollback {
         val remaining: List<JournalItem>,
         val failedKey: String?,
         val completed: List<JournalItem> = emptyList(),
+        val failedStage: String? = null,
     )
 
     fun rollback(
@@ -245,32 +246,52 @@ internal object JournalRollback {
         for (index in items.indices.reversed()) {
             val item = items[index]
             if (!SafetyChecks.isValidSettingValue(item.key, item.original) || item.restoreCmd.contains("Daemon error")) {
-                return Result(false, items.subList(0, index + 1), item.key, completed)
+                return Result(false, items.subList(0, index + 1), item.key, completed, "corrupt")
             }
             if (execute(item.restoreCmd) != 0) {
-                return Result(false, items.subList(0, index + 1), item.key, completed)
+                return Result(false, items.subList(0, index + 1), item.key, completed, "execute")
             }
             val verified = when (item.verifyMode) {
                 JournalVerifyMode.VALUE -> {
-                    val raw = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed)
+                    val raw = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed, "verify-unreadable")
                     SafetyChecks.parseBackgroundLimit(raw) == item.original
                 }
                 JournalVerifyMode.CONTAINS -> {
-                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed)
+                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed, "verify-unreadable")
                     output.contains(item.verifyExpect ?: "")
                 }
                 JournalVerifyMode.NOT_CONTAINS -> {
-                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed)
+                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed, "verify-unreadable")
                     !output.contains(item.verifyExpect ?: "")
                 }
                 JournalVerifyMode.UNVERIFIED -> true
             }
             if (!verified) {
-                return Result(false, items.subList(0, index + 1), item.key, completed)
+                return Result(false, items.subList(0, index + 1), item.key, completed, "verify-mismatch")
             }
             completed += item
         }
         return Result(true, emptyList(), null, completed)
+    }
+}
+
+internal object AppFreezerPackageJournal {
+    private val packagePattern = Regex("^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$")
+
+    fun parseSuspendedNames(output: String): List<String> {
+        val names = ArrayList<String>()
+        for (line in output.lines()) {
+            val name = line.trim()
+            if (packagePattern.matches(name) && !names.contains(name)) names.add(name)
+        }
+        return names
+    }
+
+    fun splitItem(item: JournalItem, remaining: List<String>): JournalItem {
+        return item.copy(
+            restoreCmd = AppFreezerEngine.packagesRestoreCmd(remaining),
+            verifyCmd = AppFreezerEngine.packagesVerifyCmd(remaining),
+        )
     }
 }
 
@@ -430,46 +451,114 @@ object Tweaks {
     }
 
     private fun rollbackLocked(context: Context): Boolean {
-        val current = load(context) ?: return false
+        var current = load(context) ?: return false
         if (current.isEmpty()) {
             return AtomicStateFile.delete(journalFile(context))
         }
-        DiagnosticsLog.log(context, "safety.journal", "rollback-started", fields = mapOf("items" to current.size.toString()))
-        val result = JournalRollback.rollback(
-            current,
-            execute = { cmd -> execChecked(context, cmd).exitCode },
-            readVerified = { item ->
-                val verifyCmd = effectiveVerifyCmd(item)
-                if (verifyCmd == null) {
-                    null
-                } else {
-                    val result = execChecked(context, verifyCmd)
-                    if (result.exitCode != 0) null else result.output
-                }
-            },
-        )
-        for (item in result.completed) {
+        while (true) {
+            DiagnosticsLog.log(context, "safety.journal", "rollback-started", fields = mapOf("items" to current.size.toString()))
+            val result = JournalRollback.rollback(
+                current,
+                execute = { cmd -> execChecked(context, cmd).exitCode },
+                readVerified = { item ->
+                    val verifyCmd = effectiveVerifyCmd(item)
+                    if (verifyCmd == null) {
+                        null
+                    } else {
+                        val read = execChecked(context, verifyCmd)
+                        if (read.exitCode != 0) null else read.output
+                    }
+                },
+            )
+            for (item in result.completed) {
+                DiagnosticsLog.log(
+                    context, "safety.restore", "restored",
+                    fields = mapOf(
+                        "key" to item.key,
+                        "verify" to if (item.verifyMode == JournalVerifyMode.UNVERIFIED) "unverified" else "verified",
+                    ),
+                )
+            }
+            result.failedKey?.let { key ->
+                DiagnosticsLog.log(
+                    context, "safety.restore", "failed",
+                    fields = mapOf(
+                        "key" to key,
+                        "verify" to "failed",
+                        "stage" to (result.failedStage ?: "unknown"),
+                    ),
+                )
+            }
             DiagnosticsLog.log(
-                context, "safety.restore", "restored",
+                context, "safety.journal", if (result.success) "rollback-finished" else "rollback-failed",
+                fields = mapOf("restored" to result.completed.size.toString(), "remaining" to result.remaining.size.toString()),
+            )
+            if (result.success) {
+                return AtomicStateFile.delete(journalFile(context))
+            }
+            if (result.failedKey != "app-freezer-packages") {
+                Log.w(TAG, "rollback failed at ${result.failedKey}, journal kept")
+                save(context, result.remaining)
+                return false
+            }
+            val failedItem = current.firstOrNull { it.key == "app-freezer-packages" } ?: run {
+                save(context, result.remaining)
+                return false
+            }
+            val targets = storedTargets(failedItem.restoreCmd)
+            if (targets.isEmpty()) {
+                save(context, result.remaining)
+                return false
+            }
+            var bridgeDown = false
+            for (target in targets) {
+                if (execChecked(context, "cmd package unsuspend --user 0 $target 2>/dev/null").exitCode == -1) {
+                    bridgeDown = true
+                }
+            }
+            if (bridgeDown) {
+                save(context, result.remaining)
+                return false
+            }
+            val namesRead = execChecked(context, AppFreezerEngine.packagesVerifyNamesCmd(targets))
+            if (namesRead.exitCode != 0) {
+                save(context, result.remaining)
+                return false
+            }
+            val still = AppFreezerPackageJournal.parseSuspendedNames(namesRead.output)
+            if (still.any { it !in targets }) {
+                save(context, result.remaining)
+                return false
+            }
+            if (still.isEmpty()) {
+                DiagnosticsLog.log(
+                    context, "safety.restore", "restored",
+                    fields = mapOf("key" to "app-freezer-packages", "verify" to "verified"),
+                )
+                current = result.remaining.filter { it.key != "app-freezer-packages" }
+                if (current.isEmpty()) {
+                    return AtomicStateFile.delete(journalFile(context))
+                }
+                save(context, current)
+                continue
+            }
+            DiagnosticsLog.log(
+                context, "safety.restore", "still-suspended",
                 fields = mapOf(
-                    "key" to item.key,
-                    "verify" to if (item.verifyMode == JournalVerifyMode.UNVERIFIED) "unverified" else "verified",
+                    "key" to "app-freezer-packages",
+                    "count" to still.size.toString(),
+                    "packages" to still.joinToString(","),
                 ),
             )
+            if (still.size == targets.size) {
+                save(context, result.remaining)
+                return false
+            }
+            val split = AppFreezerPackageJournal.splitItem(failedItem, still)
+            val remaining = result.remaining.map { if (it.key == "app-freezer-packages") split else it }
+            save(context, remaining)
+            return false
         }
-        result.failedKey?.let { key ->
-            DiagnosticsLog.log(context, "safety.restore", "failed", fields = mapOf("key" to key, "verify" to "failed"))
-        }
-        DiagnosticsLog.log(
-            context, "safety.journal", if (result.success) "rollback-finished" else "rollback-failed",
-            fields = mapOf("restored" to result.completed.size.toString(), "remaining" to result.remaining.size.toString()),
-        )
-        if (result.success) {
-            return AtomicStateFile.delete(journalFile(context))
-        }
-        Log.w(TAG, "rollback failed at ${result.failedKey}, journal kept")
-        save(context, result.remaining)
-        return false
     }
 
     fun applyExistingKeyChange(context: Context, key: String, applyCmd: String): Boolean {

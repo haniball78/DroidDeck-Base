@@ -31,6 +31,18 @@ object AppFreezerEngine {
         return "for p in ${targets.joinToString(" ")}; do dumpsys package \$p 2>/dev/null | grep -q \"suspended=true\" && echo \$p; done | wc -l"
     }
 
+    internal fun packagesVerifyNamesCmd(targets: List<String>): String {
+        return "for p in ${targets.joinToString(" ")}; do dumpsys package \$p 2>/dev/null | grep -q \"suspended=true\" && echo \$p; done"
+    }
+
+    internal fun packagesRestoreCmd(targets: List<String>): String {
+        return buildString {
+            targets.chunked(50).forEach { chunk ->
+                append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
+            }
+        }
+    }
+
     /**
      * Non-essential OEM background services, telemetry trackers, and preloaded bloatware
      * that poll CPU/battery during gameplay without providing any gaming value.
