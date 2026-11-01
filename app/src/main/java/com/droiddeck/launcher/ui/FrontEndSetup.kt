@@ -1155,7 +1155,13 @@ private fun AdvancedSetupTab(
                 hint = stringResource(R.string.setup_adv_safe_restore_hint),
                 button = if (restoring) stringResource(R.string.setup_adv_restoring) else stringResource(R.string.setup_adv_safe_restore_btn),
                 onClick = {
-                    if (restoring) return@ActionRow
+                    if (restoring) {
+                        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                            ctx, "advanced.action", "safe-restore-ignored",
+                            fields = mapOf("restoring" to "true"),
+                        )
+                        return@ActionRow
+                    }
                     com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                         ctx, "advanced.action", "safe-restore",
                     )
@@ -1175,6 +1181,10 @@ private fun AdvancedSetupTab(
                                 com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.getDiagnosticReport(ctx)
                         }
                         val remaining = com.droiddeck.launcher.core.privileged.Tweaks.journalSnapshot(ctx).size
+                        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                            ctx, "advanced.action", "safe-restore-result",
+                            fields = com.droiddeck.launcher.core.privileged.SafeRestoreResult.resultFields(gameModeOk, freezerOk, remaining),
+                        )
                         safeRestoreReport = if (com.droiddeck.launcher.core.privileged.SafeRestoreResult.succeeded(gameModeOk, freezerOk)) {
                             ctx.getString(R.string.setup_adv_safe_restore_success)
                         } else {

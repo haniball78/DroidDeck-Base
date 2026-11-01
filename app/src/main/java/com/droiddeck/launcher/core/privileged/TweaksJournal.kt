@@ -297,6 +297,13 @@ internal object AppFreezerPackageJournal {
 
 internal object SafeRestoreResult {
     fun succeeded(gameModeOk: Boolean, freezerOk: Boolean): Boolean = gameModeOk && freezerOk
+
+    fun resultFields(gameModeOk: Boolean, freezerOk: Boolean, journalRemaining: Int): Map<String, String> = mapOf(
+        "game_mode_ok" to gameModeOk.toString(),
+        "freezer_ok" to freezerOk.toString(),
+        "journal_remaining" to journalRemaining.toString(),
+        "succeeded" to succeeded(gameModeOk, freezerOk).toString(),
+    )
 }
 
 internal object PackagesVerifyChunks {

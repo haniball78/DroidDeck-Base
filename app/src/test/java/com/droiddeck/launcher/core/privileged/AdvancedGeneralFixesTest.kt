@@ -1,5 +1,6 @@
 package com.droiddeck.launcher.core.privileged
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,6 +13,18 @@ class AdvancedGeneralFixesTest {
         assertFalse(SafeRestoreResult.succeeded(true, false))
         assertFalse(SafeRestoreResult.succeeded(false, true))
         assertFalse(SafeRestoreResult.succeeded(false, false))
+    }
+
+    @Test
+    fun safeRestoreResultFieldsCarryOutcomeAndJournalRemainder() {
+        val fields = SafeRestoreResult.resultFields(true, false, 3)
+        assertEquals("true", fields["game_mode_ok"])
+        assertEquals("false", fields["freezer_ok"])
+        assertEquals("3", fields["journal_remaining"])
+        assertEquals("false", fields["succeeded"])
+        val success = SafeRestoreResult.resultFields(true, true, 0)
+        assertEquals("true", success["succeeded"])
+        assertEquals("0", success["journal_remaining"])
     }
 
     @Test
