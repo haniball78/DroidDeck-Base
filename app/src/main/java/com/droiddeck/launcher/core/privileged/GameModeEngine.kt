@@ -75,6 +75,21 @@ internal object FixedPerformanceGetterDecision {
     }
 }
 
+internal fun buildBoostThreadsCommand(pid: Int, mask: String): String {
+    return "[ -d /proc/$pid ] || exit 1; failed=0; for tid in /proc/$pid/task/*; do [ -d \"$" + "$" + "tid\" ] && taskset -p $mask \${tid##*/} 2>/dev/null || failed=1; done; exit \$failed"
+}
+
+// App-side boost commands only: the guest pid is app-owned, so the shell
+// daemon cannot taskset it cross-UID. Negative renice is dropped entirely:
+// it requires CAP_SYS_NICE, which neither the app nor the daemon has.
+internal fun buildBoostAppCommands(pid: Int, mask: String): List<Pair<String, String>> {
+    return listOf(
+        "taskset-pid" to "taskset -p $mask $pid 2>/dev/null",
+        "oom" to "echo -1000 > /proc/$pid/oom_score_adj 2>/dev/null",
+        "taskset-threads" to buildBoostThreadsCommand(pid, mask),
+    )
+}
+
 object GameModeEngine {
     private const val TAG = "GameModeEngine"
     private const val MARKER_FILE = "gamemode-marker.txt"
@@ -259,36 +274,41 @@ object GameModeEngine {
         if (sessionGen != 0 && activeGen.get() != sessionGen) return "pid_boost: obsolete gen"
 
         val mask = if (aggressiveActive) TURBO_CORES_MASK else COOL_PERF_CORES_MASK
-        val nice = if (aggressiveActive) "-20" else "-10"
-
-        val pinScript = """
-            renice -n $nice -p $pid 2>/dev/null || true
-            echo -1000 > /proc/$pid/oom_score_adj 2>/dev/null || true
-            taskset -p $mask $pid 2>/dev/null || true
-            for tid in /proc/$pid/task/*; do
-                [ -d "${'$'}tid" ] && taskset -p $mask ${'$'}{tid##*/} 2>/dev/null || true
-            done
-        """.trimIndent()
-
-        exec(context, pinScript)
+        val exits = mutableMapOf<String, Int>()
+        for ((name, cmd) in buildBoostAppCommands(pid, mask)) {
+            exits[name] = runAppTierCommand(cmd)
+        }
+        val tasksetExit = exits["taskset-pid"] ?: -1
+        val threadsExit = exits["taskset-threads"] ?: -1
+        val oomExit = exits["oom"] ?: -1
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "device.change", "pid-boost",
+            fields = mapOf(
+                "mask" to mask,
+                "taskset" to tasksetExit.toString(),
+                "threads" to threadsExit.toString(),
+                "oom" to oomExit.toString(),
+                "renice" to "skipped",
+                "source" to "app",
+            ),
+        )
 
         // Asynchronously re-apply affinity after 1.5s when Wine/guest has spawned its worker threads
         Thread({
             try {
                 Thread.sleep(1500)
                 if (applied && activeGen.get() > 0 && (sessionGen == 0 || activeGen.get() == sessionGen)) {
-                    val followUpScript = """
-                        for tid in /proc/$pid/task/*; do
-                            [ -d "${'$'}tid" ] && taskset -p $mask ${'$'}{tid##*/} 2>/dev/null || true
-                        done
-                    """.trimIndent()
-                    exec(context, followUpScript)
-                    Log.d(TAG, "boostSessionProcess: follow-up thread affinity re-applied for pid=$pid")
+                    val followExit = runAppTierCommand(buildBoostThreadsCommand(pid, mask))
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                        context, "device.change", "pid-boost-followup",
+                        fields = mapOf("threads" to followExit.toString(), "source" to "app"),
+                    )
+                    Log.d(TAG, "boostSessionProcess: follow-up thread affinity exit=$followExit for pid=$pid")
                 }
             } catch (_: Exception) {}
         }, "pid-affinity-followup").start()
 
-        val desc = "pid $pid boosted deeply (nice=$nice, affinity=0x$mask [cores=${if (aggressiveActive) "2-7" else "2-6"}])"
+        val desc = "pid $pid boost attempted (affinity=0x$mask [cores=${if (aggressiveActive) "2-7" else "2-6"}], taskset=$tasksetExit, threads=$threadsExit, oom=$oomExit, renice=skipped)"
         Log.i(TAG, "boostSessionProcess: $desc")
         return desc
     }
