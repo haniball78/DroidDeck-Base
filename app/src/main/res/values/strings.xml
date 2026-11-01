@@ -3142,6 +3142,10 @@
     <string name="diagnostics_note">This log never contains pairing codes, daemon tokens, or passwords — only what happened, so it can be sent for analysis.</string>
     <string name="diagnostics_toggle">Enable diagnostics log</string>
     <string name="diagnostics_delete">Delete latest file</string>
+    <string name="performance_title">Performance log</string>
+    <string name="performance_toggle">Enable performance log</string>
+    <string name="performance_note">Samples every 60 seconds during a session only: battery, heat, governor tier and tweaks. Off by default, so no file is created until you enable it.</string>
+    <string name="performance_share">Share performance log</string>
     <string name="repair_title">Repair stuck settings</string>
     <string name="repair_scan">Scan journal</string>
     <string name="repair_repair">Repair</string>

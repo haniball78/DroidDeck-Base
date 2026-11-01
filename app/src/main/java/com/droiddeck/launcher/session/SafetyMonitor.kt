@@ -159,6 +159,15 @@ class SafetyMonitor(
             force = action != SafetyAction.NONE,
             nowMs = now,
         )
+        com.droiddeck.launcher.core.privileged.PerformanceLog.sample(
+            null,
+            battery?.levelPercent ?: -1,
+            battery?.charging ?: false,
+            thermalStatus,
+            tweaksActive,
+            force = action != SafetyAction.NONE,
+            nowMs = now,
+        )
         when (action) {
             SafetyAction.NONE -> Unit
             SafetyAction.WARN_BATTERY_15 -> {

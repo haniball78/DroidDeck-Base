@@ -1312,6 +1312,63 @@ private fun AdvancedSetupTab(
         }
     }
 
+    val performanceCard: @Composable () -> Unit = {
+        var summary by remember { mutableStateOf(com.droiddeck.launcher.core.privileged.PerformanceLog.summary(ctx)) }
+        var hasFile by remember { mutableStateOf(com.droiddeck.launcher.core.privileged.PerformanceLog.file(ctx) != null) }
+        var performanceEnabled by remember { mutableStateOf(com.droiddeck.launcher.core.privileged.PerformanceLog.isEnabled(ctx)) }
+        SettingsGroup(stringResource(R.string.performance_title)) {
+            ToggleRow(
+                host = host,
+                key = "performance-enabled",
+                label = stringResource(R.string.performance_toggle),
+                hint = null,
+                checked = performanceEnabled,
+            ) { on ->
+                performanceEnabled = on
+                if (on) {
+                    com.droiddeck.launcher.core.privileged.PerformanceLog.setEnabled(ctx, true)
+                    com.droiddeck.launcher.core.privileged.PerformanceLog.log(
+                        ctx, "performance.control", "enabled",
+                    )
+                } else {
+                    com.droiddeck.launcher.core.privileged.PerformanceLog.log(
+                        ctx, "performance.control", "disabled",
+                    )
+                    com.droiddeck.launcher.core.privileged.PerformanceLog.setEnabled(ctx, false)
+                }
+            }
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    stringResource(
+                        R.string.diagnostics_summary,
+                        if (summary != null && summary!!.lastWallMs > 0) {
+                            com.droiddeck.launcher.core.privileged.PerformanceLog.formatTime(summary!!.lastWallMs)
+                        } else {
+                            "—"
+                        },
+                        summary?.lines?.toInt() ?: 0,
+                    ),
+                    fontSize = 13.sp, color = colors.onSurfaceVariant,
+                )
+                Text(stringResource(R.string.performance_note), fontSize = 13.sp, color = colors.onSurfaceVariant)
+                Actions {
+                    SecondaryButton(stringResource(R.string.performance_share), compact = true, enabled = hasFile) {
+                        com.droiddeck.launcher.core.privileged.PerformanceLog.shareIntent(ctx)?.let { ctx.startActivity(it) }
+                    }
+                    SecondaryButton(stringResource(R.string.diagnostics_delete), compact = true, enabled = hasFile) {
+                        com.droiddeck.launcher.core.privileged.PerformanceLog.deleteCurrentFile(ctx)
+                        summary = com.droiddeck.launcher.core.privileged.PerformanceLog.summary(ctx)
+                        hasFile = com.droiddeck.launcher.core.privileged.PerformanceLog.file(ctx) != null
+                    }
+                    SecondaryButton(stringResource(R.string.setup_check_again), compact = true) {
+                        summary = com.droiddeck.launcher.core.privileged.PerformanceLog.summary(ctx)
+                        hasFile = com.droiddeck.launcher.core.privileged.PerformanceLog.file(ctx) != null
+                    }
+                }
+            }
+        }
+    }
+
     val repairCard: @Composable () -> Unit = {
         var rows by remember { mutableStateOf<List<RepairRow>>(emptyList()) }
         var scanned by remember { mutableStateOf(false) }
@@ -1713,6 +1770,7 @@ private fun AdvancedSetupTab(
                 phantomCard()
                 baselineCard()
                 diagnosticsCard()
+                performanceCard()
                 repairCard()
                 privilegedCard()
                 gameModeGroup()
@@ -1730,6 +1788,7 @@ private fun AdvancedSetupTab(
             phantomCard()
             baselineCard()
             diagnosticsCard()
+            performanceCard()
             repairCard()
             privilegedCard()
             gameModeGroup()
