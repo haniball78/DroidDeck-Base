@@ -1728,7 +1728,13 @@ class SessionService : Service() {
                 ) {
                     lastResumeBlockedNotifySeq = suspendSeq
                     lastResumeBlockedNotifyBlock = resumeCheck.block
-                    postSafetyNotification("Cannot resume: $reason")
+                    val withoutEnabled = SuspendPolicy.resumeWithoutOptimizationsEnabled(
+                        suspendKind, readBatteryLevel(), readBatteryCharging(),
+                    )
+                    postSafetyNotification(
+                        "Cannot resume: $reason",
+                        resumeWithoutOptimizationsAction = withoutEnabled,
+                    )
                 }
                 refreshNotification()
                 // The operation concluded with no callback coming: release the guard,
@@ -2219,7 +2225,10 @@ class SessionService : Service() {
         return ok
     }
 
-    private fun postSafetyNotification(text: String) {
+    private fun postSafetyNotification(
+        text: String,
+        resumeWithoutOptimizationsAction: Boolean = false,
+    ) {
         try {
             val manager = getSystemService(NotificationManager::class.java) ?: return
             val channel = NotificationChannel(SAFETY_CHANNEL_ID, getString(R.string.app_name),
@@ -2235,12 +2244,26 @@ class SessionService : Service() {
                 this, 4, Intent(this, SessionService::class.java).setAction(ACTION_CANCEL_SAFETY_COUNTDOWN),
                 PendingIntent.FLAG_IMMUTABLE,
             )
-            val notification = Notification.Builder(this, SAFETY_CHANNEL_ID)
+            val builder = Notification.Builder(this, SAFETY_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_session)
                 .setContentTitle(getString(R.string.app_name))
                 .setContentText(text)
                 .setContentIntent(open)
                 .addAction(Notification.Action.Builder(null, "Cancel countdown", cancel).build())
+            if (resumeWithoutOptimizationsAction) {
+                val resumeWithout = PendingIntent.getService(
+                    this, 6,
+                    Intent(this, SessionService::class.java).setAction(ACTION_RESUME)
+                        .putExtra(EXTRA_RESUME_WITHOUT_OPTIMIZATIONS, true),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+                builder.addAction(
+                    Notification.Action.Builder(
+                        null, "Resume without optimizations", resumeWithout,
+                    ).build(),
+                )
+            }
+            val notification = builder
                 .setAutoCancel(true)
                 .build()
             manager.notify(SAFETY_NOTIFICATION_ID, notification)

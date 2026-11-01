@@ -82,6 +82,22 @@ class PlainResumePolicyTest {
     }
 
     @Test
+    fun resumeWithoutOptimizationsActionVisibilityMatchesPausedScreen() {
+        assertTrue(
+            SuspendPolicy.resumeWithoutOptimizationsEnabled(SuspendKind.USER, 5, false),
+        )
+        assertTrue(
+            SuspendPolicy.resumeWithoutOptimizationsEnabled(SuspendKind.SAFETY, 80, false),
+        )
+        assertTrue(
+            SuspendPolicy.resumeWithoutOptimizationsEnabled(SuspendKind.SAFETY, 10, true),
+        )
+        assertFalse(
+            SuspendPolicy.resumeWithoutOptimizationsEnabled(SuspendKind.SAFETY, 10, false),
+        )
+    }
+
+    @Test
     fun plainSessionResumeWithoutOptimizationsIsAllowed() {
         val check = SuspendPolicy.checkResume(
             kind = SuspendKind.USER,

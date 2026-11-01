@@ -172,6 +172,14 @@ internal object SuspendPolicy {
         return charging || (levelPercent != null && levelPercent >= RESUME_WITHOUT_OPTIMIZATIONS_MIN_BATTERY)
     }
 
+    fun resumeWithoutOptimizationsEnabled(
+        kind: SuspendKind,
+        levelPercent: Int?,
+        charging: Boolean,
+    ): Boolean {
+        return kind != SuspendKind.SAFETY || canResumeWithoutOptimizations(levelPercent, charging)
+    }
+
     fun checkResume(
         kind: SuspendKind,
         wantsOptimizations: Boolean,
