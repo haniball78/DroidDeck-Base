@@ -1100,16 +1100,21 @@ private fun AdvancedSetupTab(
 
     val privStatus by PrivilegedBridge.statusFlow.collectAsState()
 
-    // Query live telemetry while tab is visible
+    // Query live telemetry when the tab opens: one immediate
+    // measurement, then one per minute, up to 5 measurements total,
+    // then stop during ordinary browsing. This telemetry is display
+    // only: no session, governor, or safety function reads it, so
+    // stopping it cannot change a session. Re-entering the tab starts
+    // a fresh set of 5.
     LaunchedEffect(Unit) {
-        while (isActive) {
+        repeat(5) { index ->
             withContext(Dispatchers.IO) {
                 val metrics = com.droiddeck.launcher.core.privileged.GameModeEngine.runLiveVerification(ctx) +
                     com.droiddeck.launcher.core.privileged.AppFreezerEngine.runDiagnostic(ctx) +
                     com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.getDiagnosticReport(ctx)
                 liveMetrics = metrics
             }
-            delay(3_000)
+            if (index < 4) delay(60_000)
         }
     }
 
@@ -1157,9 +1162,11 @@ private fun AdvancedSetupTab(
                     scope.launch {
                         restoring = true
                         safeRestoreReport = null
+                        var gameModeOk = false
+                        var freezerOk = false
                         withContext(Dispatchers.IO) {
-                            com.droiddeck.launcher.core.privileged.GameModeEngine.testRestoreNow(ctx)
-                            com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(ctx, 0)
+                            gameModeOk = com.droiddeck.launcher.core.privileged.GameModeEngine.restore(ctx, 0)
+                            freezerOk = com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(ctx, 0)
                             com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(ctx)
                         }
                         liveMetrics = withContext(Dispatchers.IO) {
@@ -1167,7 +1174,12 @@ private fun AdvancedSetupTab(
                                 com.droiddeck.launcher.core.privileged.AppFreezerEngine.runDiagnostic(ctx) +
                                 com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.getDiagnosticReport(ctx)
                         }
-                        safeRestoreReport = ctx.getString(R.string.setup_adv_safe_restore_success)
+                        val remaining = com.droiddeck.launcher.core.privileged.Tweaks.journalSnapshot(ctx).size
+                        safeRestoreReport = if (com.droiddeck.launcher.core.privileged.SafeRestoreResult.succeeded(gameModeOk, freezerOk)) {
+                            ctx.getString(R.string.setup_adv_safe_restore_success)
+                        } else {
+                            ctx.getString(R.string.setup_adv_safe_restore_failed, remaining)
+                        }
                         restoring = false
                     }
                 }

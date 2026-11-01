@@ -744,6 +744,7 @@
     <string name="setup_adv_safe_restore_btn">Safe Restore</string>
     <string name="setup_adv_restoring">Restoring...</string>
     <string name="setup_adv_safe_restore_success">✅ Safe Restore complete: all packages unsuspended, doze unforced, and OS limits reset to defaults. Settings remain saved for your next game.</string>
+    <string name="setup_adv_safe_restore_failed">Safe Restore failed: some settings were not restored. Journal items remaining: %1$d. Use Device Repair to retry.</string>
     <string name="setup_adv_wadb_repair">Re-pair with new code</string>
     <string name="setup_adv_wadb_clear">Reset pairing</string>
     <string name="setup_adv_group_privileged">Privileged Shield (ADB / Shizuku)</string>

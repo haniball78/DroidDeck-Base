@@ -165,13 +165,22 @@ object AppFreezerEngine {
     fun apply(context: Context, sessionGen: Int = 0): String {
         activeGen.set(sessionGen)
         if (!SessionPrefs.advancedMasterEnabled(context)) return "app freezer: disabled (master switch off)"
-        if (applied) return "freezer: already active (gen=$sessionGen)"
+        if (applied) {
+            if (!isStaleGeneration(true, activeGen.get(), sessionGen)) return "freezer: already active (gen=$sessionGen)"
+            if (!restore(context, sessionGen)) return "freezer: aborted (stale generation restore failed)"
+        }
 
         val results = mutableListOf<String>()
         val packagesToSuspend = mutableListOf<String>()
         val pkgName = context.packageName
 
-        // 1. Gather targets from pre-cached lists (0 ms lookup)
+        // 1. Gather targets. Warmup runs in the background, so the
+        // cached protected set may still be the static list only; read
+        // the dynamic protected set (current keyboard, accessibility
+        // services) synchronously here, or a custom keyboard could be
+        // suspended if the session starts before warmup finishes.
+        val dynamicProtected = queryDynamicProtected(context)
+        if (dynamicProtected.isNotEmpty()) cachedProtectedPackages = cachedProtectedPackages + dynamicProtected
         val protectedSet = cachedProtectedPackages + pkgName
 
         if (SessionPrefs.freezeBloatware(context)) {

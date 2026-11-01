@@ -295,6 +295,10 @@ internal object AppFreezerPackageJournal {
     }
 }
 
+internal object SafeRestoreResult {
+    fun succeeded(gameModeOk: Boolean, freezerOk: Boolean): Boolean = gameModeOk && freezerOk
+}
+
 internal object PackagesVerifyChunks {
     fun sumCounts(outputs: List<String>): Int? {
         var total = 0

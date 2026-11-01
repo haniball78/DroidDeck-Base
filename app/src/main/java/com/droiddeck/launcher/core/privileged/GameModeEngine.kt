@@ -90,6 +90,14 @@ internal fun buildBoostAppCommands(pid: Int, mask: String): List<Pair<String, St
     )
 }
 
+// A test apply uses generation 999; a real session uses its own
+// incrementing generation. If an engine is already applied under a
+// different generation, its tweaks are stale and must be restored
+// before a fresh apply, not silently accepted as the new session.
+internal fun isStaleGeneration(applied: Boolean, activeGen: Int, sessionGen: Int): Boolean {
+    return applied && sessionGen != 0 && activeGen != sessionGen
+}
+
 object GameModeEngine {
     private const val TAG = "GameModeEngine"
     private const val MARKER_FILE = "gamemode-marker.txt"
@@ -115,7 +123,10 @@ object GameModeEngine {
         activeGen.set(sessionGen)
         if (!SessionPrefs.advancedMasterEnabled(context)) return "game mode: disabled (master switch off)"
         if (!SessionPrefs.gameModeEngine(context)) return "game mode: disabled in settings"
-        if (applied) return "game mode: already active"
+        if (applied) {
+            if (!isStaleGeneration(true, activeGen.get(), sessionGen)) return "game mode: already active"
+            if (!restore(context, sessionGen)) return "game mode: aborted (stale generation restore failed)"
+        }
 
         val aggressive = SessionPrefs.gameModeAggressive(context)
         aggressiveActive = aggressive
