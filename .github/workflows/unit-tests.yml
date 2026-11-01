@@ -44,6 +44,7 @@ jobs:
             --tests "com.droiddeck.launcher.session.PlainResumePolicyTest" \
             --tests "com.droiddeck.launcher.core.ConnectionCardStateTest" \
             --tests "com.droiddeck.launcher.core.privileged.GovernorTierCommandsTest" \
+            --tests "com.droiddeck.launcher.core.privileged.FixedPerformanceGetterTest" \
             -PndkVersion=29.0.14206865 \
             -PskipRust=true \
             --stacktrace --no-daemon 2>&1 | tee /tmp/unified-unit-tests.log

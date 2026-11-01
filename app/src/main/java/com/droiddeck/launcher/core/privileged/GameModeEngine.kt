@@ -58,6 +58,23 @@ internal object GameModeStepVerify {
     }
 }
 
+internal enum class FixedPerformanceGetter {
+    SUPPORTED,
+    UNSUPPORTED,
+    UNREADABLE,
+}
+
+// The fixed-performance getter is absent on some ROMs, so an unreadable
+// getter must not abort the whole game mode, while a bridge failure still aborts.
+internal object FixedPerformanceGetterDecision {
+    fun decide(exitCode: Int, output: String): Pair<FixedPerformanceGetter, String?> {
+        if (exitCode == -1) return FixedPerformanceGetter.UNREADABLE to null
+        val original = if (exitCode == 0) FixedPerformanceState.parse(output) else null
+        if (original != null) return FixedPerformanceGetter.SUPPORTED to original
+        return FixedPerformanceGetter.UNSUPPORTED to null
+    }
+}
+
 object GameModeEngine {
     private const val TAG = "GameModeEngine"
     private const val MARKER_FILE = "gamemode-marker.txt"
@@ -87,6 +104,7 @@ object GameModeEngine {
 
         val aggressive = SessionPrefs.gameModeAggressive(context)
         aggressiveActive = aggressive
+        var fixedPerformanceSupported = true
         val pkg = context.packageName
 
         val items = mutableListOf<JournalItem>()
@@ -113,13 +131,19 @@ object GameModeEngine {
         if (aggressive) {
             if (!Tweaks.hasKey(context, "fixed-performance")) {
                 val read = execChecked(context, "cmd power get-fixed-performance-mode-enabled")
-                val original = if (read.exitCode == 0) FixedPerformanceState.parse(read.output) else null
-                if (original == null) {
-                    Log.w(TAG, "apply aborted: fixed-performance original unreadable")
-                    aggressiveActive = false
-                    return "game mode: aborted (fixed-performance original unreadable)"
+                val (decision, original) = FixedPerformanceGetterDecision.decide(read.exitCode, read.output)
+                when (decision) {
+                    FixedPerformanceGetter.SUPPORTED -> items.add(FixedPerformanceState.item(original!!, sessionGen))
+                    FixedPerformanceGetter.UNSUPPORTED -> {
+                        fixedPerformanceSupported = false
+                        Log.w(TAG, "game mode: fixed-performance getter unsupported on this ROM, skipping fixed-performance")
+                    }
+                    FixedPerformanceGetter.UNREADABLE -> {
+                        Log.w(TAG, "apply aborted: fixed-performance original unreadable")
+                        aggressiveActive = false
+                        return "game mode: aborted (fixed-performance original unreadable)"
+                    }
                 }
-                items.add(FixedPerformanceState.item(original, sessionGen))
             }
             for ((key, readCmd) in listOf(
                 "sem_enhanced_cpu_responsiveness" to "settings get global sem_enhanced_cpu_responsiveness",
@@ -163,7 +187,9 @@ object GameModeEngine {
         if (aggressive) {
             steps.add(GameModeStep("settings put global sem_enhanced_cpu_responsiveness 1", "settings get global sem_enhanced_cpu_responsiveness", "1", false))
             steps.add(GameModeStep("settings put global restricted_device_performance 0,0", "settings get global restricted_device_performance", "0,0", false))
-            steps.add(GameModeStep("cmd power set-fixed-performance-mode-enabled true", "cmd power get-fixed-performance-mode-enabled", "true", true))
+            if (fixedPerformanceSupported) {
+                steps.add(GameModeStep("cmd power set-fixed-performance-mode-enabled true", "cmd power get-fixed-performance-mode-enabled", "true", true))
+            }
             steps.add(GameModeStep("settings put global adaptive_battery_management_enabled 0", "settings get global adaptive_battery_management_enabled", "0", false))
         }
         for (step in steps) {
@@ -186,7 +212,14 @@ object GameModeEngine {
         Log.i(TAG, summary)
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             context, "device.change", "game-mode-applied",
-            fields = mapOf("mode" to if (aggressive) "TURBO" else "COOL_LOAD_REDUCER"),
+            fields = if (aggressive) {
+                mapOf(
+                    "mode" to "TURBO",
+                    "fixed_performance_supported" to fixedPerformanceSupported.toString(),
+                )
+            } else {
+                mapOf("mode" to "COOL_LOAD_REDUCER")
+            },
         )
         return summary
     }
