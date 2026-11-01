@@ -2067,7 +2067,17 @@ class SessionService : Service() {
         applyGameModeNotingSuspect(gen)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen)
         val pid = SessionState.guestPid.takeIf { it > 1 } ?: sessionPid
-        if (pid > 1) com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.start(this, gen, pid)
+        if (pid > 1) {
+            if (com.droiddeck.launcher.core.privileged.GameModeEngine.shouldBoostAtResume(
+                    com.droiddeck.launcher.core.privileged.GameModeEngine.isActive(),
+                    pid,
+                    SessionPrefs.advancedMasterEnabled(this),
+                )
+            ) {
+                com.droiddeck.launcher.core.privileged.GameModeEngine.boostSessionProcess(this, pid, gen)
+            }
+            com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.start(this, gen, pid)
+        }
         safetyMonitor?.resetDeescalation()
         safetyMonitor?.setTweaksActive(com.droiddeck.launcher.core.privileged.GameModeEngine.isActive())
         SessionEvents.record("session.tweaks_reapplied", mapOf("gen" to gen))

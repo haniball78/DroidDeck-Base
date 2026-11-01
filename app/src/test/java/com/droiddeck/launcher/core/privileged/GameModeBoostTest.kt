@@ -1,6 +1,7 @@
 package com.droiddeck.launcher.core.privileged
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -23,6 +24,15 @@ class GameModeBoostTest {
     fun turboMaskIsUsedWhenGiven() {
         val commands = buildBoostAppCommands(99, "fc")
         assertEquals("taskset -p fc 99 2>/dev/null", commands[0].second)
+    }
+
+    @Test
+    fun resumeBoostRequiresAppliedMasterAndValidPid() {
+        assertTrue(GameModeEngine.shouldBoostAtResume(true, 7376, true))
+        assertFalse(GameModeEngine.shouldBoostAtResume(false, 7376, true))
+        assertFalse(GameModeEngine.shouldBoostAtResume(true, 7376, false))
+        assertFalse(GameModeEngine.shouldBoostAtResume(true, 1, true))
+        assertFalse(GameModeEngine.shouldBoostAtResume(true, -1, true))
     }
 
     @Test

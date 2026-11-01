@@ -299,6 +299,9 @@ object GameModeEngine {
      * Boosts the game process PID and deeply binds all existing and newly spawned
      * thread tasks (/proc/$pid/task) to the performance core cluster.
      */
+    fun shouldBoostAtResume(appliedNow: Boolean, pid: Int, masterEnabled: Boolean): Boolean =
+        appliedNow && masterEnabled && pid > 1
+
     fun boostSessionProcess(context: Context, pid: Int, sessionGen: Int = 0): String {
         if (!applied || pid <= 1) return "pid_boost: skipped (pid=$pid applied=$applied)"
         if (sessionGen != 0 && activeGen.get() != sessionGen) return "pid_boost: obsolete gen"
