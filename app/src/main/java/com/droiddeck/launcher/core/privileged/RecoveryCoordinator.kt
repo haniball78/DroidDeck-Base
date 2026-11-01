@@ -18,6 +18,20 @@ internal object RecoveryRetry {
     }
 }
 
+// Session-start tweaks decision, mirroring the resume path: a pending journal
+// blocks a new session only when a synchronous rollback failed AND the
+// remaining items are from a different generation. A non-stale pending
+// journal keeps its originals in the journal, and GameMode/Freezer apply
+// skip already-journaled keys, so applying on top of it cannot lose an
+// original, while blocking would leave the whole session without tweaks.
+internal object SessionStartTweaksDecision {
+    fun shouldApply(recoveryPending: Boolean, rollbackSucceeded: Boolean, staleBlocks: Boolean): Boolean {
+        if (!recoveryPending) return true
+        if (rollbackSucceeded) return true
+        return !staleBlocks
+    }
+}
+
 object RecoveryCoordinator {
     private const val TAG = "RecoveryCoordinator"
     private val running = AtomicBoolean(false)

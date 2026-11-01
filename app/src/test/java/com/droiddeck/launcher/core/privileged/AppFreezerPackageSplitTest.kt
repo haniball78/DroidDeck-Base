@@ -71,5 +71,6 @@ class AppFreezerPackageSplitTest {
         assertTrue(cmd.contains("com.example.a"))
         assertTrue(cmd.contains("com.example.b"))
         assertTrue(!cmd.contains("wc -l"))
+        assertTrue(cmd.endsWith("; true"))
     }
 }

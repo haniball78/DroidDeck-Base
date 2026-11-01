@@ -500,8 +500,12 @@ class SessionService : Service() {
         Log.i(TAG, GpuClockPin.start(this))
         Log.i(TAG, GameThreadHints.start(this))
         if (SessionPrefs.advancedMasterEnabled(this)) {
-            if (com.droiddeck.launcher.core.privileged.RecoveryCoordinator.recoveryPending(this)) {
-                Log.w(TAG, "tweaks blocked: unrecovered journal or legacy marker from a previous session")
+            val recoveryPending = com.droiddeck.launcher.core.privileged.RecoveryCoordinator.recoveryPending(this)
+            val recovered = if (recoveryPending) com.droiddeck.launcher.core.privileged.Tweaks.rollback(this) else true
+            val staleBlocks = recoveryPending && !recovered &&
+                com.droiddeck.launcher.core.privileged.RecoveryCoordinator.recoveryBlocksNewSession(this, gen)
+            if (recoveryPending && !com.droiddeck.launcher.core.privileged.SessionStartTweaksDecision.shouldApply(recoveryPending, recovered, staleBlocks)) {
+                Log.w(TAG, "tweaks blocked: unrecovered stale journal or legacy marker from a previous session")
                 SessionEvents.record("session.start_blocked_recovery_pending", mapOf("gen" to gen))
             } else if (!com.droiddeck.launcher.core.privileged.PrivilegedBridge.isPrivilegedAvailable() &&
                 com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(caller = "session-start").mode ==

@@ -47,6 +47,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.privileged.FixedPerformanceGetterTest" \
             --tests "com.droiddeck.launcher.core.privileged.AppFreezerPackageSplitTest" \
             --tests "com.droiddeck.launcher.core.privileged.GameModeBoostTest" \
+            --tests "com.droiddeck.launcher.core.privileged.SessionStartTweaksDecisionTest" \
             -PndkVersion=29.0.14206865 \
             -PskipRust=true \
             --stacktrace --no-daemon 2>&1 | tee /tmp/unified-unit-tests.log

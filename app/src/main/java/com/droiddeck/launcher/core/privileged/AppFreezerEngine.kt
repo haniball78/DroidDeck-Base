@@ -32,7 +32,11 @@ object AppFreezerEngine {
     }
 
     internal fun packagesVerifyNamesCmd(targets: List<String>): String {
-        return "for p in ${targets.joinToString(" ")}; do dumpsys package \$p 2>/dev/null | grep -q \"suspended=true\" && echo \$p; done"
+        // The trailing true is not hiding a failure: a not-suspended package is a
+        // valid result, not an error, but without it the shell exit is the last
+        // grep's exit, so a names read fails whenever the last target is not
+        // suspended (or none are), and the per-package result is discarded.
+        return "for p in ${targets.joinToString(" ")}; do dumpsys package \$p 2>/dev/null | grep -q \"suspended=true\" && echo \$p; done; true"
     }
 
     internal fun packagesRestoreCmd(targets: List<String>): String {
