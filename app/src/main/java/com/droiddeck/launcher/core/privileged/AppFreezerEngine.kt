@@ -163,11 +163,13 @@ object AppFreezerEngine {
      */
     @Synchronized
     fun apply(context: Context, sessionGen: Int = 0): String {
+        val previousGen = activeGen.get()
         activeGen.set(sessionGen)
         if (!SessionPrefs.advancedMasterEnabled(context)) return "app freezer: disabled (master switch off)"
         if (applied) {
-            if (!isStaleGeneration(true, activeGen.get(), sessionGen)) return "freezer: already active (gen=$sessionGen)"
+            if (!isStaleGeneration(true, previousGen, sessionGen)) return "freezer: already active (gen=$sessionGen)"
             if (!restore(context, sessionGen)) return "freezer: aborted (stale generation restore failed)"
+            activeGen.set(sessionGen)
         }
 
         val results = mutableListOf<String>()

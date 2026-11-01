@@ -120,12 +120,14 @@ object GameModeEngine {
     /** Apply game-mode optimizations at session start, one checked step at a time. */
     @Synchronized
     fun apply(context: Context, sessionGen: Int = 0): String {
+        val previousGen = activeGen.get()
         activeGen.set(sessionGen)
         if (!SessionPrefs.advancedMasterEnabled(context)) return "game mode: disabled (master switch off)"
         if (!SessionPrefs.gameModeEngine(context)) return "game mode: disabled in settings"
         if (applied) {
-            if (!isStaleGeneration(true, activeGen.get(), sessionGen)) return "game mode: already active"
+            if (!isStaleGeneration(true, previousGen, sessionGen)) return "game mode: already active"
             if (!restore(context, sessionGen)) return "game mode: aborted (stale generation restore failed)"
+            activeGen.set(sessionGen)
         }
 
         val aggressive = SessionPrefs.gameModeAggressive(context)
