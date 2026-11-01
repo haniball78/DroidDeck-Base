@@ -39,6 +39,17 @@ object AppFreezerEngine {
         return "for p in ${targets.joinToString(" ")}; do dumpsys package \$p 2>/dev/null | grep -q \"suspended=true\" && echo \$p; done; true"
     }
 
+    // Chunked verify/names commands: one dumpsys loop over 167 packages
+    // exceeds the 4000ms daemon timeout, so each chunk must stay well
+    // under it. 25 packages per chunk keeps a chunk near 600ms.
+    internal fun packagesVerifyChunkCmds(targets: List<String>, chunkSize: Int = 25): List<String> {
+        return targets.chunked(chunkSize).map { packagesVerifyCmd(it) }
+    }
+
+    internal fun packagesVerifyNamesChunkCmds(targets: List<String>, chunkSize: Int = 25): List<String> {
+        return targets.chunked(chunkSize).map { packagesVerifyNamesCmd(it) }
+    }
+
     internal fun packagesRestoreCmd(targets: List<String>): String {
         return buildString {
             targets.chunked(50).forEach { chunk ->

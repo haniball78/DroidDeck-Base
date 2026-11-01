@@ -295,6 +295,16 @@ internal object AppFreezerPackageJournal {
     }
 }
 
+internal object PackagesVerifyChunks {
+    fun sumCounts(outputs: List<String>): Int? {
+        var total = 0
+        for (output in outputs) {
+            total += output.trim().toIntOrNull() ?: return null
+        }
+        return total
+    }
+}
+
 internal enum class RepairDecision {
     CORRUPT,
     ALREADY_OK,
@@ -421,6 +431,24 @@ object Tweaks {
         }
     }
 
+    private fun readVerifiedForItem(context: Context, item: JournalItem): String? {
+        if (item.key == "app-freezer-packages") {
+            val targets = storedTargets(item.restoreCmd)
+            if (targets.isNotEmpty()) {
+                val outputs = ArrayList<String>()
+                for (cmd in AppFreezerEngine.packagesVerifyChunkCmds(targets)) {
+                    val read = execChecked(context, cmd)
+                    if (read.exitCode != 0) return null
+                    outputs.add(read.output)
+                }
+                return PackagesVerifyChunks.sumCounts(outputs)?.toString()
+            }
+        }
+        val verifyCmd = effectiveVerifyCmd(item) ?: return null
+        val read = execChecked(context, verifyCmd)
+        return if (read.exitCode != 0) null else read.output
+    }
+
     fun rollbackOne(context: Context, key: String): Boolean {
         return synchronized(journalLock) {
             val current = load(context) ?: return@synchronized false
@@ -428,15 +456,7 @@ object Tweaks {
             val result = JournalRollback.rollback(
                 listOf(item),
                 execute = { cmd -> execChecked(context, cmd).exitCode },
-                readVerified = { verified ->
-                    val verifyCmd = effectiveVerifyCmd(verified)
-                    if (verifyCmd == null) {
-                        null
-                    } else {
-                        val read = execChecked(context, verifyCmd)
-                        if (read.exitCode != 0) null else read.output
-                    }
-                },
+                readVerified = { verified -> readVerifiedForItem(context, verified) },
             )
             if (result.success) {
                 save(context, current.filter { it.key != key })
@@ -460,15 +480,7 @@ object Tweaks {
             val result = JournalRollback.rollback(
                 current,
                 execute = { cmd -> execChecked(context, cmd).exitCode },
-                readVerified = { item ->
-                    val verifyCmd = effectiveVerifyCmd(item)
-                    if (verifyCmd == null) {
-                        null
-                    } else {
-                        val read = execChecked(context, verifyCmd)
-                        if (read.exitCode != 0) null else read.output
-                    }
-                },
+                readVerified = { item -> readVerifiedForItem(context, item) },
             )
             for (item in result.completed) {
                 DiagnosticsLog.log(
@@ -520,12 +532,21 @@ object Tweaks {
                 save(context, result.remaining)
                 return false
             }
-            val namesRead = execChecked(context, AppFreezerEngine.packagesVerifyNamesCmd(targets))
-            if (namesRead.exitCode != 0) {
+            val namesOutputs = ArrayList<String>()
+            var namesFailed = false
+            for (cmd in AppFreezerEngine.packagesVerifyNamesChunkCmds(targets)) {
+                val chunkRead = execChecked(context, cmd)
+                if (chunkRead.exitCode != 0) {
+                    namesFailed = true
+                    break
+                }
+                namesOutputs.add(chunkRead.output)
+            }
+            if (namesFailed) {
                 save(context, result.remaining)
                 return false
             }
-            val still = AppFreezerPackageJournal.parseSuspendedNames(namesRead.output)
+            val still = AppFreezerPackageJournal.parseSuspendedNames(namesOutputs.joinToString("\n"))
             if (still.any { it !in targets }) {
                 save(context, result.remaining)
                 return false
