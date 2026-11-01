@@ -1599,6 +1599,15 @@ class SessionService : Service() {
                             SuspendStore.save(noBackupFilesDir, suspendedSession)
                             val rolledBack =
                                 com.droiddeck.launcher.core.privileged.Tweaks.rollback(this)
+                            if (rolledBack) {
+                                com.droiddeck.launcher.core.privileged.GameModeEngine.onSuspendRollback()
+                                com.droiddeck.launcher.core.privileged.AppFreezerEngine.onSuspendRollback()
+                                safetyMonitor?.setTweaksActive(false)
+                                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                                    this, "session", "suspend-tweaks-cleared",
+                                    fields = mapOf("ok" to "true"),
+                                )
+                            }
                             SessionEvents.record(
                                 "session.suspend_rolled_back", mapOf("ok" to rolledBack),
                             )

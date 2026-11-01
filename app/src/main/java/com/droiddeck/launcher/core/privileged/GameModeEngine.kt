@@ -76,7 +76,23 @@ internal object FixedPerformanceGetterDecision {
 }
 
 internal fun buildBoostThreadsCommand(pid: Int, mask: String): String {
-    return "[ -d /proc/$pid ] || exit 1; failed=0; for tid in /proc/$pid/task/*; do [ -d \"$" + "$" + "tid\" ] && taskset -p $mask \${tid##*/} 2>/dev/null || failed=1; done; exit \$failed"
+    return "[ -d /proc/$pid ] || exit 1; ok=0; failed=0; failed_tids=\"\"; for tid in /proc/$pid/task/*; do t=\${tid##*/}; if taskset -p $mask \$t >/dev/null 2>&1; then ok=\$((ok+1)); else failed=\$((failed+1)); if [ \$failed -le 10 ]; then failed_tids=\"\$failed_tids \$t\"; fi; fi; done; echo \"threads-diag ok=\$ok failed=\$failed total=\$((ok+failed)) failed_tids=\$failed_tids\"; if [ \$failed -gt 0 ]; then exit 1; else exit 0; fi"
+}
+
+internal data class ThreadsDiag(
+    val ok: Int,
+    val failed: Int,
+    val total: Int,
+    val failedTids: List<String>,
+)
+
+internal fun parseThreadsDiag(output: String?): ThreadsDiag? {
+    if (output.isNullOrBlank()) return null
+    val ok = Regex("ok=(\\d+)").find(output)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+    val failed = Regex("failed=(\\d+)").find(output)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+    val total = Regex("total=(\\d+)").find(output)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+    val tids = output.substringAfter("failed_tids=", "").trim().split(" ").filter { it.isNotEmpty() }
+    return ThreadsDiag(ok, failed, total, tids)
 }
 
 // App-side boost commands only: the guest pid is app-owned, so the shell
@@ -288,22 +304,38 @@ object GameModeEngine {
 
         val mask = if (aggressiveActive) TURBO_CORES_MASK else COOL_PERF_CORES_MASK
         val exits = mutableMapOf<String, Int>()
+        var threadsDiag: ThreadsDiag? = null
         for ((name, cmd) in buildBoostAppCommands(pid, mask)) {
-            exits[name] = runAppTierCommand(cmd)
+            if (name == "taskset-threads") {
+                val (exit, output) = runAppCommandOutput(cmd)
+                exits[name] = exit
+                threadsDiag = parseThreadsDiag(output)
+            } else {
+                exits[name] = runAppTierCommand(cmd)
+            }
         }
         val tasksetExit = exits["taskset-pid"] ?: -1
         val threadsExit = exits["taskset-threads"] ?: -1
         val oomExit = exits["oom"] ?: -1
+        val (oomReadExit, oomReadOutput) = runAppCommandOutput("cat /proc/$pid/oom_score_adj 2>/dev/null")
+        val pidBoostFields = mutableMapOf(
+            "mask" to mask,
+            "taskset" to tasksetExit.toString(),
+            "threads" to threadsExit.toString(),
+            "oom" to oomExit.toString(),
+            "oom_value" to if (oomReadExit == 0) oomReadOutput else "unreadable",
+            "renice" to "skipped",
+            "source" to "app",
+        )
+        threadsDiag?.let {
+            pidBoostFields["threads_ok"] = it.ok.toString()
+            pidBoostFields["threads_failed"] = it.failed.toString()
+            pidBoostFields["threads_total"] = it.total.toString()
+            pidBoostFields["threads_failed_tids"] = it.failedTids.joinToString(",")
+        }
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             context, "device.change", "pid-boost",
-            fields = mapOf(
-                "mask" to mask,
-                "taskset" to tasksetExit.toString(),
-                "threads" to threadsExit.toString(),
-                "oom" to oomExit.toString(),
-                "renice" to "skipped",
-                "source" to "app",
-            ),
+            fields = pidBoostFields,
         )
 
         // Asynchronously re-apply affinity after 1.5s when Wine/guest has spawned its worker threads
@@ -311,10 +343,18 @@ object GameModeEngine {
             try {
                 Thread.sleep(1500)
                 if (applied && activeGen.get() > 0 && (sessionGen == 0 || activeGen.get() == sessionGen)) {
-                    val followExit = runAppTierCommand(buildBoostThreadsCommand(pid, mask))
+                    val (followExit, followOutput) = runAppCommandOutput(buildBoostThreadsCommand(pid, mask))
+                    val followDiag = parseThreadsDiag(followOutput)
+                    val followFields = mutableMapOf("threads" to followExit.toString(), "source" to "app")
+                    followDiag?.let {
+                        followFields["threads_ok"] = it.ok.toString()
+                        followFields["threads_failed"] = it.failed.toString()
+                        followFields["threads_total"] = it.total.toString()
+                        followFields["threads_failed_tids"] = it.failedTids.joinToString(",")
+                    }
                     com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                         context, "device.change", "pid-boost-followup",
-                        fields = mapOf("threads" to followExit.toString(), "source" to "app"),
+                        fields = followFields,
                     )
                     Log.d(TAG, "boostSessionProcess: follow-up thread affinity exit=$followExit for pid=$pid")
                 }
@@ -372,6 +412,12 @@ object GameModeEngine {
 
     fun isActive(): Boolean = applied
     fun isAggressiveActive(): Boolean = aggressiveActive
+
+    @Synchronized
+    fun onSuspendRollback() {
+        applied = false
+        aggressiveActive = false
+    }
 
     // ── Live System Verification & Diagnostics ─────────────────────────────────
 

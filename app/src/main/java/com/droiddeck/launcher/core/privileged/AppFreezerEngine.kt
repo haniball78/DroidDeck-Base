@@ -391,6 +391,14 @@ object AppFreezerEngine {
 
     fun isDozeActive(): Boolean = dozeForced
     fun getSuspendedCount(): Int = suspendedPackages.size
+
+    @Synchronized
+    fun onSuspendRollback() {
+        applied = false
+        dozeForced = false
+        suspendedPackages.clear()
+    }
+
     fun getSuspendedList(): List<String> = suspendedPackages.toList()
 
     /** Live diagnostics for Debug Monitor. */

@@ -118,6 +118,21 @@ internal fun runAppTierCommand(cmd: String, timeoutMs: Long = 4000L): Int {
     }
 }
 
+internal fun runAppCommandOutput(cmd: String, timeoutMs: Long = 4000L): Pair<Int, String> {
+    return try {
+        val process = ProcessBuilder("/system/bin/sh", "-c", cmd).redirectErrorStream(true).start()
+        val finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!finished) {
+            process.destroyForcibly()
+            -1 to ""
+        } else {
+            process.exitValue() to process.inputStream.bufferedReader().readText().trim()
+        }
+    } catch (_: Exception) {
+        -1 to ""
+    }
+}
+
 object DynamicAdaptiveGovernor {
     private const val TAG = "AdaptiveGovernor"
 
@@ -309,10 +324,22 @@ object DynamicAdaptiveGovernor {
                         )
                     }
                     for ((name, cmd) in buildAppTierCommands(tier, pid)) {
-                        val exit = runAppTierCommand(cmd)
+                        val fields = mutableMapOf("tier" to tier.name, "cmd" to name, "source" to "app")
+                        if (name == "taskset-threads") {
+                            val (exit, output) = runAppCommandOutput(cmd)
+                            fields["exit"] = exit.toString()
+                            parseThreadsDiag(output)?.let {
+                                fields["threads_ok"] = it.ok.toString()
+                                fields["threads_failed"] = it.failed.toString()
+                                fields["threads_total"] = it.total.toString()
+                                fields["threads_failed_tids"] = it.failedTids.joinToString(",")
+                            }
+                        } else {
+                            fields["exit"] = runAppTierCommand(cmd).toString()
+                        }
                         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                             context, "device.change", "governor-cmd",
-                            fields = mapOf("tier" to tier.name, "cmd" to name, "exit" to exit.toString(), "source" to "app"),
+                            fields = fields,
                         )
                     }
                 } catch (t: Throwable) {
