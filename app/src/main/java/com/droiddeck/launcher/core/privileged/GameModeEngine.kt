@@ -366,6 +366,31 @@ object GameModeEngine {
         return desc
     }
 
+    @Synchronized
+    fun deescalateAggressive(context: Context): Boolean {
+        if (!applied || !aggressiveActive) return false
+        val keys = listOf(
+            "sem_enhanced_cpu_responsiveness",
+            "restricted_device_performance",
+            "adaptive_battery_management_enabled",
+            "fixed-performance",
+        )
+        for (key in keys) {
+            if (!Tweaks.hasKey(context, key)) continue
+            if (!Tweaks.rollbackOne(context, key)) return false
+            com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                context, "safety.restore", "restored",
+                fields = mapOf("key" to key, "verify" to "verified"),
+            )
+        }
+        aggressiveActive = false
+        Log.i(TAG, "game mode: aggressive tweaks de-escalated, cooling tweaks kept")
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "device.change", "game-mode-deescalated",
+        )
+        return true
+    }
+
     /** Restore all modified system settings when the session ends. Idempotent and clean. */
     @Synchronized
     fun restore(context: Context, sessionGen: Int = 0): Boolean {

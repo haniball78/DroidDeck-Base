@@ -1963,6 +1963,10 @@ class SessionService : Service() {
                     }
                     endTweaksNow()
                 }
+                override fun onDeescalateAggressive() {
+                    if (safetyMonitorGen != sessionGen || SessionExit.isExiting()) return
+                    deescalateAggressiveNow()
+                }
                 override fun onStopCountdownTick(secondsLeft: Int) {
                     postSafetyNotification("Stopping the game in $secondsLeft s unless cancelled.")
                 }
@@ -1991,6 +1995,14 @@ class SessionService : Service() {
         com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, sessionGen)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, sessionGen)
         safetyMonitor?.setTweaksActive(false)
+    }
+
+    private fun deescalateAggressiveNow() {
+        if (!com.droiddeck.launcher.core.privileged.GameModeEngine.deescalateAggressive(this)) {
+            endTweaksNow()
+            return
+        }
+        safetyMonitor?.setTweaksActive(true)
     }
 
     private fun readBatteryLevel(): Int? {
@@ -2055,6 +2067,7 @@ class SessionService : Service() {
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen)
         val pid = SessionState.guestPid.takeIf { it > 1 } ?: sessionPid
         if (pid > 1) com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.start(this, gen, pid)
+        safetyMonitor?.resetDeescalation()
         safetyMonitor?.setTweaksActive(com.droiddeck.launcher.core.privileged.GameModeEngine.isActive())
         SessionEvents.record("session.tweaks_reapplied", mapOf("gen" to gen))
     }

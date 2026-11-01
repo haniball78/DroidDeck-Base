@@ -28,6 +28,7 @@ interface Clock {
 interface SafetyListener {
     fun onWarnBattery(levelPercent: Int)
     fun onEndTweaks(reason: String)
+    fun onDeescalateAggressive() {}
     fun onStopCountdownTick(secondsLeft: Int)
     fun onStopCountdownFinished()
     fun onBridgeLost()
@@ -57,9 +58,16 @@ class SafetyMonitor(
     private var monitorThread: Thread? = null
     private var lastHeartbeatMs = 0L
     private var thermalUnknownLogged = false
+    private var deescalated = false
+    private var deescalatedAtMs = 0L
 
     fun setTweaksActive(active: Boolean) {
         tweaksActive = active
+    }
+
+    fun resetDeescalation() {
+        deescalated = false
+        deescalatedAtMs = 0L
     }
 
     fun start() {
@@ -128,12 +136,18 @@ class SafetyMonitor(
                 warnedAt15 = warnedAt15,
                 stopCountdownActive = countdownActive,
                 bridgeLostAlreadyReported = bridgeReported,
+                aggressiveActive = com.droiddeck.launcher.core.privileged.GameModeEngine.isAggressiveActive(),
+                deescalated = deescalated,
+                deescalatedAtMs = deescalatedAtMs,
+                nowMs = now,
             ),
             thresholds,
         )
         tweaksEnded = decision.tweaksAlreadyEnded
         warnedAt15 = decision.warnedAt15
         bridgeReported = decision.bridgeLostAlreadyReported
+        deescalated = decision.deescalated
+        deescalatedAtMs = decision.deescalatedAtMs
         val action = decision.action
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.sample(
             null,
@@ -167,6 +181,17 @@ class SafetyMonitor(
                 )
                 listener.onAlert("Battery or heat safety: performance tweaks ended, game continues.")
                 listener.onEndTweaks("safety")
+            }
+            SafetyAction.DEESCALATE_AGGRESSIVE -> {
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                    "safety.monitor", "deescalate-aggressive",
+                    fields = mapOf(
+                        "battery" to (battery?.levelPercent ?: -1).toString(),
+                        "thermal" to thermalStatus.toString(),
+                    ),
+                )
+                listener.onAlert("Heat safety: aggressive tweaks stopped, cooling tweaks kept, game continues.")
+                listener.onDeescalateAggressive()
             }
             SafetyAction.STOP_WITH_COUNTDOWN -> startCountdown()
             SafetyAction.BRIDGE_LOST_RESTORE -> {

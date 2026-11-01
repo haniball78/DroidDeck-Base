@@ -12,6 +12,7 @@ enum class SafetyAction {
     END_TWEAKS,
     STOP_WITH_COUNTDOWN,
     BRIDGE_LOST_RESTORE,
+    DEESCALATE_AGGRESSIVE,
 }
 
 data class SafetyInput(
@@ -24,6 +25,11 @@ data class SafetyInput(
     val stopCountdownActive: Boolean,
     val bridgeLostAlreadyReported: Boolean,
     val bridgeUnknown: Boolean = false,
+    val aggressiveActive: Boolean = false,
+    val deescalated: Boolean = false,
+    val deescalatedAtMs: Long = 0L,
+    val nowMs: Long = 0L,
+    val deescalationWindowMs: Long = 300_000L,
 )
 
 data class SafetyDecision(
@@ -31,6 +37,8 @@ data class SafetyDecision(
     val tweaksAlreadyEnded: Boolean,
     val warnedAt15: Boolean,
     val bridgeLostAlreadyReported: Boolean,
+    val deescalated: Boolean = false,
+    val deescalatedAtMs: Long = 0L,
 )
 
 data class SafetyThresholds(
@@ -53,35 +61,55 @@ internal object SafetyPolicy {
         var tweaksEnded = input.tweaksAlreadyEnded
         var warned = input.warnedAt15
         var bridgeReported = input.bridgeLostAlreadyReported
+        var deescalated = input.deescalated
+        var deescalatedAt = input.deescalatedAtMs
+        fun decision(action: SafetyAction): SafetyDecision =
+            SafetyDecision(action, tweaksEnded, warned, bridgeReported, deescalated, deescalatedAt)
         val battery = input.battery
         if (battery != null && !battery.charging && battery.levelPercent >= 0) {
             if (battery.levelPercent >= thresholds.warnLevel + HYSTERESIS) warned = false
             if (battery.levelPercent >= thresholds.tweaksLevel + HYSTERESIS) tweaksEnded = false
             if (battery.levelPercent <= thresholds.emergencyLevel && !input.stopCountdownActive) {
-                return SafetyDecision(SafetyAction.STOP_WITH_COUNTDOWN, tweaksEnded, warned, bridgeReported)
+                return decision(SafetyAction.STOP_WITH_COUNTDOWN)
             }
             if (battery.levelPercent <= thresholds.tweaksLevel && input.tweaksActive && !tweaksEnded) {
                 tweaksEnded = true
-                return SafetyDecision(SafetyAction.END_TWEAKS, tweaksEnded, warned, bridgeReported)
+                return decision(SafetyAction.END_TWEAKS)
             }
             if (battery.levelPercent <= thresholds.warnLevel && !warned) {
                 warned = true
-                return SafetyDecision(SafetyAction.WARN_BATTERY_15, tweaksEnded, warned, bridgeReported)
+                return decision(SafetyAction.WARN_BATTERY_15)
             }
         }
         if (input.thermalStatus != THERMAL_UNKNOWN && input.thermalStatus >= THERMAL_SEVERE && input.tweaksActive && !tweaksEnded) {
+            if (input.thermalStatus >= THERMAL_CRITICAL) {
+                tweaksEnded = true
+                return decision(SafetyAction.END_TWEAKS)
+            }
+            if (input.aggressiveActive && !deescalated) {
+                deescalated = true
+                deescalatedAt = input.nowMs
+                return decision(SafetyAction.DEESCALATE_AGGRESSIVE)
+            }
+            if (deescalated) {
+                if (input.nowMs - deescalatedAt >= input.deescalationWindowMs) {
+                    tweaksEnded = true
+                    return decision(SafetyAction.END_TWEAKS)
+                }
+                return decision(SafetyAction.NONE)
+            }
             tweaksEnded = true
-            return SafetyDecision(SafetyAction.END_TWEAKS, tweaksEnded, warned, bridgeReported)
+            return decision(SafetyAction.END_TWEAKS)
         }
         if (input.bridgeUnknown) {
-            return SafetyDecision(SafetyAction.NONE, tweaksEnded, warned, bridgeReported)
+            return decision(SafetyAction.NONE)
         }
         if (!input.bridgeOk && !bridgeReported) {
             bridgeReported = true
-            return SafetyDecision(SafetyAction.BRIDGE_LOST_RESTORE, tweaksEnded, warned, bridgeReported)
+            return decision(SafetyAction.BRIDGE_LOST_RESTORE)
         }
         if (input.bridgeOk) bridgeReported = false
-        return SafetyDecision(SafetyAction.NONE, tweaksEnded, warned, bridgeReported)
+        return decision(SafetyAction.NONE)
     }
 }
 
