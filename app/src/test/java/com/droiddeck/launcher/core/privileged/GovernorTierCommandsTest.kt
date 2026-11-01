@@ -5,46 +5,58 @@ import org.junit.Test
 
 class GovernorTierCommandsTest {
 
-    @Test fun coolingWithPidHasAllThreeCommandsInOrder() {
-        assertEquals(
-            listOf(
-                "kill-all" to "am kill-all 2>/dev/null",
-                "renice" to "renice -n -5 -p 1234 2>/dev/null",
-                "taskset" to "taskset -p 7c 1234 2>/dev/null",
-            ),
-            buildTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF, 1234),
-        )
-    }
-
-    @Test fun balancedWithPidHasReniceAndTaskset() {
-        assertEquals(
-            listOf(
-                "renice" to "renice -n -10 -p 1234 2>/dev/null",
-                "taskset" to "taskset -p 7c 1234 2>/dev/null",
-            ),
-            buildTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.BALANCED_COOL, 1234),
-        )
-    }
-
-    @Test fun boostWithPidHasReniceOnly() {
-        assertEquals(
-            listOf("renice" to "renice -n -14 -p 1234 2>/dev/null"),
-            buildTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST, 1234),
-        )
-    }
-
-    @Test fun pidAtMostOneSkipsPidCommands() {
+    @Test fun coolingDaemonHasKillAllOnly() {
         assertEquals(
             listOf("kill-all" to "am kill-all 2>/dev/null"),
-            buildTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF, 1),
+            buildDaemonTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF),
+        )
+    }
+
+    @Test fun coolingAppHasTasksetOnly() {
+        assertEquals(
+            listOf("taskset" to "taskset -p 7c 1234 2>/dev/null"),
+            buildAppTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF, 1234),
+        )
+    }
+
+    @Test fun balancedDaemonHasNoCommandsAndAppHasTaskset() {
+        assertEquals(
+            emptyList<Pair<String, String>>(),
+            buildDaemonTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.BALANCED_COOL),
+        )
+        assertEquals(
+            listOf("taskset" to "taskset -p 7c 1234 2>/dev/null"),
+            buildAppTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.BALANCED_COOL, 1234),
+        )
+    }
+
+    @Test fun boostHasNoPidCommandsBecauseReniceIsDropped() {
+        assertEquals(
+            emptyList<Pair<String, String>>(),
+            buildDaemonTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST),
         )
         assertEquals(
             emptyList<Pair<String, String>>(),
-            buildTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.BALANCED_COOL, 0),
+            buildAppTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST, 1234),
+        )
+    }
+
+    @Test fun pidAtMostOneSkipsAppCommands() {
+        assertEquals(
+            listOf("kill-all" to "am kill-all 2>/dev/null"),
+            buildDaemonTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF),
         )
         assertEquals(
             emptyList<Pair<String, String>>(),
-            buildTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST, -1),
+            buildAppTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF, 1),
+        )
+        assertEquals(
+            emptyList<Pair<String, String>>(),
+            buildAppTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.BALANCED_COOL, 0),
+        )
+        assertEquals(
+            emptyList<Pair<String, String>>(),
+            buildAppTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST, -1),
         )
     }
 }

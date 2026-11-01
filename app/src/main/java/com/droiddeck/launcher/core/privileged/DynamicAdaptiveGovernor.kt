@@ -65,33 +65,47 @@ internal class TierActionQueue {
     }
 }
 
-// Tier commands as (name, command) pairs, in execution order, so each step's exit is logged separately.
-internal fun buildTierCommands(
+// Daemon commands only: am kill-all runs as shell, unlike pid commands.
+// App commands only: taskset runs in the app process because the guest pid
+// is app-owned, so the shell daemon cannot set its affinity cross-UID.
+// Negative renice is dropped entirely: it requires CAP_SYS_NICE, which
+// neither the app nor the shell daemon has, so it always failed.
+internal fun buildDaemonTierCommands(
+    tier: DynamicAdaptiveGovernor.AdaptiveTier,
+): List<Pair<String, String>> {
+    return when (tier) {
+        DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF ->
+            listOf("kill-all" to "am kill-all 2>/dev/null")
+        else -> emptyList()
+    }
+}
+
+internal fun buildAppTierCommands(
     tier: DynamicAdaptiveGovernor.AdaptiveTier,
     pid: Int,
 ): List<Pair<String, String>> {
-    val commands = mutableListOf<Pair<String, String>>()
-    when (tier) {
-        DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF -> {
-            commands += "kill-all" to "am kill-all 2>/dev/null"
-            if (pid > 1) {
-                commands += "renice" to "renice -n -5 -p $pid 2>/dev/null"
-                commands += "taskset" to "taskset -p 7c $pid 2>/dev/null"
-            }
-        }
-        DynamicAdaptiveGovernor.AdaptiveTier.BALANCED_COOL -> {
-            if (pid > 1) {
-                commands += "renice" to "renice -n -10 -p $pid 2>/dev/null"
-                commands += "taskset" to "taskset -p 7c $pid 2>/dev/null"
-            }
-        }
-        DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST -> {
-            if (pid > 1) {
-                commands += "renice" to "renice -n -14 -p $pid 2>/dev/null"
-            }
-        }
+    if (pid <= 1) return emptyList()
+    return when (tier) {
+        DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF,
+        DynamicAdaptiveGovernor.AdaptiveTier.BALANCED_COOL ->
+            listOf("taskset" to "taskset -p 7c $pid 2>/dev/null")
+        DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST -> emptyList()
     }
-    return commands
+}
+
+internal fun runAppTierCommand(cmd: String, timeoutMs: Long = 4000L): Int {
+    return try {
+        val process = ProcessBuilder("/system/bin/sh", "-c", cmd).redirectErrorStream(true).start()
+        val finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!finished) {
+            process.destroyForcibly()
+            -1
+        } else {
+            process.exitValue()
+        }
+    } catch (_: Exception) {
+        -1
+    }
 }
 
 object DynamicAdaptiveGovernor {
@@ -274,14 +288,21 @@ object DynamicAdaptiveGovernor {
                     }
                     com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                         context, "device.change", "governor-tier",
-                        fields = mapOf("tier" to tier.name, "limit" to limit),
+                        fields = mapOf("tier" to tier.name, "limit" to limit, "renice" to "skipped"),
                     )
                     // One exec per command: a single script exit cannot name the failing step.
-                    for ((name, cmd) in buildTierCommands(tier, pid)) {
+                    for ((name, cmd) in buildDaemonTierCommands(tier)) {
                         val exit = PrivilegedBridge.executeChecked(cmd, PrivilegedBridge.DEFAULT_TIMEOUT_MS).exitCode
                         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                             context, "device.change", "governor-cmd",
-                            fields = mapOf("tier" to tier.name, "cmd" to name, "exit" to exit.toString()),
+                            fields = mapOf("tier" to tier.name, "cmd" to name, "exit" to exit.toString(), "source" to "daemon"),
+                        )
+                    }
+                    for ((name, cmd) in buildAppTierCommands(tier, pid)) {
+                        val exit = runAppTierCommand(cmd)
+                        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                            context, "device.change", "governor-cmd",
+                            fields = mapOf("tier" to tier.name, "cmd" to name, "exit" to exit.toString(), "source" to "app"),
                         )
                     }
                 } catch (t: Throwable) {
