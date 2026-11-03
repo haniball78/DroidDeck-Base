@@ -38,4 +38,35 @@ class AdvancedGeneralFixesTest {
         // Generation 0 means "no session generation": not stale.
         assertFalse(isStaleGeneration(true, 999, 0))
     }
+
+    @Test
+    fun fix4DynamicProtectedPackagesAreNeverSuspendTargets() {
+        val cached = setOf("android", "com.android.systemui")
+        val dynamic = setOf("com.example.keyboard", "com.example.accessibility")
+        val protected = mergeProtectedPackages(cached, dynamic, "com.droiddeck.launcher")
+        assertTrue("com.example.keyboard" in protected)
+        assertTrue("com.example.accessibility" in protected)
+        assertTrue("com.droiddeck.launcher" in protected)
+        val targets = filterSuspendTargets(
+            listOf(
+                "com.example.keyboard",
+                "com.example.game",
+                "com.example.game",
+                "com.droiddeck.launcher",
+                "com.example.accessibility",
+            ),
+            protected,
+        )
+        assertEquals(listOf("com.example.game"), targets)
+    }
+
+    @Test
+    fun fix5ApplyDecisionRestoresStaleGenerationFirst() {
+        assertEquals(EngineApplyDecision.FRESH, decideEngineApply(false, 999, 1))
+        assertEquals(EngineApplyDecision.FRESH, decideEngineApply(false, 0, 0))
+        assertEquals(EngineApplyDecision.ALREADY_ACTIVE, decideEngineApply(true, 1, 1))
+        assertEquals(EngineApplyDecision.ALREADY_ACTIVE, decideEngineApply(true, 999, 0))
+        assertEquals(EngineApplyDecision.RESTORE_FIRST, decideEngineApply(true, 999, 1))
+        assertEquals(EngineApplyDecision.RESTORE_FIRST, decideEngineApply(true, 2, 3))
+    }
 }

@@ -23,6 +23,21 @@ import java.util.concurrent.atomic.AtomicInteger
  * 5. Persistent Fail-Safe: Every suspended package is committed to `suspended-packages.txt`.
  *    On exit or upon next launch (even after crash/power loss), `RecoveryCoordinator` restores everything.
  */
+// Pure Fix 4 logic, extracted so it can be simulated in a unit test
+// without a Context: the dynamic protected set (current keyboard,
+// accessibility services) is merged with the cached set and the app's
+// own package, and only then are suspend targets filtered.
+internal fun mergeProtectedPackages(
+    cached: Set<String>,
+    dynamic: Set<String>,
+    ownPackage: String,
+): Set<String> = cached + dynamic + ownPackage
+
+internal fun filterSuspendTargets(
+    packages: List<String>,
+    protected: Set<String>,
+): List<String> = packages.distinct().filter { it !in protected }
+
 object AppFreezerEngine {
     private const val TAG = "AppFreezerEngine"
     private const val MARKER_FILE = "suspended-packages.txt"
@@ -166,10 +181,13 @@ object AppFreezerEngine {
         val previousGen = activeGen.get()
         activeGen.set(sessionGen)
         if (!SessionPrefs.advancedMasterEnabled(context)) return "app freezer: disabled (master switch off)"
-        if (applied) {
-            if (!isStaleGeneration(true, previousGen, sessionGen)) return "freezer: already active (gen=$sessionGen)"
-            if (!restore(context, sessionGen)) return "freezer: aborted (stale generation restore failed)"
-            activeGen.set(sessionGen)
+        when (decideEngineApply(applied, previousGen, sessionGen)) {
+            EngineApplyDecision.ALREADY_ACTIVE -> return "freezer: already active (gen=$sessionGen)"
+            EngineApplyDecision.RESTORE_FIRST -> {
+                if (!restore(context, sessionGen)) return "freezer: aborted (stale generation restore failed)"
+                activeGen.set(sessionGen)
+            }
+            EngineApplyDecision.FRESH -> {}
         }
 
         val results = mutableListOf<String>()
@@ -183,7 +201,7 @@ object AppFreezerEngine {
         // suspended if the session starts before warmup finishes.
         val dynamicProtected = queryDynamicProtected(context)
         if (dynamicProtected.isNotEmpty()) cachedProtectedPackages = cachedProtectedPackages + dynamicProtected
-        val protectedSet = cachedProtectedPackages + pkgName
+        val protectedSet = mergeProtectedPackages(cachedProtectedPackages, dynamicProtected, pkgName)
 
         if (SessionPrefs.freezeBloatware(context)) {
             val bloat = cachedBloatware ?: queryBloatware(context).also { if (it.isNotEmpty()) cachedBloatware = it }
@@ -197,7 +215,7 @@ object AppFreezerEngine {
             results.add("user_apps=${user.size}")
         }
 
-        val uniqueTargets = packagesToSuspend.distinct().filter { it !in protectedSet }
+        val uniqueTargets = filterSuspendTargets(packagesToSuspend, protectedSet)
 
         // Fast generation check before executing shell commands
         if (sessionGen != 0 && activeGen.get() != sessionGen) {

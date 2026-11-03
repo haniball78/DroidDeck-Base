@@ -115,6 +115,28 @@ internal fun isStaleGeneration(applied: Boolean, activeGen: Int, sessionGen: Int
     return applied && sessionGen != 0 && activeGen != sessionGen
 }
 
+// Pure Fix 5 decision, shared by both engines: FRESH when nothing is
+// applied, ALREADY_ACTIVE when the same generation is already applied,
+// RESTORE_FIRST when an older generation is still applied.
+internal enum class EngineApplyDecision {
+    FRESH,
+    ALREADY_ACTIVE,
+    RESTORE_FIRST,
+}
+
+internal fun decideEngineApply(
+    applied: Boolean,
+    previousGen: Int,
+    sessionGen: Int,
+): EngineApplyDecision {
+    if (!applied) return EngineApplyDecision.FRESH
+    return if (isStaleGeneration(true, previousGen, sessionGen)) {
+        EngineApplyDecision.RESTORE_FIRST
+    } else {
+        EngineApplyDecision.ALREADY_ACTIVE
+    }
+}
+
 object GameModeEngine {
     private const val TAG = "GameModeEngine"
     private const val MARKER_FILE = "gamemode-marker.txt"
@@ -141,10 +163,13 @@ object GameModeEngine {
         activeGen.set(sessionGen)
         if (!SessionPrefs.advancedMasterEnabled(context)) return "game mode: disabled (master switch off)"
         if (!SessionPrefs.gameModeEngine(context)) return "game mode: disabled in settings"
-        if (applied) {
-            if (!isStaleGeneration(true, previousGen, sessionGen)) return "game mode: already active"
-            if (!restore(context, sessionGen)) return "game mode: aborted (stale generation restore failed)"
-            activeGen.set(sessionGen)
+        when (decideEngineApply(applied, previousGen, sessionGen)) {
+            EngineApplyDecision.ALREADY_ACTIVE -> return "game mode: already active"
+            EngineApplyDecision.RESTORE_FIRST -> {
+                if (!restore(context, sessionGen)) return "game mode: aborted (stale generation restore failed)"
+                activeGen.set(sessionGen)
+            }
+            EngineApplyDecision.FRESH -> {}
         }
 
         val aggressive = SessionPrefs.gameModeAggressive(context)
