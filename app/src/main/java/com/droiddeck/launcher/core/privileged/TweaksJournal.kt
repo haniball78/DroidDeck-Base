@@ -296,13 +296,17 @@ internal object AppFreezerPackageJournal {
 }
 
 internal object SafeRestoreResult {
-    fun succeeded(gameModeOk: Boolean, freezerOk: Boolean): Boolean = gameModeOk && freezerOk
+    // A restore is only successful when both engines report success AND
+    // no journal item remains: a remaining item means something was not
+    // restored, even if both engines returned true.
+    fun succeeded(gameModeOk: Boolean, freezerOk: Boolean, journalRemaining: Int): Boolean =
+        gameModeOk && freezerOk && journalRemaining == 0
 
     fun resultFields(gameModeOk: Boolean, freezerOk: Boolean, journalRemaining: Int): Map<String, String> = mapOf(
         "game_mode_ok" to gameModeOk.toString(),
         "freezer_ok" to freezerOk.toString(),
         "journal_remaining" to journalRemaining.toString(),
-        "succeeded" to succeeded(gameModeOk, freezerOk).toString(),
+        "succeeded" to succeeded(gameModeOk, freezerOk, journalRemaining).toString(),
     )
 }
 

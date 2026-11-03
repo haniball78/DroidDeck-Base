@@ -1185,7 +1185,7 @@ private fun AdvancedSetupTab(
                             ctx, "advanced.action", "safe-restore-result",
                             fields = com.droiddeck.launcher.core.privileged.SafeRestoreResult.resultFields(gameModeOk, freezerOk, remaining),
                         )
-                        safeRestoreReport = if (com.droiddeck.launcher.core.privileged.SafeRestoreResult.succeeded(gameModeOk, freezerOk)) {
+                        safeRestoreReport = if (com.droiddeck.launcher.core.privileged.SafeRestoreResult.succeeded(gameModeOk, freezerOk, remaining)) {
                             ctx.getString(R.string.setup_adv_safe_restore_success)
                         } else {
                             ctx.getString(R.string.setup_adv_safe_restore_failed, remaining)

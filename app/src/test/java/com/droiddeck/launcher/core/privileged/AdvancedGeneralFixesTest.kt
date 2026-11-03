@@ -9,10 +9,10 @@ class AdvancedGeneralFixesTest {
 
     @Test
     fun safeRestoreSucceedsOnlyWhenBothEnginesSucceed() {
-        assertTrue(SafeRestoreResult.succeeded(true, true))
-        assertFalse(SafeRestoreResult.succeeded(true, false))
-        assertFalse(SafeRestoreResult.succeeded(false, true))
-        assertFalse(SafeRestoreResult.succeeded(false, false))
+        assertTrue(SafeRestoreResult.succeeded(true, true, 0))
+        assertFalse(SafeRestoreResult.succeeded(true, false, 0))
+        assertFalse(SafeRestoreResult.succeeded(false, true, 0))
+        assertFalse(SafeRestoreResult.succeeded(false, false, 0))
     }
 
     @Test
@@ -25,6 +25,19 @@ class AdvancedGeneralFixesTest {
         val success = SafeRestoreResult.resultFields(true, true, 0)
         assertEquals("true", success["succeeded"])
         assertEquals("0", success["journal_remaining"])
+    }
+
+    @Test
+    fun safeRestoreIsNotSuccessfulWhenJournalRemainsEvenIfBothEnginesReportOk() {
+        // Rare but possible: both engines return true while a journal
+        // item was not restored. The report must show failed, with the
+        // remaining count, not a false success.
+        assertFalse(SafeRestoreResult.succeeded(true, true, 2))
+        assertFalse(SafeRestoreResult.succeeded(true, true, 1))
+        assertFalse(SafeRestoreResult.resultFields(true, true, 2)["succeeded"]!!.toBoolean())
+        assertTrue(SafeRestoreResult.succeeded(true, true, 0))
+        assertFalse(SafeRestoreResult.succeeded(false, true, 3))
+        assertFalse(SafeRestoreResult.succeeded(true, false, 1))
     }
 
     @Test
