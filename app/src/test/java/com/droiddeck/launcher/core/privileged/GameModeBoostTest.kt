@@ -42,4 +42,42 @@ class GameModeBoostTest {
         assertTrue(cmd.contains("exit 1"))
         assertTrue(cmd.contains("failed=0"))
     }
+
+    @Test
+    fun sessionTreeIncludesDescendantsAndTracedProcessesButNotUnrelated() {
+        val processes = listOf(
+            SessionProcess(100, 1, 0),
+            SessionProcess(101, 100, 0),
+            SessionProcess(102, 101, 0),
+            SessionProcess(103, 1, 100),
+            SessionProcess(200, 1, 0),
+            SessionProcess(201, 200, 0),
+        )
+        assertEquals(listOf(101, 102, 103), sessionTreePids(100, processes, 9999).sorted())
+        assertEquals(emptyList<Int>(), sessionTreePids(200, listOf(SessionProcess(200, 1, 0)), 9999))
+        assertEquals(emptyList<Int>(), sessionTreePids(999, processes, 9999))
+    }
+
+    @Test
+    fun sessionTreeExcludesTheAppProcessItself() {
+        val processes = listOf(
+            SessionProcess(100, 1, 0),
+            SessionProcess(5000, 100, 0),
+            SessionProcess(5001, 5000, 0),
+        )
+        assertEquals(listOf<Int>(), sessionTreePids(100, processes, 5000))
+    }
+
+    @Test
+    fun treeCommandTasksetsEveryDescendantThreadWithNoReniceOrOom() {
+        val cmd = buildBoostTreeCommand(listOf(101, 103), "fc")
+        assertTrue(cmd.contains("/proc/\$pid/task"))
+        assertTrue(cmd.contains("taskset -p fc"))
+        assertTrue(cmd.contains("tree-diag"))
+        assertTrue(cmd.contains("pids=2"))
+        assertTrue(!cmd.contains("renice"))
+        assertTrue(!cmd.contains("oom_score_adj"))
+        val empty = buildBoostTreeCommand(emptyList(), "fc")
+        assertTrue(empty.contains("pids=0"))
+    }
 }

@@ -95,6 +95,73 @@ internal fun parseThreadsDiag(output: String?): ThreadsDiag? {
     return ThreadsDiag(ok, failed, total, tids)
 }
 
+// The guest root pid is a proot supervisor with a single thread, so
+// boosting only its threads always reports 1/1. The game itself runs
+// as descendant processes, and as processes traced by the supervisor
+// (the same tree the suspend logic already walks). Boosting the whole
+// tree is what makes the boost reach the game.
+internal data class SessionProcess(
+    val pid: Int,
+    val ppid: Int,
+    val tracerPid: Int,
+)
+
+internal fun sessionTreePids(
+    rootPid: Int,
+    processes: List<SessionProcess>,
+    excludedPid: Int,
+): List<Int> {
+    val byPid = processes.associateBy { it.pid }
+    if (rootPid !in byPid) return emptyList()
+    val children = HashMap<Int, MutableList<Int>>()
+    for (process in processes) {
+        children.getOrPut(process.ppid) { ArrayList() }.add(process.pid)
+        if (process.tracerPid > 0) {
+            children.getOrPut(process.tracerPid) { ArrayList() }.add(process.pid)
+        }
+    }
+    val found = ArrayList<Int>()
+    val seen = HashSet<Int>()
+    val queue = ArrayDeque<Int>().apply { add(rootPid) }
+    while (queue.isNotEmpty()) {
+        val parent = queue.removeFirst()
+        for (child in children[parent].orEmpty()) {
+            if (child <= 1 || child == rootPid || child == excludedPid || !seen.add(child)) continue
+            found.add(child)
+            queue.add(child)
+        }
+    }
+    return found
+}
+
+internal fun readSessionTree(rootPid: Int): List<Int> {
+    val processes = ArrayList<SessionProcess>()
+    File("/proc").listFiles()?.forEach { entry ->
+        val pid = entry.name.toIntOrNull() ?: return@forEach
+        val stat = try { File(entry, "stat").readText() } catch (_: Exception) { return@forEach }
+        val close = stat.lastIndexOf(')')
+        if (close < 0 || close + 2 >= stat.length) return@forEach
+        val fields = stat.substring(close + 2).trim().split(Regex("\\s+"))
+        if (fields.size < 2) return@forEach
+        val ppid = fields[1].toIntOrNull() ?: return@forEach
+        val tracer = try {
+            File(entry, "status").useLines { lines ->
+                lines.firstOrNull { it.startsWith("TracerPid:") }
+                    ?.substringAfter(":")?.trim()?.toIntOrNull() ?: 0
+            }
+        } catch (_: Exception) {
+            0
+        }
+        processes.add(SessionProcess(pid, ppid, tracer))
+    }
+    return sessionTreePids(rootPid, processes, android.os.Process.myPid())
+}
+
+internal fun buildBoostTreeCommand(pids: List<Int>, mask: String): String {
+    val pidList = pids.joinToString(" ")
+    return "ok=0; failed=0; for pid in $pidList; do taskset -p $mask \$pid >/dev/null 2>&1; for tid in /proc/\$pid/task/*; do t=\${tid##*/}; if taskset -p $mask \$t >/dev/null 2>&1; then ok=\$((ok+1)); else failed=\$((failed+1)); fi; done; done; echo \"tree-diag ok=\$ok failed=\$failed total=\$((ok+failed)) pids=${pids.size}\""
+}
+
 // App-side boost commands only: the guest pid is app-owned, so the shell
 // daemon cannot taskset it cross-UID. Negative renice is dropped entirely:
 // it requires CAP_SYS_NICE, which neither the app nor the daemon has.
@@ -361,6 +428,19 @@ object GameModeEngine {
             pidBoostFields["threads_total"] = it.total.toString()
             pidBoostFields["threads_failed_tids"] = it.failedTids.joinToString(",")
         }
+        val treeFound = readSessionTree(pid)
+        val treePids = treeFound.take(64)
+        val (treeExit, treeOutput) = runAppCommandOutput(buildBoostTreeCommand(treePids, mask))
+        val treeDiag = parseThreadsDiag(treeOutput)
+        pidBoostFields["tree_exit"] = treeExit.toString()
+        pidBoostFields["tree_found"] = treeFound.size.toString()
+        pidBoostFields["tree_pids"] = treePids.size.toString()
+        pidBoostFields["tree_truncated"] = (treeFound.size > treePids.size).toString()
+        treeDiag?.let {
+            pidBoostFields["tree_threads_ok"] = it.ok.toString()
+            pidBoostFields["tree_threads_failed"] = it.failed.toString()
+            pidBoostFields["tree_threads_total"] = it.total.toString()
+        }
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             context, "device.change", "pid-boost",
             fields = pidBoostFields,
@@ -379,6 +459,19 @@ object GameModeEngine {
                         followFields["threads_failed"] = it.failed.toString()
                         followFields["threads_total"] = it.total.toString()
                         followFields["threads_failed_tids"] = it.failedTids.joinToString(",")
+                    }
+                    val followTreeFound = readSessionTree(pid)
+                    val followTreePids = followTreeFound.take(64)
+                    val (followTreeExit, followTreeOutput) = runAppCommandOutput(buildBoostTreeCommand(followTreePids, mask))
+                    val followTreeDiag = parseThreadsDiag(followTreeOutput)
+                    followFields["tree_exit"] = followTreeExit.toString()
+                    followFields["tree_found"] = followTreeFound.size.toString()
+                    followFields["tree_pids"] = followTreePids.size.toString()
+                    followFields["tree_truncated"] = (followTreeFound.size > followTreePids.size).toString()
+                    followTreeDiag?.let {
+                        followFields["tree_threads_ok"] = it.ok.toString()
+                        followFields["tree_threads_failed"] = it.failed.toString()
+                        followFields["tree_threads_total"] = it.total.toString()
                     }
                     com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                         context, "device.change", "pid-boost-followup",
