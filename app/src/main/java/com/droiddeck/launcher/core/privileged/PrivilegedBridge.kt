@@ -354,18 +354,16 @@ object PrivilegedBridge {
 
     fun boostAndProtectSession(targetPid: Int, aggressive: Boolean): Boolean {
         if (targetPid <= 0) return false
-        val nice = if (aggressive) -20 else -10
         return if (_status.value.mode == PrivilegedMode.EMBEDDED_DAEMON) {
             val action = if (aggressive) "BOOST_PERFORMANCE_TURBO:$targetPid" else "BOOST_PERFORMANCE:$targetPid"
             runEmbeddedAction(action)
         } else {
-            // No oom_score_adj write: -1000 requires CAP_SYS_RESOURCE, and a
-            // device log read back 0 after the attempt.
-            val script = buildString {
-                append("renice -n $nice -p $targetPid 2>/dev/null || true; ")
-                if (aggressive) append("cmd power set-fixed-performance-mode-enabled true 2>/dev/null || true")
-            }
-            execute(script).exitCode == 0
+            // No negative renice: it requires CAP_SYS_NICE, which neither
+            // the app nor the shell daemon has, so the kernel rejects it.
+            // The real boost is GameMode taskset; this legacy path keeps
+            // only fixed-performance for aggressive mode.
+            if (!aggressive) return true
+            execute("cmd power set-fixed-performance-mode-enabled true 2>/dev/null || true").exitCode == 0
         }
     }
 

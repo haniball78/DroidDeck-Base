@@ -93,7 +93,7 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
                 EngineFeatureRow(
                     Icons.Outlined.Speed,
                     "Game Performance Boost",
-                    "Sets game processes to highest CPU priority (renice -20) and protects them from the low-memory killer.",
+                    "Boosts game performance during sessions, with fixed-performance mode when aggressive mode is on.",
                 )
                 EngineFeatureRow(
                     Icons.Outlined.Security,

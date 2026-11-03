@@ -237,15 +237,15 @@ public class DroidDeckPrivilegedServer {
 
     private static boolean boostPerformanceInternal(int targetPid, boolean aggressive) {
         try {
-            int nice = aggressive ? -20 : -10;
             String fixed = aggressive
                 ? "cmd power set-fixed-performance-mode-enabled true 2>/dev/null || true"
                 : "true";
+            // No negative renice: it requires CAP_SYS_NICE, which the shell
+            // daemon does not have, so the kernel rejects it.
             String script = String.format(
                 "echo -1000 > /proc/%d/oom_score_adj 2>/dev/null || true; " +
-                "renice -n %d -p %d 2>/dev/null || true; " +
                 "%s",
-                targetPid, nice, targetPid, fixed
+                targetPid, fixed
             );
             Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", script}).waitFor();
             return true;
