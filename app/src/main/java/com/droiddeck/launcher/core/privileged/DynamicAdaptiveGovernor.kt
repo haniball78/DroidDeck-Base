@@ -353,6 +353,8 @@ object DynamicAdaptiveGovernor {
 
     fun getCurrentTier(): AdaptiveTier = currentTier
 
+    fun isRunning(): Boolean = running
+
     fun getDiagnosticReport(context: Context): Map<String, String> {
         val out = mutableMapOf<String, String>()
         out["Adaptive Governor"] = if (running) "🟢 ACTIVE" else "⚪ STANDBY (Runs with game)"

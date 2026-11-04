@@ -11,6 +11,21 @@ import com.droiddeck.launcher.session.SessionFiles
 import java.io.File
 import java.util.Locale
 
+// Thermal-zone temps are in millidegrees Celsius. A null result
+// means "not readable on this device", never a guessed value, and
+// the log field stays "unknown" in that case.
+internal fun parseThermalMilliCelsius(raw: String?): Float? {
+    val milli = raw?.trim()?.toLongOrNull() ?: return null
+    if (milli < -40000L || milli > 200000L) return null
+    return milli / 1000f
+}
+
+internal fun readThermalTemp(sourcePath: String?): Float? {
+    if (sourcePath == null) return null
+    val raw = runCatching { File(sourcePath).readText() }.getOrNull() ?: return null
+    return parseThermalMilliCelsius(raw)
+}
+
 internal fun performanceFields(
     batteryPercent: Int,
     charging: Boolean,
@@ -18,17 +33,32 @@ internal fun performanceFields(
     batteryTempC: Float,
     headroom: Float,
     governorTier: String,
+    governorRunning: Boolean,
     tweaksActive: Boolean,
     aggressiveActive: Boolean,
     ramFreeMb: Long,
+    cpuTempC: Float? = null,
+    gpuTempC: Float? = null,
 ): Map<String, String> {
+    // After stop() the governor resets its tier to BALANCED_COOL,
+    // which looked like an active tier in old samples. Report it
+    // as STOPPED, with an explicit running flag, so a post-END
+    // sample can never be mistaken for active cooling.
+    val effectiveTier = if (governorRunning) governorTier else "STOPPED"
     return mapOf(
         "battery" to batteryPercent.toString(),
         "charging" to charging.toString(),
         "thermal" to thermalStatus.toString(),
         "battery_temp_c" to String.format(Locale.US, "%.1f", batteryTempC),
+        "cpu_temp_c" to if (cpuTempC == null || cpuTempC.isNaN()) "unknown" else String.format(Locale.US, "%.1f", cpuTempC),
+        "gpu_temp_c" to if (gpuTempC == null || gpuTempC.isNaN()) "unknown" else String.format(Locale.US, "%.1f", gpuTempC),
         "headroom" to if (headroom.isNaN()) "unknown" else String.format(Locale.US, "%.2f", headroom),
-        "governor_tier" to governorTier,
+        // NaN headroom in the first samples means "not computed
+        // yet", not zero and not a sensor failure: make that
+        // explicit so early samples are never read as a value.
+        "headroom_status" to if (headroom.isNaN()) "unknown" else "known",
+        "governor_tier" to effectiveTier,
+        "governor_running" to governorRunning.toString(),
         "background_limit" to when {
             governorTier == "COOLING_RELIEF" -> "2"
             tweaksActive -> "4"
@@ -128,9 +158,17 @@ object PerformanceLog {
                 batteryTempC = DynamicAdaptiveGovernor.getBatteryTemperature(ctx),
                 headroom = DynamicAdaptiveGovernor.getThermalHeadroom(ctx),
                 governorTier = DynamicAdaptiveGovernor.getCurrentTier().name,
+                governorRunning = DynamicAdaptiveGovernor.isRunning(),
                 tweaksActive = tweaksActive,
                 aggressiveActive = GameModeEngine.isAggressiveActive(),
                 ramFreeMb = ramFreeMb,
+                // CPU/GPU temps reuse the same thermal-zone sources
+                // already used for the guest hwmon sensors
+                // (LinuxRuntime.cpuTempSource/gpuTempSource), never a
+                // hard-coded zone number. Unreadable means unknown,
+                // not a promise that these fields will always appear.
+                cpuTempC = readThermalTemp(com.droiddeck.launcher.runtime.LinuxRuntime.cpuTempSource()),
+                gpuTempC = readThermalTemp(com.droiddeck.launcher.runtime.LinuxRuntime.gpuTempSource()),
             ),
         )
     }
