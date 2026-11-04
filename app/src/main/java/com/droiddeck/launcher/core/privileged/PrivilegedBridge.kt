@@ -71,6 +71,19 @@ internal object BoostUncertainty {
     }
 }
 
+// Option A decision, pure and unit-testable: a pre-existing
+// fixed-performance journal item may be removed only when the getter
+// is proven unsupported (not merely unreadable, exit -1), because
+// only then is its recorded original unverifiable. A supported
+// getter, or no item at all, must keep the item.
+internal object PoisonedFixedPerformanceItem {
+    fun mayRemove(hasItem: Boolean, getterExitCode: Int, getterOutput: String?): Boolean {
+        if (!hasItem) return false
+        val (decision, _) = FixedPerformanceGetterDecision.decide(getterExitCode, getterOutput ?: "")
+        return decision == FixedPerformanceGetter.UNSUPPORTED
+    }
+}
+
 internal object FixedPerformanceState {
     fun parse(raw: String): String? {
         return when (raw.trim().lowercase()) {
@@ -329,12 +342,30 @@ object PrivilegedBridge {
         return boostAndProtectSession(targetPid, aggressive = false)
     }
 
+    // Option A cleanup: remove a pre-existing fixed-performance
+    // journal item only on proof (see PoisonedFixedPerformanceItem).
+    // This removes the record, not a phone setting, and never sets
+    // fixed-performance to true without a readable original.
+    fun removePoisonedFixedPerformanceItem(context: Context): Boolean {
+        if (!Tweaks.hasKey(context, "fixed-performance")) return false
+        val read = executeChecked("cmd power get-fixed-performance-mode-enabled")
+        if (!PoisonedFixedPerformanceItem.mayRemove(true, read.exitCode, read.output)) return false
+        val removed = Tweaks.removeKey(context, "fixed-performance")
+        if (removed) DiagnosticsLog.log(context, "safety.journal", "fixed-performance-poisoned-removed")
+        return removed
+    }
+
     fun boostAndProtectSession(context: Context, targetPid: Int): Boolean {
         if (!com.droiddeck.launcher.session.SessionPrefs.advancedMasterEnabled(context)) return false
         if (!com.droiddeck.launcher.session.SessionPrefs.gameModeEngine(context)) return false
         val aggressive = com.droiddeck.launcher.session.SessionPrefs.gameModeAggressive(context)
         if (aggressive) {
-            if (!Tweaks.hasKey(context, "fixed-performance")) {
+            if (Tweaks.hasKey(context, "fixed-performance")) {
+                // A poisoned item must not justify setting true with an
+                // unverifiable original: remove it and refuse the boost,
+                // exactly as the no-item unsupported case already does.
+                if (removePoisonedFixedPerformanceItem(context)) return false
+            } else {
                 val read = executeChecked("cmd power get-fixed-performance-mode-enabled")
                 val original = if (read.exitCode == 0) FixedPerformanceState.parse(read.output) else null
                 if (original == null) return false
