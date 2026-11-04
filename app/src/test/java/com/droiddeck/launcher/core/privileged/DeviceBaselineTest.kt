@@ -59,6 +59,46 @@ class DeviceBaselineTest {
     }
 
     @Test
+    fun validityRequiresEveryRequiredValue() {
+        val all = DeviceBaseline.definitions("com.example").map { def ->
+            BaselineEntry(def.key, def.readCommand, "x", null)
+        }
+        assertTrue(BaselineValidity.isValid(all))
+        val missingOne = all.map {
+            if (it.key == "settings.global.background_process_limit") it.copy(value = null, unreadableReason = "read command failed with exit 1") else it
+        }
+        assertFalse(BaselineValidity.isValid(missingOne))
+        assertFalse(BaselineValidity.isValid(emptyList()))
+    }
+
+    @Test
+    fun validityExemptsOnlyChildAndProvenUnsupportedFixedPerformance() {
+        val base = DeviceBaseline.definitions("com.example").map { def ->
+            BaselineEntry(def.key, def.readCommand, "x", null)
+        }
+        val childUnreadable = base.map {
+            if (it.key == "activity.child_process_restrictions") it.copy(value = null, unreadableReason = "no public getter for this value") else it
+        }
+        assertTrue(BaselineValidity.isValid(childUnreadable))
+        val fixedUnsupported = base.map {
+            if (it.key == "power.fixed_performance") it.copy(value = null, unreadableReason = "read command failed with exit 255") else it
+        }
+        assertTrue(BaselineValidity.isValid(fixedUnsupported))
+        val fixedOtherFailure = base.map {
+            if (it.key == "power.fixed_performance") it.copy(value = null, unreadableReason = "read returned no usable value") else it
+        }
+        assertFalse(BaselineValidity.isValid(fixedOtherFailure))
+    }
+
+    @Test
+    fun draftFileNameIsDistinctFromFinalFileName() {
+        val final = DeviceBaseline.fileName(1790000000000L)
+        val draft = DeviceBaseline.draftFileName(1790000000000L)
+        assertTrue(draft.startsWith("device-baseline-draft-"))
+        assertFalse(draft == final)
+    }
+
+    @Test
     fun fileNameIsTimestamped() {
         val name = DeviceBaseline.fileName(1790000000000L)
         assertTrue(name.startsWith("device-baseline-"))

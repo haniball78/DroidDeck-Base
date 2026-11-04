@@ -21,6 +21,29 @@ data class BaselineEntry(
     val display: String get() = value ?: "UNREADABLE: ${unreadableReason ?: "no value"}"
 }
 
+// A baseline is valid only when every required value was actually
+// read. Two entries are exempt, and only for a stated reason: the
+// child-process entry has no public getter, and fixed-performance is
+// exempt only when its getter is proven unsupported (exit 255 on
+// this ROM), because its original is handled separately by the
+// GameMode skip logic. Any other unreadable required entry makes
+// the whole capture invalid, so it must never be presented as a
+// baseline and must be retried.
+internal object BaselineValidity {
+    fun isValid(entries: List<BaselineEntry>): Boolean {
+        if (entries.isEmpty()) return false
+        for (entry in entries) {
+            if (entry.key == "activity.child_process_restrictions") continue
+            if (entry.value != null) continue
+            if (entry.key == "power.fixed_performance" &&
+                entry.unreadableReason?.contains("exit 255") == true
+            ) continue
+            return false
+        }
+        return true
+    }
+}
+
 internal object DeviceBaseline {
     fun definitions(pkg: String): List<BaselineDefinition> = listOf(
         BaselineDefinition("settings.global.background_process_limit", "settings get global background_process_limit", { output -> parseSetting(output) }),
@@ -94,6 +117,10 @@ internal object DeviceBaseline {
         return "device-baseline-$stamp.md"
     }
 
+    fun draftFileName(timestampMs: Long): String {
+        return fileName(timestampMs).replace("device-baseline-", "device-baseline-draft-")
+    }
+
     // Defensive collision guard for the single capture only: a second baseline
     // is prevented by the capture flag check, not by this function.
     fun resolveUniqueFile(dir: File, baseName: String): File {
@@ -116,6 +143,8 @@ internal object DeviceBaseline {
             append("Package: $pkg\n\n")
             append("This file records the device state before DroidDeck applied its own changes. ")
             append("It is created exactly once and never overwritten or recreated.\n\n")
+            append("It records the device's own state at capture time, as-is, including any user customizations already present. ")
+            append("It is not a factory state, and nothing in this file is used to restore the device to factory defaults.\n\n")
             append("## Values\n\n")
             append("| Key | Value before | Read command |\n")
             append("| --- | --- | --- |\n")

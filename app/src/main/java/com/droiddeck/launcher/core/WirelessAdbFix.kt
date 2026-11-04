@@ -276,7 +276,21 @@ object WirelessAdbFix {
                 pair(context, LOOPBACK, port, pairingCode)
                 val baselinePort = localConnectPort(context)
                 if (baselinePort != null) {
-                    runCatching { com.droiddeck.launcher.core.privileged.DeviceBaselineCapture.ensureAfterPairing(context, LOOPBACK, baselinePort) }
+                    // Soft gate only: try the baseline capture for at
+                    // most a few seconds, then proceed to daemon start
+                    // and tweaks regardless. A baseline failure or
+                    // timeout must never block or break improvements;
+                    // the capture is retried on a later pairing, and
+                    // it reads state only, it never restores anything.
+                    val captured = kotlinx.coroutines.withTimeoutOrNull(5000) {
+                        runCatching { com.droiddeck.launcher.core.privileged.DeviceBaselineCapture.ensureAfterPairing(context, LOOPBACK, baselinePort) }.getOrNull()
+                    }
+                    if (captured == null) {
+                        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                            context, "baseline.capture", "skipped-soft",
+                            fields = mapOf("reason" to "timeout-or-failed"),
+                        )
+                    }
                 }
                 kotlinx.coroutines.delay(800)
                 val connectPort = localConnectPort(context)

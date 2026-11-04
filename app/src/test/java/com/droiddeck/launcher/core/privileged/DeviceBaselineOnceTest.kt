@@ -24,6 +24,7 @@ class DeviceBaselineOnceTest {
     fun secondCaptureAfterSuccessChangesNothing() {
         context.getSharedPreferences("device-baseline", Context.MODE_PRIVATE).edit()
             .putBoolean("baseline_captured", true)
+            .putBoolean("baseline_valid", true)
             .putString("baseline_file", "device-baseline-20260101-000000.md")
             .putLong("baseline_time_ms", 123L)
             .apply()
@@ -38,6 +39,7 @@ class DeviceBaselineOnceTest {
     fun ensureAfterPairingAfterSuccessChangesNothing() {
         context.getSharedPreferences("device-baseline", Context.MODE_PRIVATE).edit()
             .putBoolean("baseline_captured", true)
+            .putBoolean("baseline_valid", true)
             .putString("baseline_file", "device-baseline-20260101-000000.md")
             .putLong("baseline_time_ms", 123L)
             .apply()
@@ -46,6 +48,21 @@ class DeviceBaselineOnceTest {
         assertTrue(info.captured)
         assertEquals("device-baseline-20260101-000000.md", info.fileName)
         assertEquals(123L, info.capturedAtMs)
+    }
+
+    @Test
+    fun oldCapturedFlagWithoutValidFlagDoesNotBlockRecaptureAttempt() {
+        // A phone whose old file was invalid (captured flag set, no
+        // valid flag) must be allowed to retry: ensureAfterPairing
+        // must not early-return on the old flag alone.
+        context.getSharedPreferences("device-baseline", Context.MODE_PRIVATE).edit()
+            .putBoolean("baseline_captured", true)
+            .putString("baseline_file", "device-baseline-20261029-121612.md")
+            .putLong("baseline_time_ms", 123L)
+            .apply()
+        val result = DeviceBaselineCapture.ensureAfterPairing(context, "127.0.0.1", 1)
+        assertNull(result)
+        assertFalse(DeviceBaselineCapture.info(context).captured)
     }
 
     @Test

@@ -17,22 +17,33 @@ data class BaselineInfo(
 )
 
 object DeviceBaselineCapture {
-    // Baseline is created exactly once: every capture entry point checks the flag
-    // under this object's lock and save() checks it again, so a second capture
-    // cannot slip through concurrently; a failed attempt leaves the flag unset.
+    // A valid baseline is created exactly once. "Captured" now means
+    // valid, not merely "a file was written": an invalid capture
+    // (readable count too low, e.g. every read failing with exit -1)
+    // writes only a draft, sets no flag, and is retried on a later
+    // pairing. The old baseline_captured flag alone no longer counts:
+    // after this update a phone whose old file was invalid is
+    // recaptured once, softly, before tweaks, and the new valid file
+    // replaces it in prefs. The baseline is informational only: it
+    // never blocks tweaks, never restores the device, and never
+    // resets anything to factory defaults. The device's own state
+    // at capture time, including any user customizations already
+    // present, is the baseline.
     private const val TAG = "DeviceBaseline"
     private const val PREFS = "device-baseline"
     private const val KEY_CAPTURED = "baseline_captured"
+    private const val KEY_VALID = "baseline_valid"
     private const val KEY_FILE = "baseline_file"
     private const val KEY_TIME = "baseline_time_ms"
     private const val DIR_NAME = "device-baseline"
 
     fun info(context: Context): BaselineInfo {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val valid = prefs.getBoolean(KEY_VALID, false)
         return BaselineInfo(
-            captured = prefs.getBoolean(KEY_CAPTURED, false),
-            fileName = prefs.getString(KEY_FILE, null),
-            capturedAtMs = prefs.getLong(KEY_TIME, 0L),
+            captured = valid,
+            fileName = if (valid) prefs.getString(KEY_FILE, null) else null,
+            capturedAtMs = if (valid) prefs.getLong(KEY_TIME, 0L) else 0L,
         )
     }
 
@@ -123,24 +134,32 @@ object DeviceBaselineCapture {
         val appContext = context.applicationContext
         if (info(appContext).captured) return baselineFile(appContext)
         val now = System.currentTimeMillis()
+        val valid = BaselineValidity.isValid(entries)
         val text = DeviceBaseline.renderMarkdown(appContext.packageName, now, entries, notes)
         val dir = primaryDir(appContext) ?: appContext.getExternalFilesDir(null)?.let { File(it, DIR_NAME) } ?: return null
         runCatching { dir.mkdirs() }.onFailure { return null }
-        val target = DeviceBaseline.resolveUniqueFile(dir, DeviceBaseline.fileName(now))
+        val target = DeviceBaseline.resolveUniqueFile(
+            dir,
+            if (valid) DeviceBaseline.fileName(now) else DeviceBaseline.draftFileName(now),
+        )
         val written = AtomicStateFile.save(target, text)
         if (!written) {
             DiagnosticsLog.log(appContext, "baseline.capture", "failed")
             return null
         }
         DiagnosticsLog.log(
-            appContext, "baseline.capture", "succeeded",
+            appContext, "baseline.capture", if (valid) "succeeded" else "invalid",
             fields = mapOf(
                 "readable" to entries.count { it.value != null }.toString(),
                 "unreadable" to entries.count { it.value == null }.toString(),
             ),
         )
+        // Invalid captures are drafts only: no flag, no file pointer,
+        // so a later pairing retries them. Only a valid capture counts.
+        if (!valid) return null
         appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_CAPTURED, true)
+            .putBoolean(KEY_VALID, true)
             .putString(KEY_FILE, target.name)
             .putLong(KEY_TIME, now)
             .apply()
