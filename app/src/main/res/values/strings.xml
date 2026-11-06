@@ -1884,6 +1884,8 @@
     <string name="adbpair_title_done">Steam is ready</string>
     <string name="adbpair_done_text">Tap to go back to DroidDeck. You can turn Wireless debugging off now.</string>
     <string name="adbpair_title_failed">Wireless debugging setup stopped</string>
+    <string name="adbpair_title_parked">Pairing succeeded — start parked</string>
+    <string name="adbpair_parked_text">Pairing succeeded, but the device still rejects the key on this port. Turn wireless debugging off and on once; the app retries automatically when the port changes.</string>
 
     <string name="selfinst_download_failed">Download failed</string>
     <string name="selfinst_size_mismatch">The download size didn\'t match the published APK and was discarded - try again</string>
@@ -3164,7 +3166,7 @@
     <string name="connection_card_state_pending">Not connected yet</string>
     <string name="connection_card_active_detail">Full access active (%1$s) — background protection and unlimited child processes</string>
     <string name="connection_card_why_ready">No new code needed. The saved pairing is reused.</string>
-    <string name="connection_card_auth_detail">The daemon answers but rejects commands: its token does not match. Re-pair or forget the identity and pair again.</string>
+    <string name="connection_card_auth_detail">The daemon answers but rejects commands. Pairing succeeded, but the key is rejected on this port. Restart wireless debugging once and the app retries when the port changes.</string>
     <string name="connection_card_pending_detail">Follow the steps below to connect. Pairing happens only once.</string>
     <string name="connection_card_step_dev">Developer options</string>
     <string name="connection_card_step_wireless">Wireless debugging</string>
@@ -3173,7 +3175,7 @@
     <string name="connection_card_why_wireless">Turn on Wireless debugging in Developer options, then allow always.</string>
     <string name="connection_card_why_pair">Pairing happens once only. After that the app reconnects itself, even after a phone reboot.</string>
     <string name="connection_card_failure_title">Could not connect</string>
-    <string name="connection_card_failure_auth">Reason: the device does not trust the current key even though pairing succeeded. Re-pair with a new code; if it repeats, forget the identity completely and pair again.</string>
+    <string name="connection_card_failure_auth">Pairing succeeded, but the device still rejects the key on this port. Turn wireless debugging off and on once — the app retries automatically when the port changes. Re-pairing or forgetting the identity will not help.</string>
     <string name="connection_card_failure_tls">Reason: connection security failed. Check that the entered port is the pairing port, not the connect port.</string>
     <string name="connection_card_failure_unreachable">Reason: unreachable. Make sure wireless debugging is on, then retry.</string>
     <string name="connection_card_failure_unknown">Reason unknown. Retry; if it repeats, send the diagnostics log.</string>
@@ -3187,6 +3189,7 @@
     <string name="connection_card_action_starting">Starting…</string>
     <string name="connection_card_action_notify">Pair via notification</string>
     <string name="connection_card_action_notify_forget">Pair via notification (forget identity)</string>
+    <string name="connection_card_action_reset_auth">Restart wireless debugging</string>
     <string name="connection_card_action_wireless">Open wireless debugging screen</string>
     <string name="connection_card_action_clear">Clear pairing</string>
     <string name="connection_card_action_advanced">Advanced connection settings</string>
@@ -3202,7 +3205,8 @@
     <string name="connection_card_toast_paired">Paired &amp; privileged daemon started!</string>
     <string name="connection_card_toast_error">Error: %1$s</string>
     <string name="connection_card_toast_started">Privileged daemon started successfully!</string>
-    <string name="connection_card_toast_pair_failed">Could not connect with saved pairing. Try re-pairing with a new code.</string>
+    <string name="connection_card_toast_pair_failed">Could not connect — the device rejects the key on this port. Restart wireless debugging once; the app retries when the port changes.</string>
+    <string name="connection_card_toast_reset_auth">In Developer options, revoke USB debugging authorizations, then turn wireless debugging off and on. The app retries when the port changes.</string>
     <string name="connection_card_toast_forgot">Identity forgotten. Pair again with a new code.</string>
     <string name="connection_card_toast_notify">Pull down notification shade to enter code</string>
     <string name="connection_card_toast_cleared">Pairing cleared. You can pair with a new code.</string>

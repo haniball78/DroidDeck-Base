@@ -30,6 +30,8 @@ class WirelessAdbPairingService : Service() {
         data class CodeNeeded(val error: String? = null) : Stage
         data class Working(val step: String) : Stage
         data object Done : Stage
+        /** Pairing succeeded, but the daemon start parked: the connect port never changed. */
+        data object Parked : Stage
         data class Failed(val error: String) : Stage
     }
 
@@ -118,6 +120,9 @@ class WirelessAdbPairingService : Service() {
         working = true
         show(Stage.Working(getString(R.string.adbpair_pairing)))
         Thread({
+            // The settle wait compares against the port from before the
+            // pair, so it must be read before pairing starts.
+            val prePairPort = WirelessAdbFix.localConnectPort(this)
             val paired = runCatching { kotlinx.coroutines.runBlocking { WirelessAdbFix.pair(this@WirelessAdbPairingService, WirelessAdbFix.LOOPBACK, port, code) } }
             if (paired.isFailure) {
                 main.post {
@@ -132,19 +137,24 @@ class WirelessAdbPairingService : Service() {
                 show(Stage.Working(getString(R.string.adbpair_connecting)))
             }
             var attemptedPort: Int? = null
-            // Wireless debugging needs a moment to publish the new connect
-            // port after pairing: without this wait the discovery can return
-            // the previous port and the daemon start fails auth (seen 2026-11-06).
-            // The same wait exists in pairAndStartPrivilegedDaemon.
-            try {
-                Thread.sleep(800)
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
+            // The port must change after pairing: connecting to the
+            // pre-pair listener fails auth every time (observed
+            // 2026-11-06), so wait for a new port instead of retrying
+            // the stale one. No change means park, not a failed pair:
+            // the pair succeeded, and the card retries on its own when
+            // the port changes.
+            val connectPort = kotlinx.coroutines.runBlocking {
+                WirelessAdbFix.waitForConnectPortChange(this@WirelessAdbPairingService, prePairPort)
+            }
+            if (connectPort == null) {
+                WirelessAdbFix.parkAuthFailure(this, prePairPort ?: WirelessAdbFix.localConnectPort(this))
+                main.post {
+                    working = false
+                    finish(Stage.Parked)
+                }
                 return@Thread
             }
             val result = runCatching {
-                val connectPort = WirelessAdbFix.localConnectPort(this)
-                    ?: error(getString(R.string.adbpair_port_not_found))
                 attemptedPort = connectPort
                 main.post { show(Stage.Working(getString(R.string.adbpair_applying))) }
                 WirelessAdbFix.startPrivilegedDaemonViaAdb(this, WirelessAdbFix.LOOPBACK, connectPort)
@@ -156,6 +166,7 @@ class WirelessAdbPairingService : Service() {
                     put("reason", reason)
                     put("category", classifyConnectionFailure(reason).name.lowercase())
                     put("source", "notification")
+                    WirelessAdbFix.identityFingerprint(this)?.let { put("identity", it) }
                 }
                 com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(this, "adb.daemon", "failed", fields = fields)
             }
@@ -187,7 +198,7 @@ class WirelessAdbPairingService : Service() {
         stopDiscovery()
         publish(stage)
         val manager = getSystemService(NotificationManager::class.java)
-        if (stage is Stage.Done || stage is Stage.Failed) {
+        if (stage is Stage.Done || stage is Stage.Failed || stage is Stage.Parked) {
             manager?.notify(NOTIFICATION_ID, notification(stage))
             stopForeground(STOP_FOREGROUND_DETACH)
         } else {
@@ -279,6 +290,11 @@ class WirelessAdbPairingService : Service() {
                 .setContentTitle(getString(R.string.adbpair_title_done))
                 .setContentText(getString(R.string.adbpair_done_text))
                 .setStyle(Notification.BigTextStyle().bigText(getString(R.string.adbpair_done_text)))
+                .setAutoCancel(true)
+            Stage.Parked -> builder
+                .setContentTitle(getString(R.string.adbpair_title_parked))
+                .setContentText(getString(R.string.adbpair_parked_text))
+                .setStyle(Notification.BigTextStyle().bigText(getString(R.string.adbpair_parked_text)))
                 .setAutoCancel(true)
             is Stage.Failed -> builder
                 .setContentTitle(getString(R.string.adbpair_title_failed))

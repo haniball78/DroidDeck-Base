@@ -88,7 +88,11 @@ object ConnectionCardStateResolver {
         ConnectionCardState.ACTIVE -> ConnectionCardAction.NONE
         ConnectionCardState.ACTIVE_WIRELESS_OFF -> ConnectionCardAction.OPEN_DEV_OPTIONS
         ConnectionCardState.ACTIVE_DEV_OFF -> ConnectionCardAction.OPEN_ABOUT_PHONE
-        ConnectionCardState.AUTH_REJECTED -> ConnectionCardAction.OPEN_PAIRING_DIALOG
+        // AUTH is not fixed by re-pairing: the key is rejected on this
+        // port, so the primary action is the guided reset (open Developer
+        // options: revoke authorizations, toggle wireless), and the card
+        // retries on its own when the port changes.
+        ConnectionCardState.AUTH_REJECTED -> ConnectionCardAction.OPEN_DEV_OPTIONS
     }
 
     /** True for ACTIVE and its degraded variants — the daemon is running. */

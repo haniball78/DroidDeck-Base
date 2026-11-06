@@ -51,10 +51,12 @@ object WirelessAdbFix {
 
     suspend fun pair(context: Context, host: String, port: Int, pairingCode: String) {
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.attach(context)
-        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(context, "adb.pair", "started", fields = mapOf("port" to port.toString()))
         loadOrCreateIdentity(context.applicationContext)
+        val fingerprint = identityFingerprint(context)
+        val identityFields = fingerprint?.let { mapOf("identity" to it) } ?: emptyMap()
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(context, "adb.pair", "started", fields = mapOf("port" to port.toString()) + identityFields)
         Kadb.pair(host, port, pairingCode, "DroidDeck")
-        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(context, "adb.pair", "succeeded", fields = mapOf("port" to port.toString()))
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(context, "adb.pair", "succeeded", fields = mapOf("port" to port.toString()) + identityFields)
         writeAtomically(context, File(context.noBackupFilesDir, HOST_FILE), host.toByteArray())
         writeAtomically(context, File(context.noBackupFilesDir, CONNECTION_FILE), ByteArray(0))
     }
@@ -101,6 +103,76 @@ object WirelessAdbFix {
     fun localConnectPort(context: Context): Int? =
         tlsPortProperty()
             ?: findConnectPort(context, LOOPBACK)
+
+    /**
+     * True only when an automatic daemon start may run: paired, with a
+     * known current port that is not the one whose start last failed auth.
+     */
+    fun shouldAutoRetryDaemonStart(paired: Boolean, currentPort: Int?, lastAuthFailedPort: Int?): Boolean =
+        paired && currentPort != null && currentPort != lastAuthFailedPort
+
+    /** First observed port that differs from [oldPort], or null if none did. */
+    fun firstChangedPort(oldPort: Int?, observed: List<Int?>): Int? =
+        observed.firstOrNull { it != null && it != oldPort }
+
+    /**
+     * Waits up to [timeoutMs] for the connect port to change from
+     * [oldPort]: a fresh pair publishes a new listener, and the pre-pair
+     * listener keeps rejecting the key. Returns the new port, or null
+     * when the port never changed.
+     */
+    suspend fun waitForConnectPortChange(
+        context: Context,
+        oldPort: Int?,
+        timeoutMs: Long = 30_000,
+        pollIntervalMs: Long = 1_000,
+    ): Int? {
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+        while (true) {
+            val port = runCatching { localConnectPort(context) }.getOrNull()
+            if (port != null && port != oldPort) return port
+            val remaining = deadline - android.os.SystemClock.elapsedRealtime()
+            if (remaining <= 0) return null
+            kotlinx.coroutines.delay(minOf(pollIntervalMs, remaining))
+        }
+    }
+
+    /**
+     * First 16 hex chars of the SHA-256 of the stored identity certificate:
+     * enough to prove whether pair and connect used the same key, and never
+     * key material. Null when no identity is stored.
+     */
+    fun identityFingerprint(context: Context): String? {
+        val cert = File(context.applicationContext.noBackupFilesDir, CERT_FILE)
+        if (!cert.isFile) return null
+        return runCatching { Hashes.sha256(cert).take(16) }.getOrNull()?.takeIf { it.length == 16 }
+    }
+
+    /**
+     * Records a daemon start parked on [port] under the failure class every
+     * observed connect to that port throws after pairing. The card shows
+     * the AUTH guidance, and the auto-attempt stays off the port until it
+     * changes or a start succeeds.
+     */
+    fun parkAuthFailure(context: Context, port: Int?) {
+        com.droiddeck.launcher.core.privileged.PrivilegedBridge.noteDaemonFailure(
+            "AdbPairAuthException", ConnectionFailure.AUTH,
+        )
+        port?.let { com.droiddeck.launcher.core.privileged.PrivilegedBridge.noteAuthFailedPort(it) }
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "adb.daemon", "parked-auth",
+            fields = buildMap {
+                port?.let { put("port", it.toString()) }
+                put("reason", "AdbPairAuthException")
+                put("category", "auth")
+                identityFingerprint(context)?.let { put("identity", it) }
+            },
+        )
+    }
+
+    // Thrown when a fresh pair publishes no new connect port: the daemon
+    // start is parked, not attempted, so the stale port is never retried.
+    private class AuthParkedException(message: String) : Exception(message)
 
     private fun tlsPortProperty(): Int? = runCatching {
         Class.forName("android.os.SystemProperties").getMethod("get", String::class.java)
@@ -223,6 +295,7 @@ object WirelessAdbFix {
 
     fun startPrivilegedDaemonViaAdb(context: Context, host: String, port: Int) {
         loadOrCreateIdentity(context.applicationContext)
+        val fingerprint = identityFingerprint(context)
         val starterCmd = com.droiddeck.launcher.core.privileged.PrivilegedBridge.getStarterAdbCommand(context)
         val steps = StringBuilder()
         Kadb.create(host, port).use { adb ->
@@ -245,12 +318,16 @@ object WirelessAdbFix {
         saveConnection(context, host, port)
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearDaemonFailure()
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearAuthRejected()
+        com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearAuthFailedPort()
         // A verified daemon start ends plain mode: unfreeze status probes
         // so later refresh() calls report the live daemon instead of a
         // stale NONE frozen by the plain-mode latch.
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.resetPlainModeLatch()
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
-            context, "adb.daemon", "started", fields = mapOf("port" to port.toString()),
+            context, "adb.daemon", "started", fields = buildMap {
+                put("port", port.toString())
+                fingerprint?.let { put("identity", it) }
+            },
         )
     }
 
@@ -273,6 +350,7 @@ object WirelessAdbFix {
     suspend fun pairAndStartPrivilegedDaemon(context: Context, port: Int, pairingCode: String): Result<Unit> =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val result = runCatching {
+                val prePairPort = localConnectPort(context)
                 pair(context, LOOPBACK, port, pairingCode)
                 val baselinePort = localConnectPort(context)
                 if (baselinePort != null) {
@@ -292,14 +370,24 @@ object WirelessAdbFix {
                         )
                     }
                 }
-                kotlinx.coroutines.delay(800)
-                val connectPort = localConnectPort(context)
-                    ?: error("Connect port not discovered. Ensure Wireless Debugging is active.")
+                // The port must change after pairing: connecting to the
+                // pre-pair listener fails auth every time (observed
+                // 2026-11-06), so wait for a new port instead of
+                // retrying the stale one. No change means park, not a
+                // start attempt: the stale port is recorded as AUTH and
+                // the card retries on its own when the port changes.
+                val connectPort = waitForConnectPortChange(context, prePairPort)
+                    ?: run {
+                        parkAuthFailure(context, prePairPort ?: localConnectPort(context))
+                        throw AuthParkedException(context.getString(R.string.connection_card_toast_pair_failed))
+                    }
                 startPrivilegedDaemonViaAdb(context, LOOPBACK, connectPort)
                 verifyConnection(context, LOOPBACK, connectPort)
                 check(com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(caller = "start-verify").isActive) { "Daemon did not respond after start" }
             }
-            if (result.isFailure) {
+            // The park has its own parked-auth event; logging it here as a
+            // pair failure would mislabel a parked start as a failed pair.
+            if (result.isFailure && result.exceptionOrNull() !is AuthParkedException) {
                 val reason = result.exceptionOrNull()?.javaClass?.simpleName ?: "unknown"
                 com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                     context, "adb.pair", "failed",
@@ -352,14 +440,20 @@ object WirelessAdbFix {
         val tried = candidates.joinToString(",") { "${it.host}:${it.port}" }
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             appContext, "adb.daemon", "failed",
-            fields = mapOf(
-                "port" to candidates.first().port.toString(),
-                "tried" to tried,
-                "reason" to reason,
-                "category" to category.name.lowercase(),
-            ),
+            fields = buildMap {
+                put("port", candidates.first().port.toString())
+                put("tried", tried)
+                put("reason", reason)
+                put("category", category.name.lowercase())
+                identityFingerprint(appContext)?.let { put("identity", it) }
+            },
         )
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.noteDaemonFailure(reason, category, tried)
+        if (category == ConnectionFailure.AUTH) {
+            com.droiddeck.launcher.core.privileged.PrivilegedBridge.noteAuthFailedPort(
+                discovered ?: candidates.first().port,
+            )
+        }
         return false
     }
 

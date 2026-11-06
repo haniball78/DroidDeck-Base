@@ -1891,6 +1891,8 @@
     <string name="adbpair_title_done">Steam جاهز</string>
     <string name="adbpair_done_text">اضغط للعودة إلى DroidDeck. يمكنك إيقاف تصحيح الأخطاء اللاسلكي الآن.</string>
     <string name="adbpair_title_failed">توقَّف إعداد تصحيح الأخطاء اللاسلكي</string>
+    <string name="adbpair_title_parked">نجح الإقران — التشغيل متوقف مؤقتاً</string>
+    <string name="adbpair_parked_text">نجح الإقران، لكن الجهاز يرفض المفتاح على هذا المنفذ. أطفئ التصحيح اللاسلكي وأعد تشغيله مرة واحدة؛ وسيعيد التطبيق المحاولة تلقائياً عند تغيّر المنفذ.</string>
 
     <string name="selfinst_download_failed">فشل التنزيل</string>
     <string name="selfinst_size_mismatch">حجم التنزيل غير مطابق لملف APK المنشور، وتم تجاهله - حاوِل مرة أخرى</string>
@@ -3220,7 +3222,7 @@
     <string name="connection_card_state_pending">غير متصل بعد</string>
     <string name="connection_card_active_detail">الوصول الكامل مفعّل (%1$s) — حماية الخلفية وعدد غير محدود من العمليات الفرعية</string>
     <string name="connection_card_why_ready">لا حاجة لرمز جديد. يُعاد استخدام الإقران المحفوظ.</string>
-    <string name="connection_card_auth_detail">الخادم يرد لكنه يرفض الأوامر: الرمز لا يطابق. أعد الإقران أو انسَ الهوية واقترن من جديد.</string>
+    <string name="connection_card_auth_detail">الخادم يرد لكنه يرفض الأوامر. الإقران ناجح، لكن المفتاح مرفوض على هذا المنفذ. أعد تشغيل التصحيح اللاسلكي مرة واحدة وسيعيد التطبيق المحاولة عند تغيّر المنفذ.</string>
     <string name="connection_card_pending_detail">اتبع الخطوات أدناه للاتصال. الإقران يتم مرة واحدة فقط.</string>
     <string name="connection_card_step_dev">خيارات المطور</string>
     <string name="connection_card_step_wireless">التصحيح اللاسلكي</string>
@@ -3229,7 +3231,7 @@
     <string name="connection_card_why_wireless">شغّل التصحيح اللاسلكي في خيارات المطور ثم اختر السماح دائماً.</string>
     <string name="connection_card_why_pair">الإقران يتم مرة واحدة فقط، وبعدها يعيد التطبيق الاتصال وحده حتى بعد إعادة تشغيل الهاتف.</string>
     <string name="connection_card_failure_title">تعذر الاتصال</string>
-    <string name="connection_card_failure_auth">السبب: الجهاز لا يثق بالمفتاح الحالي رغم نجاح الإقران. أعد الإقران برمز جديد، وإن تكرر الفشل انسَ الهوية بالكامل ثم اقترن من جديد.</string>
+    <string name="connection_card_failure_auth">نجح الإقران، لكن الجهاز ما زال يرفض المفتاح على هذا المنفذ. أطفئ التصحيح اللاسلكي وأعد تشغيله مرة واحدة — وسيعيد التطبيق المحاولة تلقائياً عند تغيّر المنفذ. إعادة الإقران أو نسيان الهوية لن تفيد.</string>
     <string name="connection_card_failure_tls">السبب: فشل تأمين الاتصال. تحقق أن المنفذ المدخل هو منفذ الإقران وليس منفذ الاتصال.</string>
     <string name="connection_card_failure_unreachable">السبب: تعذر الوصول. تأكد أن التصحيح اللاسلكي مفعل ثم أعد المحاولة.</string>
     <string name="connection_card_failure_unknown">السبب غير محدد. أعد المحاولة، وإن تكرر أرسل سجل التشخيص.</string>
@@ -3243,6 +3245,7 @@
     <string name="connection_card_action_starting">جارٍ التشغيل…</string>
     <string name="connection_card_action_notify">إقران عبر الإشعار</string>
     <string name="connection_card_action_notify_forget">اقتران بالإشعار مع حذف الهوية</string>
+    <string name="connection_card_action_reset_auth">إعادة تشغيل التصحيح اللاسلكي</string>
     <string name="connection_card_action_wireless">افتح شاشة التصحيح اللاسلكي</string>
     <string name="connection_card_action_clear">مسح الإقران</string>
     <string name="connection_card_action_advanced">إعدادات الاتصال المتقدمة</string>
@@ -3258,7 +3261,8 @@
     <string name="connection_card_toast_paired">تم الإقران وتشغيل الخادم المميز!</string>
     <string name="connection_card_toast_error">خطأ: %1$s</string>
     <string name="connection_card_toast_started">تم تشغيل الخادم المميز بنجاح!</string>
-    <string name="connection_card_toast_pair_failed">تعذر الاتصال بالإقران المحفوظ. جرّب إعادة الإقران برمز جديد.</string>
+    <string name="connection_card_toast_pair_failed">تعذّر الاتصال — الجهاز يرفض المفتاح على هذا المنفذ. أعد تشغيل التصحيح اللاسلكي مرة واحدة وسيعيد التطبيق المحاولة عند تغيّر المنفذ.</string>
+    <string name="connection_card_toast_reset_auth">في خيارات المطوّر، ألغِ تراخيص تصحيح USB، ثم أطفئ التصحيح اللاسلكي وأعد تشغيله. وسيعيد التطبيق المحاولة عند تغيّر المنفذ.</string>
     <string name="connection_card_toast_forgot">تم نسيان الهوية. اقترن من جديد برمز جديد.</string>
     <string name="connection_card_toast_notify">اسحب شريط الإشعارات لإدخال الرمز</string>
     <string name="connection_card_toast_cleared">تم مسح الإقران. يمكنك الاقتران برمز جديد.</string>

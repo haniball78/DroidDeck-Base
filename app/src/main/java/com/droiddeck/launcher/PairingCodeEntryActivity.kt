@@ -87,7 +87,8 @@ private fun PairingCodeEntryScreen(onSubmit: (String) -> Unit, onCancel: () -> U
     // itself now carries the result.
     LaunchedEffect(stage) {
         if (stage is WirelessAdbPairingService.Stage.Done ||
-            stage is WirelessAdbPairingService.Stage.Failed
+            stage is WirelessAdbPairingService.Stage.Failed ||
+            stage is WirelessAdbPairingService.Stage.Parked
         ) {
             activity.finish()
         }

@@ -120,6 +120,22 @@ object PrivilegedBridge {
     private val _authRejected = MutableStateFlow(false)
     val authRejectedFlow: StateFlow<Boolean> = _authRejected.asStateFlow()
 
+    // The connect port whose daemon start last failed with AUTH. The card's
+    // auto-attempt must not refire on this port: every observed connect to
+    // it after pairing fails AdbPairAuthException until the port changes.
+    // Cleared only by a successful daemon start, never by clearing the
+    // failure box or forgetting the identity (both proved futile).
+    private val _lastAuthFailedPort = MutableStateFlow<Int?>(null)
+    val lastAuthFailedPortFlow: StateFlow<Int?> = _lastAuthFailedPort.asStateFlow()
+
+    fun noteAuthFailedPort(port: Int) {
+        _lastAuthFailedPort.value = port
+    }
+
+    fun clearAuthFailedPort() {
+        _lastAuthFailedPort.value = null
+    }
+
     fun noteDaemonFailure(reason: String, category: ConnectionFailure, tried: String = "") {
         _lastDaemonFailure.value = DaemonFailure(reason, category, tried)
     }

@@ -164,7 +164,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.primaryAction(ConnectionCardState.ACTIVE_DEV_OFF),
         )
         assertEquals(
-            ConnectionCardAction.OPEN_PAIRING_DIALOG,
+            ConnectionCardAction.OPEN_DEV_OPTIONS,
             ConnectionCardStateResolver.primaryAction(ConnectionCardState.AUTH_REJECTED),
         )
     }

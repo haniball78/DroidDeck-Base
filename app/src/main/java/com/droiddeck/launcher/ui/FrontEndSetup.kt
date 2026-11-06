@@ -526,6 +526,8 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     val privStatus by PrivilegedBridge.statusFlow.collectAsState()
     val authRejected by PrivilegedBridge.authRejectedFlow.collectAsState()
     val lastFailure by PrivilegedBridge.lastDaemonFailureFlow.collectAsState()
+    val parkedPort by PrivilegedBridge.lastAuthFailedPortFlow.collectAsState()
+    val currentPort = remember { mutableStateOf<Int?>(null) }
 
     // Same three checks the engine page's activation card polls, same 1.5 s
     // rhythm. The loop is tied to this composition, so it stops when the
@@ -544,10 +546,15 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     }
 
     // Bridge status, same 4 s rhythm as the engine page: without it the
-    // card only reflects the last refresh someone else triggered.
+    // card only reflects the last refresh someone else triggered. The
+    // connect port is polled on the same rhythm: the auto-attempt may
+    // only fire when the port has changed since the last AUTH failure.
     LaunchedEffect(Unit) {
         while (isActive) {
-            withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "card") }
+            withContext(Dispatchers.IO) {
+                PrivilegedBridge.refresh(caller = "card")
+                currentPort.value = WirelessAdbFix.localConnectPort(ctx)
+            }
             delay(4_000)
         }
     }
@@ -637,9 +644,18 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         }
     }
 
-    // Forget the distrusted identity, then pair anew via the notification:
-    // entering a code with the same identity would fail for the same
-    // reason, so the AUTH box offers this single combined step instead.
+    // Guided reset for an AUTH failure: the key is rejected on this port,
+    // so the user revokes USB debugging authorizations in Developer
+    // options and toggles wireless debugging off and on; the card
+    // retries on its own when the port changes.
+    fun startGuidedReset() {
+        logAction("guided-reset-auth")
+        Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_reset_auth), Toast.LENGTH_LONG).show()
+        openDevOptions(ctx)
+    }
+
+    // Re-pairing kept as the secondary AUTH path: forget the identity,
+    // then pair anew via the notification.
     fun startNotifyPairWithForget() {
         logAction("notify-pair-forget")
         WirelessAdbFix.forgetIdentity(ctx)
@@ -651,17 +667,17 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         openDevOptions(ctx)
     }
 
-    // READY auto-attempt: when the card enters the paired-and-ready state,
-    // try the saved pairing once on its own instead of only showing the
-    // button as a required action. One attempt per READY episode: the flag
-    // resets when the state leaves READY, a failure sets oneTapFailed (no
-    // refire), and a success moves to ACTIVE. The button stays as fallback.
-    var readyAutoAttempted by remember { mutableStateOf(false) }
-    LaunchedEffect(state) {
+    // READY auto-attempt: fire once per connect port, only when the port
+    // differs from the last AUTH-failed one. A failure on a port parks
+    // that port (no refire on it), and a port change after a wireless
+    // toggle refires once on the new port. The button stays as fallback.
+    var autoAttemptedPort by remember { mutableStateOf<Int?>(null) }
+    val canAutoRetry = WirelessAdbFix.shouldAutoRetryDaemonStart(paired.value, currentPort.value, parkedPort)
+    LaunchedEffect(state, canAutoRetry) {
         if (state != ConnectionCardState.READY_TO_START) {
-            readyAutoAttempted = false
-        } else if (!readyAutoAttempted && !starting && !oneTapFailed) {
-            readyAutoAttempted = true
+            autoAttemptedPort = null
+        } else if (canAutoRetry && !starting && currentPort.value != autoAttemptedPort) {
+            autoAttemptedPort = currentPort.value
             startOneTap(auto = true)
         }
     }
@@ -752,9 +768,9 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             // current step (resolver); never before pairing starts, and
             // never on an ACTIVE card (stale failures hide).
             val showFailureBox = ConnectionCardStateResolver.showFailureGuidance(state, lastFailure != null || oneTapFailed)
-            // While an AUTH failure is shown, entering a code with the same
-            // distrusted identity is futile — offer forget + notify-pair
-            // instead of the dialog wherever the card offers code entry.
+            // An AUTH failure means the key is rejected on this port:
+            // re-pairing or forgetting the identity cannot fix it, so the
+            // box offers the guided reset first and re-pairing second.
             val authFailure = showFailureBox && lastFailure?.category == ConnectionFailure.AUTH
             if (showFailureBox) {
                 Column(
@@ -781,20 +797,12 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                                 fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = colors.onSurfaceVariant,
                             )
                         }
-                        if (failure.category == ConnectionFailure.AUTH) {
-                            SecondaryButton(stringResource(R.string.connection_card_action_forget), compact = true) {
-                                logAction("forget-identity")
-                                WirelessAdbFix.forgetIdentity(ctx)
-                                paired.value = false
-                                oneTapFailed = false
-                                PrivilegedBridge.clearDaemonFailure()
-                                Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_forgot), Toast.LENGTH_SHORT).show()
-                            }
-                        }
                     }
                     // In the READY state the first option is retrying the
                     // saved pairing (One-Tap); only after it fails does
-                    // entering a new code become the blue primary.
+                    // the guided reset become the blue primary. Outside
+                    // READY, the AUTH box offers the guided reset first
+                    // and re-pairing second.
                     if (state == ConnectionCardState.READY_TO_START) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             if (!oneTapFailed) {
@@ -806,10 +814,10 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                                 }
                                 Box(Modifier.weight(1f)) {
                                     SecondaryButton(
-                                        if (authFailure) stringResource(R.string.connection_card_action_notify_forget) else stringResource(R.string.connection_card_action_repair),
+                                        if (authFailure) stringResource(R.string.connection_card_action_reset_auth) else stringResource(R.string.connection_card_action_repair),
                                         compact = true,
                                     ) {
-                                        if (authFailure) startNotifyPairWithForget() else {
+                                        if (authFailure) startGuidedReset() else {
                                             logAction("repair")
                                             showPairDialog = true
                                         }
@@ -818,10 +826,10 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                             } else {
                                 Box(Modifier.weight(1f)) {
                                     PrimaryButton(
-                                        if (authFailure) stringResource(R.string.connection_card_action_notify_forget) else stringResource(R.string.connection_card_action_repair),
+                                        if (authFailure) stringResource(R.string.connection_card_action_reset_auth) else stringResource(R.string.connection_card_action_repair),
                                         compact = true,
                                     ) {
-                                        if (authFailure) startNotifyPairWithForget() else {
+                                        if (authFailure) startGuidedReset() else {
                                             logAction("repair")
                                             showPairDialog = true
                                         }
@@ -835,15 +843,23 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                                 }
                             }
                         }
-                    } else {
-                        PrimaryButton(
-                            if (authFailure) stringResource(R.string.connection_card_action_notify_forget) else stringResource(R.string.connection_card_action_repair),
-                            compact = true,
-                        ) {
-                            if (authFailure) startNotifyPairWithForget() else {
-                                logAction("repair")
-                                showPairDialog = true
+                    } else if (authFailure) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Box(Modifier.weight(1f)) {
+                                PrimaryButton(stringResource(R.string.connection_card_action_reset_auth), compact = true) {
+                                    startGuidedReset()
+                                }
                             }
+                            Box(Modifier.weight(1f)) {
+                                SecondaryButton(stringResource(R.string.connection_card_action_notify_forget), compact = true) {
+                                    startNotifyPairWithForget()
+                                }
+                            }
+                        }
+                    } else {
+                        PrimaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
+                            logAction("repair")
+                            showPairDialog = true
                         }
                     }
                 }
@@ -855,9 +871,16 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                     logAction("open-about-phone")
                     openAboutPhone(ctx)
                 }
-                ConnectionCardAction.OPEN_DEV_OPTIONS -> PrimaryButton(stringResource(R.string.connection_card_action_dev), compact = true) {
-                    logAction("open-dev-options")
-                    openDevOptions(ctx)
+                // In the AUTH state the failure box already offers the
+                // guided reset, so the bottom button hides there to
+                // avoid a duplicate; elsewhere it just opens the screen.
+                ConnectionCardAction.OPEN_DEV_OPTIONS -> if (state != ConnectionCardState.AUTH_REJECTED || !showFailureBox) {
+                    PrimaryButton(stringResource(R.string.connection_card_action_dev), compact = true) {
+                        if (state == ConnectionCardState.AUTH_REJECTED) startGuidedReset() else {
+                            logAction("open-dev-options")
+                            openDevOptions(ctx)
+                        }
+                    }
                 }
                 ConnectionCardAction.OPEN_PAIRING_DIALOG -> PrimaryButton(stringResource(R.string.connection_card_action_pair), compact = true) {
                     logAction("open-pair-dialog")

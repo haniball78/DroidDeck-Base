@@ -273,7 +273,7 @@ private fun StatusBanner(status: PrivilegedStatus, cardState: ConnectionCardStat
                     fontWeight = FontWeight.Bold, fontSize = 15.sp, color = colors.onBackground,
                 )
                 Text(
-                    if (good && authRejected) "The daemon answers but rejects commands: its token does not match. Start the daemon again with One-Tap below."
+                    if (good && authRejected) "The daemon answers but rejects commands: pairing succeeded, but the key is rejected on this port. Restart wireless debugging once; the app retries when the port changes."
                     else if (degraded && cardState == ConnectionCardState.ACTIVE_DEV_OFF) stringResource(R.string.connection_card_warn_dev_off)
                     else if (degraded) stringResource(R.string.connection_card_warn_wireless_off)
                     else if (good) "Full system access granted · phantom limit disabled"
@@ -542,7 +542,7 @@ private fun DaemonActivationCard(ctx: Context) {
                             Toast.makeText(ctx, "Privileged Daemon started successfully!", Toast.LENGTH_SHORT).show()
                         } else {
                             oneTapFailed = true
-                            Toast.makeText(ctx, "Could not connect with saved pairing. Try re-pairing with a new code.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(ctx, "Could not connect — the device rejects the key on this port. Restart wireless debugging once; the app retries when the port changes.", Toast.LENGTH_LONG).show()
                         }
                         startingAdb = false
                     }
@@ -563,7 +563,7 @@ private fun DaemonActivationCard(ctx: Context) {
                         lastFailure?.let { failure ->
                             Text(
                                 when (failure.category) {
-                                    ConnectionFailure.AUTH -> "السبب: الجهاز لا يثق بالمفتاح الحالي رغم نجاح الإقران. أعد الإقران برمز جديد، وإن تكرر الفشل انسَ الهوية بالكامل ثم اقترن من جديد."
+                                    ConnectionFailure.AUTH -> "السبب: نجح الإقران لكن الجهاز يرفض المفتاح على هذا المنفذ. أطفئ التصحيح اللاسلكي وأعد تشغيله مرة واحدة وسيعيد التطبيق المحاولة تلقائياً عند تغيّر المنفذ. إعادة الإقران أو نسيان الهوية لن تفيد."
                                     ConnectionFailure.TLS -> "السبب: فشل تأمين الاتصال. تحقق أن المنفذ المدخل هو منفذ الإقران وليس منفذ الاتصال."
                                     ConnectionFailure.UNREACHABLE -> "السبب: تعذر الوصول. تأكد أن التصحيح اللاسلكي مفعل ثم أعد المحاولة."
                                     ConnectionFailure.UNKNOWN -> "السبب غير محدد. أعد المحاولة، وإن تكرر أرسل سجل التشخيص."
