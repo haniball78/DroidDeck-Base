@@ -161,12 +161,13 @@ class WirelessAdbPairingService : Service() {
             }
             if (result.isFailure) {
                 val reason = result.exceptionOrNull()?.javaClass?.simpleName ?: "unknown"
+                val fingerprint = WirelessAdbFix.identityFingerprint(this)
                 val fields = buildMap {
                     attemptedPort?.let { put("port", it.toString()) }
                     put("reason", reason)
                     put("category", classifyConnectionFailure(reason).name.lowercase())
                     put("source", "notification")
-                    WirelessAdbFix.identityFingerprint(this)?.let { put("identity", it) }
+                    fingerprint?.let { put("identity", it) }
                 }
                 com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(this, "adb.daemon", "failed", fields = fields)
             }
