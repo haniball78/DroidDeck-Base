@@ -74,6 +74,15 @@ class AdvancedGeneralFixesTest {
     }
 
     @Test
+    fun filterSuspendTargetsDropsNonPackageTokens() {
+        val targets = filterSuspendTargets(
+            listOf("No", "com.example.game", "not a package", "com.example.other"),
+            emptySet(),
+        )
+        assertEquals(listOf("com.example.game", "com.example.other"), targets)
+    }
+
+    @Test
     fun fix5ApplyDecisionRestoresStaleGenerationFirst() {
         assertEquals(EngineApplyDecision.FRESH, decideEngineApply(false, 999, 1))
         assertEquals(EngineApplyDecision.FRESH, decideEngineApply(false, 0, 0))

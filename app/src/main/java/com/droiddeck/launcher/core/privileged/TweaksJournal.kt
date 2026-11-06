@@ -276,7 +276,7 @@ internal object JournalRollback {
 }
 
 internal object AppFreezerPackageJournal {
-    private val packagePattern = Regex("^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$")
+    internal val packagePattern = Regex("^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$")
 
     fun parseSuspendedNames(output: String): List<String> {
         val names = ArrayList<String>()
@@ -366,12 +366,16 @@ object Tweaks {
         }
     }
 
+    // Pure reads do not take the journal lock: the journal file is written
+    // by atomic rename, so a concurrent read sees a complete version, and
+    // every caller re-validates under the lock before mutating. Holding the
+    // lock across a disk read once stalled a rollback for 593ms.
     fun hasKey(context: Context, key: String): Boolean {
-        return synchronized(journalLock) { load(context)?.any { it.key == key } == true }
+        return load(context)?.any { it.key == key } == true
     }
 
     fun journalSnapshot(context: Context): List<JournalItem> {
-        return synchronized(journalLock) { load(context) ?: emptyList() }
+        return load(context) ?: emptyList()
     }
 
     fun recordItems(context: Context, items: List<JournalItem>): Boolean {

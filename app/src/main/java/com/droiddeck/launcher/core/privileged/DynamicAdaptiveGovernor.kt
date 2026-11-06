@@ -103,6 +103,9 @@ internal fun buildAppTierCommands(
     }
 }
 
+internal fun treePinMask(tier: DynamicAdaptiveGovernor.AdaptiveTier): String =
+    if (tier == DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST) "fc" else "7c"
+
 internal fun runAppTierCommand(cmd: String, timeoutMs: Long = 4000L): Int {
     return try {
         val process = ProcessBuilder("/system/bin/sh", "-c", cmd).redirectErrorStream(true).start()
@@ -341,6 +344,34 @@ object DynamicAdaptiveGovernor {
                             context, "device.change", "governor-cmd",
                             fields = fields,
                         )
+                    }
+                    // The guest root pid is a single-threaded proot supervisor:
+                    // pinning only its threads always reports 1/1 and never
+                    // reaches the game. Pin the whole session tree with the
+                    // tier's mask, the same tree the boost already walks.
+                    if (pid > 1) {
+                        val treeFound = readSessionTree(pid)
+                        val treePids = treeFound.take(64)
+                        if (treePids.isNotEmpty()) {
+                            val (treeExit, treeOutput) = runAppCommandOutput(buildBoostTreeCommand(treePids, treePinMask(tier)))
+                            val treeFields = mutableMapOf(
+                                "tier" to tier.name,
+                                "cmd" to "taskset-tree",
+                                "source" to "app",
+                                "exit" to treeExit.toString(),
+                                "tree_pids" to treePids.size.toString(),
+                                "tree_truncated" to (treeFound.size > treePids.size).toString(),
+                            )
+                            parseThreadsDiag(treeOutput)?.let {
+                                treeFields["tree_threads_ok"] = it.ok.toString()
+                                treeFields["tree_threads_failed"] = it.failed.toString()
+                                treeFields["tree_threads_total"] = it.total.toString()
+                            }
+                            com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                                context, "device.change", "governor-cmd",
+                                fields = treeFields,
+                            )
+                        }
                     }
                 } catch (t: Throwable) {
                     Log.w(TAG, "applyTierAction error: $limitCmd", t)

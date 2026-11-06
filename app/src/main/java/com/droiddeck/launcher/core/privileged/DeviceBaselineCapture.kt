@@ -152,6 +152,7 @@ object DeviceBaselineCapture {
             fields = mapOf(
                 "readable" to entries.count { it.value != null }.toString(),
                 "unreadable" to entries.count { it.value == null }.toString(),
+                "unreadable_keys" to DeviceBaseline.unreadableKeys(entries),
             ),
         )
         // Invalid captures are drafts only: no flag, no file pointer,

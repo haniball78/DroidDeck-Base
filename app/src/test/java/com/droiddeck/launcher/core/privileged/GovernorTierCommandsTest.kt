@@ -62,4 +62,10 @@ class GovernorTierCommandsTest {
             buildAppTierCommands(DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST, -1),
         )
     }
+
+    @Test fun treePinMaskMatchesTier() {
+        assertEquals("fc", treePinMask(DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST))
+        assertEquals("7c", treePinMask(DynamicAdaptiveGovernor.AdaptiveTier.BALANCED_COOL))
+        assertEquals("7c", treePinMask(DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF))
+    }
 }

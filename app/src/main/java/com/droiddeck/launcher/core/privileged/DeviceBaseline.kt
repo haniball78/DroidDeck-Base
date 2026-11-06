@@ -110,6 +110,10 @@ internal object DeviceBaseline {
         }
     }
 
+    fun unreadableKeys(entries: List<BaselineEntry>): String {
+        return entries.filter { it.value == null }.joinToString(",") { it.key }
+    }
+
     fun fileName(timestampMs: Long): String {
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")

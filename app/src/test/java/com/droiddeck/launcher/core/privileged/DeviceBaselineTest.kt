@@ -132,4 +132,18 @@ class DeviceBaselineTest {
         assertTrue(text.contains("never overwritten"))
         assertTrue(text.contains("test note"))
     }
+
+    @Test
+    fun unreadableKeysNamesEveryUnreadableEntry() {
+        val entries = listOf(
+            BaselineEntry("settings.global.background_process_limit", "settings get global background_process_limit", "4", null),
+            BaselineEntry("power.fixed_performance", "cmd power get-fixed-performance-mode-enabled", null, "read command failed with exit 255"),
+            BaselineEntry("activity.child_process_restrictions", null, null, "no public getter for this value"),
+        )
+        assertEquals(
+            "power.fixed_performance,activity.child_process_restrictions",
+            DeviceBaseline.unreadableKeys(entries),
+        )
+        assertEquals("", DeviceBaseline.unreadableKeys(entries.filter { it.value != null }))
+    }
 }

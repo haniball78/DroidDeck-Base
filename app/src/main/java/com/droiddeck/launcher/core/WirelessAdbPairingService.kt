@@ -132,6 +132,16 @@ class WirelessAdbPairingService : Service() {
                 show(Stage.Working(getString(R.string.adbpair_connecting)))
             }
             var attemptedPort: Int? = null
+            // Wireless debugging needs a moment to publish the new connect
+            // port after pairing: without this wait the discovery can return
+            // the previous port and the daemon start fails auth (seen 2026-11-06).
+            // The same wait exists in pairAndStartPrivilegedDaemon.
+            try {
+                Thread.sleep(800)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return@Thread
+            }
             val result = runCatching {
                 val connectPort = WirelessAdbFix.localConnectPort(this)
                     ?: error(getString(R.string.adbpair_port_not_found))

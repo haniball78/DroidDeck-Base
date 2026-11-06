@@ -33,10 +33,12 @@ internal fun mergeProtectedPackages(
     ownPackage: String,
 ): Set<String> = cached + dynamic + ownPackage
 
+// A non-package line from pm output ("No", seen on device 2026-11-06) makes
+// cmd package suspend/unsuspend throw, which fails the first rollback attempt.
 internal fun filterSuspendTargets(
     packages: List<String>,
     protected: Set<String>,
-): List<String> = packages.distinct().filter { it !in protected }
+): List<String> = packages.distinct().filter { it !in protected && AppFreezerPackageJournal.packagePattern.matches(it) }
 
 object AppFreezerEngine {
     private const val TAG = "AppFreezerEngine"
@@ -443,6 +445,7 @@ object AppFreezerEngine {
 
     private fun queryUserApps(context: Context): List<String> {
         return exec(context, "pm list packages -3").lines()
+            .filter { it.startsWith("package:") }
             .map { it.removePrefix("package:").trim() }
             .filter { it.isNotEmpty() && it !in BASE_PROTECTED_PACKAGES && it != context.packageName }
     }
