@@ -25,6 +25,19 @@ enum class ConnectionCardState {
     /** Daemon (or Shizuku) active and auth not rejected. */
     ACTIVE,
 
+    /**
+     * Daemon active and auth OK, but wireless debugging is off — sessions
+     * run, but restart or re-pairing is blocked until it is back on.
+     */
+    ACTIVE_WIRELESS_OFF,
+
+    /**
+     * Daemon active and auth OK, but developer options are off, which
+     * turns wireless debugging off with them — sessions run, but
+     * restart or re-pairing is blocked until both are back on.
+     */
+    ACTIVE_DEV_OFF,
+
     /** Daemon answers PING but rejects commands — token mismatch (PING != AUTH). */
     AUTH_REJECTED,
 }
@@ -43,10 +56,12 @@ object ConnectionCardStateResolver {
     /**
      * Priority order mirrors the engine page's Smart Setup Assistant steps:
      * auth-rejection beats apparent activity (a PING-active daemon with a
-     * rejected token is NOT usable), activity beats setup steps, and the
-     * setup steps follow their real dependency order (dev -> wireless ->
-     * pairing), so the card never asks for a step whose prerequisite is
-     * missing.
+     * rejected token is NOT usable), a running daemon with a missing
+     * restart prerequisite is degraded rather than ready (dev options off
+     * names the root cause, since it turns wireless debugging off with
+     * it), activity beats setup steps, and the setup steps follow their
+     * real dependency order (dev -> wireless -> pairing), so the card
+     * never asks for a step whose prerequisite is missing.
      */
     fun resolve(
         daemonActive: Boolean,
@@ -56,6 +71,8 @@ object ConnectionCardStateResolver {
         paired: Boolean,
     ): ConnectionCardState {
         if (daemonActive && authRejected) return ConnectionCardState.AUTH_REJECTED
+        if (daemonActive && !devOptionsOn) return ConnectionCardState.ACTIVE_DEV_OFF
+        if (daemonActive && !wirelessAdbOn) return ConnectionCardState.ACTIVE_WIRELESS_OFF
         if (daemonActive) return ConnectionCardState.ACTIVE
         if (!devOptionsOn) return ConnectionCardState.NEED_DEV_OPTIONS
         if (!wirelessAdbOn) return ConnectionCardState.NEED_WIRELESS_ADB
@@ -69,8 +86,21 @@ object ConnectionCardStateResolver {
         ConnectionCardState.NEED_PAIRING -> ConnectionCardAction.PAIR_NOTIFICATION
         ConnectionCardState.READY_TO_START -> ConnectionCardAction.ONE_TAP_START
         ConnectionCardState.ACTIVE -> ConnectionCardAction.NONE
+        ConnectionCardState.ACTIVE_WIRELESS_OFF -> ConnectionCardAction.OPEN_DEV_OPTIONS
+        ConnectionCardState.ACTIVE_DEV_OFF -> ConnectionCardAction.OPEN_ABOUT_PHONE
         ConnectionCardState.AUTH_REJECTED -> ConnectionCardAction.OPEN_PAIRING_DIALOG
     }
+
+    /** True for ACTIVE and its degraded variants — the daemon is running. */
+    fun daemonRunning(state: ConnectionCardState): Boolean =
+        state == ConnectionCardState.ACTIVE ||
+            state == ConnectionCardState.ACTIVE_WIRELESS_OFF ||
+            state == ConnectionCardState.ACTIVE_DEV_OFF
+
+    /** True only for the degraded variants — running, but restart or re-pairing is blocked. */
+    fun isDegraded(state: ConnectionCardState): Boolean =
+        state == ConnectionCardState.ACTIVE_WIRELESS_OFF ||
+            state == ConnectionCardState.ACTIVE_DEV_OFF
 
     /**
      * The failure-guidance box is shown only where a start or pair attempt

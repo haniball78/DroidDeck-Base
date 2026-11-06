@@ -17,6 +17,61 @@ class ConnectionCardStateTest {
         )
     }
 
+    @Test fun activeWithWirelessOffShowsDegradedWireless() {
+        // A running daemon with wireless debugging off is not "ready":
+        // sessions run, but restart or re-pairing is blocked.
+        assertEquals(
+            ConnectionCardState.ACTIVE_WIRELESS_OFF,
+            ConnectionCardStateResolver.resolve(
+                daemonActive = true, authRejected = false,
+                devOptionsOn = true, wirelessAdbOn = false, paired = true,
+            ),
+        )
+    }
+
+    @Test fun activeWithDevOffNamesDevOptionsAsRootCause() {
+        // Turning developer options off turns wireless debugging off
+        // with it, so the card names dev options, not wireless.
+        assertEquals(
+            ConnectionCardState.ACTIVE_DEV_OFF,
+            ConnectionCardStateResolver.resolve(
+                daemonActive = true, authRejected = false,
+                devOptionsOn = false, wirelessAdbOn = false, paired = true,
+            ),
+        )
+    }
+
+    @Test fun authRejectedBeatsDegraded() {
+        assertEquals(
+            ConnectionCardState.AUTH_REJECTED,
+            ConnectionCardStateResolver.resolve(
+                daemonActive = true, authRejected = true,
+                devOptionsOn = true, wirelessAdbOn = false, paired = true,
+            ),
+        )
+    }
+
+    @Test fun degradedStatesAreDaemonRunningButNotReady() {
+        assertTrue(
+            ConnectionCardStateResolver.daemonRunning(ConnectionCardState.ACTIVE_WIRELESS_OFF),
+        )
+        assertTrue(
+            ConnectionCardStateResolver.daemonRunning(ConnectionCardState.ACTIVE_DEV_OFF),
+        )
+        assertTrue(
+            ConnectionCardStateResolver.isDegraded(ConnectionCardState.ACTIVE_WIRELESS_OFF),
+        )
+        assertTrue(
+            ConnectionCardStateResolver.isDegraded(ConnectionCardState.ACTIVE_DEV_OFF),
+        )
+        assertFalse(
+            ConnectionCardStateResolver.isDegraded(ConnectionCardState.ACTIVE),
+        )
+        assertFalse(
+            ConnectionCardStateResolver.daemonRunning(ConnectionCardState.READY_TO_START),
+        )
+    }
+
     @Test fun authRejectedBeatsApparentActivity() {
         // PING != AUTH: a daemon that answers but rejects commands is not usable.
         assertEquals(
@@ -101,6 +156,14 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.primaryAction(ConnectionCardState.ACTIVE),
         )
         assertEquals(
+            ConnectionCardAction.OPEN_DEV_OPTIONS,
+            ConnectionCardStateResolver.primaryAction(ConnectionCardState.ACTIVE_WIRELESS_OFF),
+        )
+        assertEquals(
+            ConnectionCardAction.OPEN_ABOUT_PHONE,
+            ConnectionCardStateResolver.primaryAction(ConnectionCardState.ACTIVE_DEV_OFF),
+        )
+        assertEquals(
             ConnectionCardAction.OPEN_PAIRING_DIALOG,
             ConnectionCardStateResolver.primaryAction(ConnectionCardState.AUTH_REJECTED),
         )
@@ -124,6 +187,12 @@ class ConnectionCardStateTest {
         )
         assertFalse(
             ConnectionCardStateResolver.showFailureGuidance(ConnectionCardState.ACTIVE, true),
+        )
+        assertFalse(
+            ConnectionCardStateResolver.showFailureGuidance(ConnectionCardState.ACTIVE_WIRELESS_OFF, true),
+        )
+        assertFalse(
+            ConnectionCardStateResolver.showFailureGuidance(ConnectionCardState.ACTIVE_DEV_OFF, true),
         )
         assertFalse(
             ConnectionCardStateResolver.showFailureGuidance(ConnectionCardState.READY_TO_START, false),

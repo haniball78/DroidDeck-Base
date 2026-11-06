@@ -3213,6 +3213,8 @@
     <string name="repair_backup_failed">فشل النسخ الاحتياطي. لم يتغير شيء.</string>
     <string name="connection_card_title">الاتصال (ADB)</string>
     <string name="connection_card_state_active">متصل وجاهز</string>
+    <string name="connection_card_state_active_wireless_off">متصل — التصحيح اللاسلكي مطفأ</string>
+    <string name="connection_card_state_active_dev_off">متصل — خيارات المطور مطفأة</string>
     <string name="connection_card_state_ready">مقترن وجاهز — اضغط زراً واحداً للتشغيل</string>
     <string name="connection_card_state_auth">الخادم يرد لكنه يرفض الأوامر</string>
     <string name="connection_card_state_pending">غير متصل بعد</string>
@@ -3266,6 +3268,7 @@
     <string name="connection_card_toast_watch_notification">راقب أعلى الشاشة — سيظهر إشعار الإقران؛ أدخل الرمز هناك.</string>
     <string name="connection_card_note_daemon_survives">إطفاء التصحيح اللاسلكي لا يوقف خادماً يعمل — بل يمنع إعادة تشغيله فقط.</string>
     <string name="connection_card_warn_wireless_off">الخادم يعمل — التصحيح اللاسلكي مطفأ. الجلسات تعمل، لكن إعادة التشغيل أو إعادة الإقران تحتاج التصحيح اللاسلكي.</string>
+    <string name="connection_card_warn_dev_off">الخادم يعمل — خيارات المطور مطفأة. الجلسات تعمل، لكن إعادة التشغيل أو إعادة الإقران تحتاج خيارات المطور ثم التصحيح اللاسلكي.</string>
     <string name="step_guide_channel_name">دليل الإعداد</string>
     <string name="step_guide_channel_desc">الخطوة التالية أثناء إعداد التصحيح اللاسلكي.</string>
     <string name="step_guide_title">الخطوة التالية</string>

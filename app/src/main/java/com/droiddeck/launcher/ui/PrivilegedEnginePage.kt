@@ -32,11 +32,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.droiddeck.launcher.R
+import com.droiddeck.launcher.core.ConnectionCardState
+import com.droiddeck.launcher.core.ConnectionCardStateResolver
 import com.droiddeck.launcher.core.privileged.PrivilegedBridge
 import com.droiddeck.launcher.core.WirelessAdbFix
 import com.droiddeck.launcher.core.ConnectionFailure
@@ -59,6 +63,29 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
     val status by PrivilegedBridge.statusFlow.collectAsState()
     var refreshing by remember { mutableStateOf(false) }
 
+    // Same three checks the Overview connection card polls, same 1.5 s
+    // rhythm: without them the banner below would still say Active
+    // after wireless debugging is turned off in Settings.
+    val engineAuthRejected by PrivilegedBridge.authRejectedFlow.collectAsState()
+    val engineDevOn = remember { mutableStateOf(isDevOptionsOn(ctx)) }
+    val engineWirelessOn = remember { mutableStateOf(isWirelessAdbOn(ctx)) }
+    val enginePaired = remember { mutableStateOf(WirelessAdbFix.isPaired(ctx)) }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            engineDevOn.value = isDevOptionsOn(ctx)
+            engineWirelessOn.value = isWirelessAdbOn(ctx)
+            enginePaired.value = WirelessAdbFix.isPaired(ctx)
+            delay(1_500)
+        }
+    }
+    val engineState = ConnectionCardStateResolver.resolve(
+        daemonActive = status.isActive,
+        authRejected = engineAuthRejected,
+        devOptionsOn = engineDevOn.value,
+        wirelessAdbOn = engineWirelessOn.value,
+        paired = enginePaired.value,
+    )
+
     // Auto-refresh every 4 seconds in background
     LaunchedEffect(Unit) {
         while (isActive) {
@@ -75,7 +102,7 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
         scrollContent = true,
     ) {
         // ── Header status banner ────────────────────────────────────
-        StatusBanner(status, refreshing) {
+        StatusBanner(status, engineState, refreshing) {
             refreshing = true
             withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "engine-page") }
             refreshing = false
@@ -204,13 +231,17 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
 // ─────────────────────────────────────────────────────────────
 
 @Composable
-private fun StatusBanner(status: PrivilegedStatus, refreshing: Boolean, onRefresh: suspend () -> Unit) {
+private fun StatusBanner(status: PrivilegedStatus, cardState: ConnectionCardState, refreshing: Boolean, onRefresh: suspend () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
     val good = status.isActive
     val authRejected by PrivilegedBridge.authRejectedFlow.collectAsState()
-    val bannerGood = good && !authRejected
-    val animColor by animateColorAsState(if (bannerGood) pal.good else MaterialTheme.colorScheme.error, label = "bannerColor")
+    val degraded = ConnectionCardStateResolver.isDegraded(cardState)
+    val bannerGood = good && !authRejected && !degraded
+    val animColor by animateColorAsState(
+        if (bannerGood) pal.good else if (degraded) AttentionAmber else MaterialTheme.colorScheme.error,
+        label = "bannerColor",
+    )
     val scope = rememberCoroutineScope()
 
     Box(
@@ -229,21 +260,26 @@ private fun StatusBanner(status: PrivilegedStatus, refreshing: Boolean, onRefres
                 if (refreshing) {
                     CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = animColor)
                 } else {
-                    Text(status.statusIcon, fontSize = 20.sp)
+                    Text(if (degraded) "⚠️" else status.statusIcon, fontSize = 20.sp)
                 }
             }
             Column(Modifier.weight(1f)) {
                 Text(
                     if (good && authRejected) "Daemon responding — auth rejected"
+                    else if (degraded && cardState == ConnectionCardState.ACTIVE_DEV_OFF) "Active — developer options off"
+                    else if (degraded) "Active — wireless debugging off"
                     else if (good) "Active — ${status.modeLabel}"
                     else "Privileged Engine Inactive",
                     fontWeight = FontWeight.Bold, fontSize = 15.sp, color = colors.onBackground,
                 )
                 Text(
                     if (good && authRejected) "The daemon answers but rejects commands: its token does not match. Start the daemon again with One-Tap below."
+                    else if (degraded && cardState == ConnectionCardState.ACTIVE_DEV_OFF) stringResource(R.string.connection_card_warn_dev_off)
+                    else if (degraded) stringResource(R.string.connection_card_warn_wireless_off)
                     else if (good) "Full system access granted · phantom limit disabled"
                     else "One ADB command away from full activation",
-                    fontSize = 12.sp, color = colors.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    color = if (degraded) AttentionAmber else colors.onSurfaceVariant,
                 )
             }
             IconButton(onClick = { scope.launch { onRefresh() } }) {

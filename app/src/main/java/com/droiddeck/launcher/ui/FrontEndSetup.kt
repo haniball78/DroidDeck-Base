@@ -578,7 +578,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                 "failure" to (lastFailure?.category?.name ?: "none"),
             ),
         )
-        if (state == ConnectionCardState.ACTIVE) {
+        if (ConnectionCardStateResolver.daemonRunning(state)) {
             StepGuideNotifier.cancel(ctx)
         }
         if (prevState != null && prevState != state) {
@@ -691,12 +691,15 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
 
     SettingsGroup(stringResource(R.string.connection_card_title)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            val degraded = ConnectionCardStateResolver.isDegraded(state)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(privStatus.statusIcon, fontSize = 18.sp)
+                Text(if (degraded) "⚠️" else privStatus.statusIcon, fontSize = 18.sp)
                 Column(Modifier.weight(1f)) {
                     Text(
                         when (state) {
                             ConnectionCardState.ACTIVE -> stringResource(R.string.connection_card_state_active)
+                            ConnectionCardState.ACTIVE_WIRELESS_OFF -> stringResource(R.string.connection_card_state_active_wireless_off)
+                            ConnectionCardState.ACTIVE_DEV_OFF -> stringResource(R.string.connection_card_state_active_dev_off)
                             ConnectionCardState.READY_TO_START -> stringResource(R.string.connection_card_state_ready)
                             ConnectionCardState.AUTH_REJECTED -> stringResource(R.string.connection_card_state_auth)
                             else -> stringResource(R.string.connection_card_state_pending)
@@ -706,22 +709,20 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                     Text(
                         when (state) {
                             ConnectionCardState.ACTIVE -> stringResource(R.string.connection_card_active_detail, privStatus.modeLabel)
+                            ConnectionCardState.ACTIVE_WIRELESS_OFF -> stringResource(R.string.connection_card_warn_wireless_off)
+                            ConnectionCardState.ACTIVE_DEV_OFF -> stringResource(R.string.connection_card_warn_dev_off)
                             ConnectionCardState.READY_TO_START -> stringResource(R.string.connection_card_why_ready)
                             ConnectionCardState.AUTH_REJECTED -> stringResource(R.string.connection_card_auth_detail)
                             else -> stringResource(R.string.connection_card_pending_detail)
                         },
-                        fontSize = 12.sp, color = colors.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        color = if (degraded) AttentionAmber else colors.onSurfaceVariant,
+                        fontWeight = if (degraded) FontWeight.SemiBold else FontWeight.Normal,
                     )
                     if (state == ConnectionCardState.ACTIVE && privStatus.mode == PrivilegedMode.EMBEDDED_DAEMON) {
                         Text(
                             stringResource(R.string.connection_card_note_daemon_survives),
                             fontSize = 11.sp, color = colors.onSurfaceVariant,
-                        )
-                    }
-                    if (state == ConnectionCardState.ACTIVE && privStatus.mode == PrivilegedMode.EMBEDDED_DAEMON && !wirelessOn.value) {
-                        Text(
-                            stringResource(R.string.connection_card_warn_wireless_off),
-                            fontSize = 12.sp, color = colors.onSurfaceVariant,
                         )
                     }
                 }
@@ -920,7 +921,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                 }
             }
 
-            if (state == ConnectionCardState.ACTIVE) {
+            if (ConnectionCardStateResolver.daemonRunning(state)) {
                 Row(
                     Modifier.fillMaxWidth().clickable { showDetails = !showDetails },
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1099,6 +1100,22 @@ private fun AdvancedSetupTab(
     var verifying by remember { mutableStateOf(false) }
 
     val privStatus by PrivilegedBridge.statusFlow.collectAsState()
+    val advAuthRejected by PrivilegedBridge.authRejectedFlow.collectAsState()
+
+    // Same three checks the Overview connection card polls, same 1.5 s
+    // rhythm: without them the privileged row below would still say OK
+    // after wireless debugging is turned off in Settings.
+    val advDevOn = remember { mutableStateOf(isDevOptionsOn(ctx)) }
+    val advWirelessOn = remember { mutableStateOf(isWirelessAdbOn(ctx)) }
+    val advPaired = remember { mutableStateOf(WirelessAdbFix.isPaired(ctx)) }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            advDevOn.value = isDevOptionsOn(ctx)
+            advWirelessOn.value = isWirelessAdbOn(ctx)
+            advPaired.value = WirelessAdbFix.isPaired(ctx)
+            delay(1_500)
+        }
+    }
 
     // Query live telemetry when the tab opens: one immediate
     // measurement, then one per minute, up to 5 measurements total,
@@ -1541,12 +1558,24 @@ private fun AdvancedSetupTab(
     }
 
     val privilegedCard: @Composable () -> Unit = {
+        val advState = ConnectionCardStateResolver.resolve(
+            daemonActive = privStatus.isActive,
+            authRejected = advAuthRejected,
+            devOptionsOn = advDevOn.value,
+            wirelessAdbOn = advWirelessOn.value,
+            paired = advPaired.value,
+        )
         SettingsGroup(stringResource(R.string.setup_adv_group_privileged)) {
             CheckRow(
-                if (privStatus.isActive) CheckState.OK else CheckState.WARN,
+                if (advState == ConnectionCardState.ACTIVE) CheckState.OK else CheckState.WARN,
                 "Privileged Mode: ${privStatus.shortLabel}",
-                if (privStatus.isActive) stringResource(R.string.setup_adv_privileged_active, privStatus.modeLabel)
-                else stringResource(R.string.setup_adv_privileged_inactive),
+                when (advState) {
+                    ConnectionCardState.ACTIVE -> stringResource(R.string.setup_adv_privileged_active, privStatus.modeLabel)
+                    ConnectionCardState.ACTIVE_DEV_OFF -> stringResource(R.string.connection_card_warn_dev_off)
+                    ConnectionCardState.ACTIVE_WIRELESS_OFF -> stringResource(R.string.connection_card_warn_wireless_off)
+                    ConnectionCardState.AUTH_REJECTED -> stringResource(R.string.connection_card_auth_detail)
+                    else -> stringResource(R.string.setup_adv_privileged_inactive)
+                },
                 divider = false,
             ) {
                 SecondaryButton(stringResource(R.string.setup_adv_configure), compact = true) { onSelect("privileged") }

@@ -3157,6 +3157,8 @@
     <string name="repair_backup_failed">Backup failed. Nothing was changed.</string>
     <string name="connection_card_title">Connection (ADB)</string>
     <string name="connection_card_state_active">Connected and ready</string>
+    <string name="connection_card_state_active_wireless_off">Connected — wireless debugging off</string>
+    <string name="connection_card_state_active_dev_off">Connected — developer options off</string>
     <string name="connection_card_state_ready">Paired and ready — one tap to start</string>
     <string name="connection_card_state_auth">Daemon responding — auth rejected</string>
     <string name="connection_card_state_pending">Not connected yet</string>
@@ -3210,6 +3212,7 @@
     <string name="connection_card_toast_watch_notification">Watch the top of the screen — the pairing notification will pop up; enter the code there.</string>
     <string name="connection_card_note_daemon_survives">Turning wireless debugging off does not stop a running daemon — it only blocks restarting it.</string>
     <string name="connection_card_warn_wireless_off">Daemon running — wireless debugging is off. Sessions work, but restart or re-pairing needs wireless debugging.</string>
+    <string name="connection_card_warn_dev_off">Daemon running — developer options are off. Sessions work, but restart or re-pairing needs developer options, then wireless debugging.</string>
     <string name="step_guide_channel_name">Setup guide</string>
     <string name="step_guide_channel_desc">Next step while setting up wireless debugging.</string>
     <string name="step_guide_title">Next step</string>
