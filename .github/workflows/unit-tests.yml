@@ -61,6 +61,35 @@ jobs:
             -PskipRust=true \
             --stacktrace --no-daemon 2>&1 | tee /tmp/unified-unit-tests.log
 
+      - name: Print per-test summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          files = sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml"))
+          if not files:
+              print("no test-result XML files found")
+              raise SystemExit(0)
+          total = failures = errors = skipped = 0
+          for path in files:
+              try:
+                  root = ET.parse(path).getroot()
+              except ET.ParseError:
+                  print(f"unparsable: {path}")
+                  continue
+              suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
+              for s in suites:
+                  t = int(s.get("tests", 0)); f = int(s.get("failures", 0))
+                  e = int(s.get("errors", 0)); sk = int(s.get("skipped", 0))
+                  total += t; failures += f; errors += e; skipped += sk
+                  print(f"{s.get('name')}: tests={t} failures={f} errors={e} skipped={sk}")
+                  for tc in s.iter("testcase"):
+                      for child in tc:
+                          if child.tag in ("failure", "error"):
+                              print(f"  FAILED: {tc.get('classname')}.{tc.get('name')}")
+          print(f"TOTAL: tests={total} failures={failures} errors={errors} skipped={skipped}")
+          PY
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
