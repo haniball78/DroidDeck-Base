@@ -55,7 +55,12 @@ object WirelessAdbFix {
             return
         }
 
-        val identity = KadbCert.get(notAfter = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(3650))
+        // Mint fresh here, never KadbCert.get(): it only generates when its
+        // in-memory key is empty, so after a reset it rewrites the SAME key
+        // and the reset never changes the fingerprint (the reset bug).
+        val identity = AdbIdentityGenerator.generateFreshIdentity(
+            notAfterMs = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(3650),
+        )
         KadbCert.set(identity.first, identity.second)
         writeAtomically(context, cert, identity.first)
         writeAtomically(context, key, identity.second)
