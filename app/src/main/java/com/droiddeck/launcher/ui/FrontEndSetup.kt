@@ -691,7 +691,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             if (restarted) {
                 autoRestartedPorts = autoRestartedPorts + parked
                 val newPort = withContext(Dispatchers.IO) {
-                    WirelessAdbFix.waitForConnectPortChange(ctx, parked, timeoutMs = 15_000)
+                    WirelessAdbFix.waitForConnectPortChange(ctx, parked, timeoutMs = WirelessAdbFix.AUTO_RESTART_PORT_WAIT_MS)
                 }
                 if (newPort != null) {
                     autoRestartFailed = false

@@ -26,8 +26,22 @@ object WirelessAdbFix {
     private const val CONNECTION_FILE = "wireless-adb-connection.txt"
     const val LOOPBACK = "127.0.0.1"
 
-    /** Automatic wireless restarts per parked port, before the user must act. */
-    const val MAX_AUTO_RESTARTS = 3
+    /**
+     * Automatic wireless restarts per pairing episode, before the user
+     * must act: one slow toggle only. A second toggle cannot help once
+     * the key is on disk — if the fresh listener also rejects it, the
+     * cause is not the propagation window — and each extra toggle costs
+     * the user another wait for the new listener.
+     */
+    const val MAX_AUTO_RESTARTS = 1
+
+    /**
+     * How long the single automatic wireless restart waits for a new
+     * connect port: the mDNS fallback in findConnectPort takes up to
+     * 12 s, so this must stay above it — shortening it to 10 s would
+     * report "no port change" on a listener the fallback would find.
+     */
+    const val AUTO_RESTART_PORT_WAIT_MS = 15_000L
 
     private data class SavedConnection(val host: String, val port: Int?)
 
@@ -183,9 +197,11 @@ object WirelessAdbFix {
     /**
      * Delays after a fresh pair at which the pre-pair port is probed again:
      * the key may only become visible to the listener after a short
-     * propagation delay, in which case no restart is needed at all.
+     * propagation delay, in which case no restart is needed at all. The
+     * last probe fires at the 30 s timeout, so the whole window is
+     * covered without waiting longer than a fresh pair already did.
      */
-    val SAME_PORT_PROBE_DELAYS_MS = listOf(2_000L, 5_000L, 10_000L, 20_000L)
+    val SAME_PORT_PROBE_DELAYS_MS = listOf(2_000L, 5_000L, 10_000L, 20_000L, 30_000L)
 
     /** Probe delay for [attemptIndex], or null when the schedule is exhausted. */
     fun samePortProbeDelay(attemptIndex: Int): Long? = SAME_PORT_PROBE_DELAYS_MS.getOrNull(attemptIndex)

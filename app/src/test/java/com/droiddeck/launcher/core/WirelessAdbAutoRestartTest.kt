@@ -46,8 +46,8 @@ class WirelessAdbAutoRestartTest {
         )
     }
 
-    @Test fun restartAllowedForANewFailedPort() {
-        assertTrue(
+    @Test fun restartBlockedForANewFailedPortOnceTheSingleRestartIsSpent() {
+        assertFalse(
             WirelessAdbFix.shouldAutoRestartWireless(
                 paired = true, currentPort = 40035, lastAuthFailedPort = 40035, restartedPorts = setOf(35513),
             ),
@@ -58,7 +58,7 @@ class WirelessAdbAutoRestartTest {
         assertFalse(
             WirelessAdbFix.shouldAutoRestartWireless(
                 paired = true, currentPort = 40035, lastAuthFailedPort = 40035,
-                restartedPorts = setOf(35513, 33845, 42487),
+                restartedPorts = setOf(35513),
             ),
         )
     }

@@ -71,11 +71,12 @@ class WirelessAdbPairingRedesignTest {
         assertEquals(5_000L, WirelessAdbFix.samePortProbeDelay(1))
         assertEquals(10_000L, WirelessAdbFix.samePortProbeDelay(2))
         assertEquals(20_000L, WirelessAdbFix.samePortProbeDelay(3))
-        assertNull(WirelessAdbFix.samePortProbeDelay(4))
+        assertEquals(30_000L, WirelessAdbFix.samePortProbeDelay(4))
+        assertNull(WirelessAdbFix.samePortProbeDelay(5))
         assertNull(WirelessAdbFix.samePortProbeDelay(-1))
     }
 
-    @Test fun autoRestartCapIsThree() {
-        assertEquals(3, WirelessAdbFix.MAX_AUTO_RESTARTS)
+    @Test fun autoRestartCapIsOne() {
+        assertEquals(1, WirelessAdbFix.MAX_AUTO_RESTARTS)
     }
 }
