@@ -100,9 +100,9 @@ import com.droiddeck.launcher.core.PhantomProcessStatus
 import com.droiddeck.launcher.core.ConnectionCardAction
 import com.droiddeck.launcher.core.ConnectionCardState
 import com.droiddeck.launcher.core.ConnectionCardStateResolver
+import com.droiddeck.launcher.core.FailureBoxMode
 import com.droiddeck.launcher.core.ConnectionFailure
 import com.droiddeck.launcher.core.WirelessAdbFix
-import com.droiddeck.launcher.core.WirelessAdbPairingService
 import com.droiddeck.launcher.core.canDrawOverlays
 import com.droiddeck.launcher.core.privileged.DiagnosticsLog
 import com.droiddeck.launcher.core.privileged.PrivilegedMode
@@ -624,6 +624,9 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     var oneTapFailed by remember { mutableStateOf(false) }
     var autoRestartedPorts by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var autoRestarting by remember { mutableStateOf(false) }
+    var autoRestartFailed by remember { mutableStateOf(false) }
+    var grantConsentPending by remember { mutableStateOf<PairingEntryKind?>(null) }
+    var pcGrantNoteDismissed by remember { mutableStateOf(false) }
 
     fun logAction(name: String) {
         DiagnosticsLog.log(
@@ -640,6 +643,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             PrivilegedBridge.clearDaemonFailure()
             val ok = withContext(Dispatchers.IO) { WirelessAdbFix.startPrivilegedDaemonWithSavedPairing(ctx) }
             if (ok) {
+                autoRestartFailed = false
                 withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "card-start") }
                 Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_started), Toast.LENGTH_SHORT).show()
             } else {
@@ -648,6 +652,21 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             }
             starting = false
         }
+    }
+
+    // The self-grant runs only with the user's consent: the first new
+    // pairing asks once; a decline still pairs, but the automatic
+    // wireless restart stays unavailable.
+    fun runPairing(kind: PairingEntryKind) {
+        when (kind) {
+            PairingEntryKind.NOTIFICATION -> startNotificationPairing(ctx) { showPairDialog = true }
+            PairingEntryKind.DIALOG -> showPairDialog = true
+        }
+    }
+
+    fun requestPairing(kind: PairingEntryKind) {
+        if (WirelessAdbFix.secureGrantDecision(ctx) == null) grantConsentPending = kind
+        else runPairing(kind)
     }
 
     // Guided reset for an AUTH failure: the key is rejected on this port,
@@ -677,17 +696,20 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                     WirelessAdbFix.waitForConnectPortChange(ctx, parked, timeoutMs = 15_000)
                 }
                 if (newPort != null) {
+                    autoRestartFailed = false
                     DiagnosticsLog.log(
                         ctx, "adb.wireless", "auto-restarted",
                         fields = mapOf("oldPort" to parked.toString(), "newPort" to newPort.toString()),
                     )
                 } else {
+                    autoRestartFailed = true
                     DiagnosticsLog.log(
                         ctx, "adb.wireless", "auto-restart-no-port-change",
                         fields = mapOf("port" to parked.toString()),
                     )
                 }
             } else {
+                autoRestartFailed = true
                 DiagnosticsLog.log(
                     ctx, "adb.wireless", "auto-restart-failed",
                     fields = mapOf("port" to parked.toString()),
@@ -720,12 +742,19 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     LaunchedEffect(state, parkedPort, canAutoRetry) {
         if (state != ConnectionCardState.READY_TO_START) {
             autoRestartedPorts = emptySet()
+            autoRestartFailed = false
         } else {
             val parked = parkedPort
-            if (!starting && !autoRestarting && parked != null &&
-                WirelessAdbFix.shouldAutoRestartWireless(paired.value, currentPort.value, parked, autoRestartedPorts)
-            ) {
-                restartWirelessAuto(parked)
+            if (!starting && !autoRestarting && parked != null) {
+                if (WirelessAdbFix.shouldAutoRestartWireless(paired.value, currentPort.value, parked, autoRestartedPorts)) {
+                    restartWirelessAuto(parked)
+                } else if (paired.value && currentPort.value == parked &&
+                    autoRestartedPorts.size >= WirelessAdbFix.MAX_AUTO_RESTARTS
+                ) {
+                    // The restart budget is spent and the port is still
+                    // parked: the user must act, so the failure box shows.
+                    autoRestartFailed = true
+                }
             }
         }
     }
@@ -750,6 +779,22 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                     starting = false
                 }
             },
+        )
+    }
+
+    grantConsentPending?.let { pending ->
+        SecureGrantConsentDialog(
+            onApprove = {
+                WirelessAdbFix.setSecureGrantDecision(ctx, true)
+                grantConsentPending = null
+                runPairing(pending)
+            },
+            onDecline = {
+                WirelessAdbFix.setSecureGrantDecision(ctx, false)
+                grantConsentPending = null
+                runPairing(pending)
+            },
+            onDismiss = { grantConsentPending = null },
         )
     }
 
@@ -814,12 +859,39 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
 
             // Failure guidance: only where an attempt happened or is the
             // current step (resolver); never before pairing starts, and
-            // never on an ACTIVE card (stale failures hide).
-            val showFailureBox = ConnectionCardStateResolver.showFailureGuidance(state, lastFailure != null || oneTapFailed)
+            // never on an ACTIVE card (stale failures hide). An AUTH
+            // failure the app is still healing reads as "finishing
+            // setup", not a red box; the box returns only when the
+            // restart has failed or its budget is spent.
+            val failureMode = ConnectionCardStateResolver.failureBoxMode(
+                state, lastFailure != null || oneTapFailed,
+                lastFailure?.category == ConnectionFailure.AUTH, autoRestartFailed,
+            )
+            val showFailureBox = failureMode == FailureBoxMode.FAILURE
             // An AUTH failure means the key is rejected on this port:
             // re-pairing or forgetting the identity cannot fix it, so the
             // box offers the guided reset first and re-pairing second.
-            val authFailure = showFailureBox && lastFailure?.category == ConnectionFailure.AUTH
+            val authFailure = failureMode != FailureBoxMode.HIDDEN &&
+                lastFailure?.category == ConnectionFailure.AUTH
+            if (failureMode == FailureBoxMode.FINISHING) {
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
+                        .background(colors.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.connection_card_finishing_setup),
+                        fontSize = 12.sp, color = colors.onBackground,
+                    )
+                    if (autoRestarting) {
+                        Text(
+                            stringResource(R.string.connection_card_auto_restarting),
+                            fontSize = 11.sp, color = colors.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
             if (showFailureBox) {
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
@@ -873,7 +945,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                                     ) {
                                         if (authFailure) startGuidedReset() else {
                                             logAction("repair")
-                                            showPairDialog = true
+                                            requestPairing(PairingEntryKind.DIALOG)
                                         }
                                     }
                                 }
@@ -885,7 +957,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                                     ) {
                                         if (authFailure) startGuidedReset() else {
                                             logAction("repair")
-                                            showPairDialog = true
+                                            requestPairing(PairingEntryKind.DIALOG)
                                         }
                                     }
                                 }
@@ -904,7 +976,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                     } else {
                         PrimaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
                             logAction("repair")
-                            showPairDialog = true
+                            requestPairing(PairingEntryKind.DIALOG)
                         }
                     }
                 }
@@ -929,13 +1001,11 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                 }
                 ConnectionCardAction.OPEN_PAIRING_DIALOG -> PrimaryButton(stringResource(R.string.connection_card_action_pair), compact = true) {
                     logAction("open-pair-dialog")
-                    showPairDialog = true
+                    requestPairing(PairingEntryKind.DIALOG)
                 }
                 ConnectionCardAction.PAIR_NOTIFICATION -> PrimaryButton(stringResource(R.string.connection_card_action_notify), compact = true) {
                     logAction("pair-notification")
-                    Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_watch_notification), Toast.LENGTH_LONG).show()
-                    WirelessAdbPairingService.start(ctx)
-                    openDevOptions(ctx)
+                    requestPairing(PairingEntryKind.NOTIFICATION)
                 }
                 ConnectionCardAction.ONE_TAP_START -> if (!showFailureBox) {
                     PrimaryButton(
@@ -946,12 +1016,41 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                 ConnectionCardAction.NONE -> {}
             }
 
+            // The automatic restart needs the secure-settings grant: when
+            // the user allowed the self-grant but the app still does not
+            // hold it, the one-time PC command is the fallback.
+            val grantMissing = WirelessAdbFix.secureGrantDecision(ctx) == true &&
+                !WirelessAdbFix.hasSecureSettingsGrant(ctx) &&
+                (paired.value || ConnectionCardStateResolver.daemonRunning(state))
+            if (grantMissing && !pcGrantNoteDismissed) {
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
+                        .background(colors.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.connection_card_pc_grant_body),
+                        fontSize = 11.sp, color = colors.onBackground,
+                    )
+                    Text(
+                        "adb shell pm grant ${ctx.packageName} android.permission.WRITE_SECURE_SETTINGS",
+                        fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = colors.onSurfaceVariant,
+                    )
+                    Text(
+                        stringResource(R.string.connection_card_pc_grant_dismiss),
+                        fontSize = 11.sp, color = colors.primary,
+                        modifier = Modifier.clickable { pcGrantNoteDismissed = true },
+                    )
+                }
+            }
+
             if (state == ConnectionCardState.NEED_PAIRING) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Box(Modifier.weight(1f)) {
                         SecondaryButton(stringResource(R.string.connection_card_action_pair), compact = true) {
                             logAction("open-pair-dialog")
-                            showPairDialog = true
+                            requestPairing(PairingEntryKind.DIALOG)
                         }
                     }
                     Box(Modifier.weight(1f)) {
@@ -961,6 +1060,13 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                         }
                     }
                 }
+                // Split-screen is a manual fallback, not the main flow:
+                // the system may open Settings fullscreen instead, and
+                // the split ratio is the user's to drag.
+                SecondaryButton(stringResource(R.string.connection_card_action_side_by_side), compact = true) {
+                    logAction("pair-side-by-side")
+                    startSideBySidePairing(ctx)
+                }
             }
 
             if (state == ConnectionCardState.READY_TO_START) {
@@ -969,7 +1075,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                         Box(Modifier.weight(1f)) {
                             SecondaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
                                 logAction("repair")
-                                showPairDialog = true
+                                requestPairing(PairingEntryKind.DIALOG)
                             }
                         }
                     }

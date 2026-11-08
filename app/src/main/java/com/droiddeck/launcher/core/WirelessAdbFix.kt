@@ -25,6 +25,9 @@ object WirelessAdbFix {
     private const val CONNECTION_FILE = "wireless-adb-connection.txt"
     const val LOOPBACK = "127.0.0.1"
 
+    /** Automatic wireless restarts per parked port, before the user must act. */
+    const val MAX_AUTO_RESTARTS = 3
+
     private data class SavedConnection(val host: String, val port: Int?)
 
     @Synchronized
@@ -104,6 +107,24 @@ object WirelessAdbFix {
         tlsPortProperty()
             ?: findConnectPort(context, LOOPBACK)
 
+    private fun pairingPrefs(context: Context) =
+        context.getSharedPreferences("wireless-adb-pairing", Context.MODE_PRIVATE)
+
+    /** The user's self-grant decision: true = allow, false = decline, null = not asked yet. */
+    fun secureGrantDecision(context: Context): Boolean? {
+        val prefs = pairingPrefs(context.applicationContext)
+        return if (prefs.contains("secureGrantConsent")) prefs.getBoolean("secureGrantConsent", false) else null
+    }
+
+    fun setSecureGrantDecision(context: Context, allowed: Boolean) {
+        pairingPrefs(context.applicationContext).edit().putBoolean("secureGrantConsent", allowed).apply()
+    }
+
+    /** True when the app process itself holds WRITE_SECURE_SETTINGS. */
+    fun hasSecureSettingsGrant(context: Context): Boolean =
+        context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
     /**
      * True only when an automatic daemon start may run: paired, with a
      * known current port that is not the one whose start last failed auth.
@@ -123,7 +144,7 @@ object WirelessAdbFix {
         currentPort: Int?,
         lastAuthFailedPort: Int?,
         restartedPorts: Set<Int>,
-        maxRestarts: Int = 3,
+        maxRestarts: Int = MAX_AUTO_RESTARTS,
     ): Boolean =
         paired && currentPort != null && currentPort == lastAuthFailedPort &&
             currentPort !in restartedPorts && restartedPorts.size < maxRestarts
@@ -155,6 +176,62 @@ object WirelessAdbFix {
     }
 
     /**
+     * Delays after a fresh pair at which the pre-pair port is probed again:
+     * the key may only become visible to the listener after a short
+     * propagation delay, in which case no restart is needed at all.
+     */
+    val SAME_PORT_PROBE_DELAYS_MS = listOf(2_000L, 5_000L, 10_000L, 20_000L)
+
+    /** Probe delay for [attemptIndex], or null when the schedule is exhausted. */
+    fun samePortProbeDelay(attemptIndex: Int): Long? = SAME_PORT_PROBE_DELAYS_MS.getOrNull(attemptIndex)
+
+    /**
+     * Waits up to [timeoutMs] for a usable connect port after a fresh pair:
+     * either the port changes (fresh listener) or the pre-pair port starts
+     * accepting the key (propagation delay). Probes the old port at the
+     * scheduled delays and logs every outcome, so real devices answer
+     * whether a restart is genuinely required or a timed retry suffices.
+     * Returns the usable port, or null when neither happened in time.
+     */
+    suspend fun waitForUsableConnectPort(
+        context: Context,
+        oldPort: Int?,
+        timeoutMs: Long = 30_000,
+        pollIntervalMs: Long = 1_000,
+    ): Int? {
+        val start = android.os.SystemClock.elapsedRealtime()
+        var probeIndex = 0
+        while (true) {
+            val port = runCatching { localConnectPort(context) }.getOrNull()
+            if (port != null && port != oldPort) return port
+            val elapsed = android.os.SystemClock.elapsedRealtime() - start
+            val nextDelay = samePortProbeDelay(probeIndex)
+            if (oldPort != null && nextDelay != null && elapsed >= nextDelay) {
+                probeIndex++
+                val probe = runCatching { verifyConnection(context, LOOPBACK, oldPort) }
+                if (probe.isSuccess) {
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                        context, "adb.daemon", "same-port-retry-succeeded",
+                        fields = mapOf("port" to oldPort.toString(), "delayMs" to nextDelay.toString()),
+                    )
+                    return oldPort
+                }
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                    context, "adb.daemon", "same-port-retry-failed",
+                    fields = mapOf(
+                        "port" to oldPort.toString(),
+                        "delayMs" to nextDelay.toString(),
+                        "reason" to (probe.exceptionOrNull()?.javaClass?.simpleName ?: "unknown"),
+                    ),
+                )
+            }
+            val remaining = start + timeoutMs - android.os.SystemClock.elapsedRealtime()
+            if (remaining <= 0) return null
+            kotlinx.coroutines.delay(minOf(pollIntervalMs, remaining))
+        }
+    }
+
+    /**
      * Restarts wireless debugging from the app process by writing the
      * adb_wifi_enabled setting off and on: the same toggle the user
      * performs in Developer options, which restarts the listener on a
@@ -168,9 +245,7 @@ object WirelessAdbFix {
         context: Context,
         offMs: Long = 1_500,
     ): Boolean {
-        if (context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) return false
+        if (!hasSecureSettingsGrant(context)) return false
         return runCatching {
             val resolver = context.applicationContext.contentResolver
             if (android.provider.Settings.Global.getInt(resolver, "adb_wifi_enabled", 0) == 0) return@runCatching false
@@ -347,7 +422,19 @@ object WirelessAdbFix {
             } else {
                 steps.append("phantom:skipped,")
             }
-            steps.append("grant-secure:").append(adb.shell("pm grant ${context.packageName} android.permission.WRITE_SECURE_SETTINGS 2>/dev/null || true").exitCode).append(",")
+            // The self-grant runs only with the user's consent: a decline
+            // leaves the app without WRITE_SECURE_SETTINGS, so the
+            // automatic wireless restart is unavailable and the manual
+            // guided reset is the fallback. Undecided keeps the old
+            // behaviour — the consent screen gates every new pairing, so
+            // undecided here means a pairing from an older build.
+            val grantSecure = secureGrantDecision(context) != false
+            val grantSecureResult = if (grantSecure) {
+                adb.shell("pm grant ${context.packageName} android.permission.WRITE_SECURE_SETTINGS 2>/dev/null || true").exitCode.toString()
+            } else {
+                "skipped"
+            }
+            steps.append("grant-secure:").append(grantSecureResult).append(",")
             steps.append("grant-dump:").append(adb.shell("pm grant ${context.packageName} android.permission.DUMP 2>/dev/null || true").exitCode).append(",")
             steps.append("grant-usage:").append(adb.shell("pm grant ${context.packageName} android.permission.PACKAGE_USAGE_STATS 2>/dev/null || true").exitCode).append(",")
             steps.append("whitelist:").append(adb.shell("dumpsys deviceidle whitelist +${context.packageName} 2>/dev/null || true").exitCode).append(",")
@@ -413,13 +500,15 @@ object WirelessAdbFix {
                         )
                     }
                 }
-                // The port must change after pairing: connecting to the
-                // pre-pair listener fails auth every time (observed
-                // 2026-11-06), so wait for a new port instead of
-                // retrying the stale one. No change means park, not a
+                // A usable port after pairing is either a changed port
+                // (fresh listener) or the pre-pair port once it starts
+                // accepting the key (propagation delay): connecting to a
+                // stale listener fails auth every time (observed
+                // 2026-11-06), so wait for a usable one instead of
+                // retrying blindly. No usable port means park, not a
                 // start attempt: the stale port is recorded as AUTH and
                 // the card retries on its own when the port changes.
-                val connectPort = waitForConnectPortChange(context, prePairPort)
+                val connectPort = waitForUsableConnectPort(context, prePairPort)
                     ?: run {
                         parkAuthFailure(context, prePairPort ?: localConnectPort(context))
                         throw AuthParkedException(context.getString(R.string.connection_card_toast_pair_failed))
@@ -510,6 +599,18 @@ object WirelessAdbFix {
     fun wirelessDebuggingIntent(): Intent =
         Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            putExtra(":settings:fragment_args_key", "toggle_adb_wireless")
+        }
+
+    /**
+     * Opens Developer options in the adjacent window (split-screen),
+     * best-effort: the system may open it fullscreen instead, and the
+     * split ratio is the user's to drag — no API sets it on a phone.
+     * No CLEAR_TASK: a fresh task would break the adjacency.
+     */
+    fun wirelessDebuggingAdjacentIntent(): Intent =
+        Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT)
             putExtra(":settings:fragment_args_key", "toggle_adb_wireless")
         }
 }

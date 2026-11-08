@@ -1892,8 +1892,8 @@
     <string name="adbpair_title_done">Steam جاهز</string>
     <string name="adbpair_done_text">اضغط للعودة إلى DroidDeck. يمكنك إيقاف تصحيح الأخطاء اللاسلكي الآن.</string>
     <string name="adbpair_title_failed">توقَّف إعداد تصحيح الأخطاء اللاسلكي</string>
-    <string name="adbpair_title_parked">نجح الإقران — التشغيل متوقف مؤقتاً</string>
-    <string name="adbpair_parked_text">نجح الإقران، لكن الجهاز يرفض المفتاح على هذا المنفذ. أطفئ التصحيح اللاسلكي وأعد تشغيله مرة واحدة؛ وسيعيد التطبيق المحاولة تلقائياً عند تغيّر المنفذ.</string>
+    <string name="adbpair_title_parked">نجح الإقران — جارٍ إتمام الإعداد</string>
+    <string name="adbpair_parked_text">نجح الإقران. التطبيق يُتم الاتصال تلقائياً. وإذا بقي عالقاً، افتح DroidDeck وسيعرض الخطوة التالية.</string>
 
     <string name="selfinst_download_failed">فشل التنزيل</string>
     <string name="selfinst_size_mismatch">حجم التنزيل غير مطابق لملف APK المنشور، وتم تجاهله - حاوِل مرة أخرى</string>
@@ -3241,11 +3241,22 @@
     <string name="connection_card_action_repair">إدخال رمز إقران جديد</string>
     <string name="connection_card_action_about">افتح حول الهاتف</string>
     <string name="connection_card_action_dev">افتح خيارات المطور</string>
-    <string name="connection_card_action_pair">أدخل رمز الإقران</string>
+    <string name="connection_card_action_pair">إدخال يدوي للرمز</string>
     <string name="connection_card_action_start">تشغيل المحرك المميز (نقرة واحدة)</string>
     <string name="connection_card_action_starting">جارٍ التشغيل…</string>
     <string name="connection_card_auto_restarting">جارٍ إعادة تشغيل التصحيح اللاسلكي تلقائياً…</string>
+    <string name="connection_card_finishing_setup">جارٍ إتمام الإعداد… التطبيق يعيد تشغيل التصحيح اللاسلكي بنفسه ويتصل تلقائياً.</string>
     <string name="connection_card_action_notify">إقران عبر الإشعار</string>
+    <string name="connection_card_action_side_by_side">افتح جنباً إلى جنب</string>
+    <string name="connection_card_toast_side_by_side">فُتحت الإعدادات بجانب التطبيق — اسحب الفاصل لتغيير الحجم.</string>
+    <string name="connection_card_toast_notifications_off">الإشعارات مطفأة — أدخل الرمز في التطبيق بدلاً من ذلك.</string>
+    <string name="connection_card_pc_grant_body">إعادة التشغيل التلقائية متوقفة — لم يستطع التطبيق الاحتفاظ بإذن الإعدادات الآمنة. من حاسوب، نفّذ الأمر:</string>
+    <string name="connection_card_pc_grant_dismiss">إخفاء</string>
+    <string name="secure_grant_title">إذن واحد يمنحه التطبيق لنفسه</string>
+    <string name="secure_grant_body">ليُتم الإعداد بنفسه، يمنح DroidDeck لنفسه إذن «كتابة الإعدادات الآمنة» عبر اتصال ADB الخاص به بعد أول اقتران. ويستخدمه فقط لإعادة تشغيل التصحيح اللاسلكي عند فشل الاتصال. ويمكنك إلغاؤه في أي وقت من الإعدادات ← التطبيقات ← DroidDeck ← الأذونات. ولا حاجة لحاسوب.</string>
+    <string name="secure_grant_decline_note">وإذا رفضت، لن تعمل إعادة التشغيل التلقائية — وستعيد تشغيل التصحيح اللاسلكي بنفسك عند الحاجة.</string>
+    <string name="secure_grant_allow">سماح</string>
+    <string name="secure_grant_decline">ليس الآن</string>
     <string name="connection_card_action_reset_auth">إعادة تشغيل التصحيح اللاسلكي</string>
     <string name="connection_card_action_wireless">افتح شاشة التصحيح اللاسلكي</string>
     <string name="connection_card_action_clear">مسح الإقران</string>

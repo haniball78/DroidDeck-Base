@@ -1885,8 +1885,8 @@
     <string name="adbpair_title_done">Steam is ready</string>
     <string name="adbpair_done_text">Tap to go back to DroidDeck. You can turn Wireless debugging off now.</string>
     <string name="adbpair_title_failed">Wireless debugging setup stopped</string>
-    <string name="adbpair_title_parked">Pairing succeeded — start parked</string>
-    <string name="adbpair_parked_text">Pairing succeeded, but the device still rejects the key on this port. Turn wireless debugging off and on once; the app retries automatically when the port changes.</string>
+    <string name="adbpair_title_parked">Pairing succeeded — finishing setup</string>
+    <string name="adbpair_parked_text">Pairing succeeded. The app is finishing the connection automatically. If it stays stuck, open DroidDeck — it will show the next step.</string>
 
     <string name="selfinst_download_failed">Download failed</string>
     <string name="selfinst_size_mismatch">The download size didn\'t match the published APK and was discarded - try again</string>
@@ -3185,11 +3185,22 @@
     <string name="connection_card_action_repair">Enter a new pairing code</string>
     <string name="connection_card_action_about">Open About phone</string>
     <string name="connection_card_action_dev">Open Developer options</string>
-    <string name="connection_card_action_pair">Enter pairing code</string>
+    <string name="connection_card_action_pair">Manual code entry</string>
     <string name="connection_card_action_start">Start privileged engine (One-Tap)</string>
     <string name="connection_card_action_starting">Starting…</string>
     <string name="connection_card_auto_restarting">Restarting wireless debugging automatically…</string>
+    <string name="connection_card_finishing_setup">Finishing setup… the app restarts wireless debugging on its own and connects automatically.</string>
     <string name="connection_card_action_notify">Pair via notification</string>
+    <string name="connection_card_action_side_by_side">Open side by side</string>
+    <string name="connection_card_toast_side_by_side">Settings opened beside the app — drag the divider to resize.</string>
+    <string name="connection_card_toast_notifications_off">Notifications are off — enter the code in the app instead.</string>
+    <string name="connection_card_pc_grant_body">Automatic restart is off — the app could not keep the secure-settings permission. From a computer, run:</string>
+    <string name="connection_card_pc_grant_dismiss">Dismiss</string>
+    <string name="secure_grant_title">One permission, granted by the app itself</string>
+    <string name="secure_grant_body">To finish setup on its own, DroidDeck grants itself the “write secure settings” permission over its own ADB connection after the first pairing. It uses it only to turn wireless debugging back on and restart it when the connection fails. You can revoke it anytime in Settings → Apps → DroidDeck → Permissions. No computer is needed.</string>
+    <string name="secure_grant_decline_note">If you decline, automatic restart will not work — you will restart wireless debugging yourself when needed.</string>
+    <string name="secure_grant_allow">Allow</string>
+    <string name="secure_grant_decline">Not now</string>
     <string name="connection_card_action_reset_auth">Restart wireless debugging</string>
     <string name="connection_card_action_wireless">Open wireless debugging screen</string>
     <string name="connection_card_action_clear">Clear pairing</string>

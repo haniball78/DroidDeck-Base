@@ -170,14 +170,13 @@ class WirelessAdbPairingService : Service() {
                 show(Stage.Working(getString(R.string.adbpair_connecting)))
             }
             var attemptedPort: Int? = null
-            // The port must change after pairing: connecting to the
-            // pre-pair listener fails auth every time (observed
-            // 2026-11-06), so wait for a new port instead of retrying
-            // the stale one. No change means park, not a failed pair:
-            // the pair succeeded, and the card retries on its own when
-            // the port changes.
+            // A usable port after pairing is either a changed port (fresh
+            // listener) or the pre-pair port once it starts accepting the
+            // key (propagation delay). No usable port means park, not a
+            // failed pair: the pair succeeded, and the card retries on
+            // its own when the port changes.
             val connectPort = kotlinx.coroutines.runBlocking {
-                WirelessAdbFix.waitForConnectPortChange(this@WirelessAdbPairingService, prePairPort)
+                WirelessAdbFix.waitForUsableConnectPort(this@WirelessAdbPairingService, prePairPort)
             }
             if (connectPort == null) {
                 WirelessAdbFix.parkAuthFailure(this, prePairPort ?: WirelessAdbFix.localConnectPort(this))

@@ -51,6 +51,20 @@ enum class ConnectionCardAction {
     NONE,
 }
 
+enum class FailureBoxMode {
+    /** No failure guidance at all. */
+    HIDDEN,
+
+    /**
+     * An AUTH failure the app is still healing itself (READY state, restart
+     * budget left): show a neutral "finishing setup" line, not a red box.
+     */
+    FINISHING,
+
+    /** A failure the user must act on: the red box with its action. */
+    FAILURE,
+}
+
 object ConnectionCardStateResolver {
 
     /**
@@ -121,4 +135,24 @@ object ConnectionCardStateResolver {
                 state == ConnectionCardState.READY_TO_START ||
                 state == ConnectionCardState.AUTH_REJECTED
             )
+
+    /**
+     * Which failure presentation the card shows. The silent auto-restart
+     * only runs in READY_TO_START, so only there does an AUTH failure
+     * read as "finishing setup" while the restart budget is left; once
+     * the restart has failed or the budget is spent, the red box with
+     * the guided reset is the honest presentation.
+     */
+    fun failureBoxMode(
+        state: ConnectionCardState,
+        hasRecordedFailure: Boolean,
+        isAuthFailure: Boolean,
+        autoRestartFailed: Boolean,
+    ): FailureBoxMode {
+        if (!showFailureGuidance(state, hasRecordedFailure)) return FailureBoxMode.HIDDEN
+        if (state == ConnectionCardState.READY_TO_START && isAuthFailure && !autoRestartFailed) {
+            return FailureBoxMode.FINISHING
+        }
+        return FailureBoxMode.FAILURE
+    }
 }
