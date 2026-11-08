@@ -121,6 +121,10 @@ object WirelessAdbFix {
         pairingPrefs(context.applicationContext).edit().putBoolean("secureGrantConsent", allowed).apply()
     }
 
+    fun clearSecureGrantDecision(context: Context) {
+        pairingPrefs(context.applicationContext).edit().remove("secureGrantConsent").apply()
+    }
+
     /** True when the app process itself holds WRITE_SECURE_SETTINGS. */
     fun hasSecureSettingsGrant(context: Context): Boolean =
         context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) ==
@@ -590,7 +594,7 @@ object WirelessAdbFix {
     fun resetPairingCompletely(context: Context): String? {
         val appContext = context.applicationContext
         forgetIdentity(appContext)
-        pairingPrefs(appContext).edit().remove("secureGrantConsent").apply()
+        clearSecureGrantDecision(appContext)
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearAuthFailedPort()
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearDaemonFailure()
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearAuthRejected()
