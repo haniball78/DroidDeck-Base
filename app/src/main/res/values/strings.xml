@@ -3189,8 +3189,8 @@
     <string name="connection_card_action_pair">Enter pairing code</string>
     <string name="connection_card_action_start">Start privileged engine (One-Tap)</string>
     <string name="connection_card_action_starting">Starting…</string>
+    <string name="connection_card_auto_restarting">Restarting wireless debugging automatically…</string>
     <string name="connection_card_action_notify">Pair via notification</string>
-    <string name="connection_card_action_notify_forget">Pair via notification (forget identity)</string>
     <string name="connection_card_action_reset_auth">Restart wireless debugging</string>
     <string name="connection_card_action_wireless">Open wireless debugging screen</string>
     <string name="connection_card_action_clear">Clear pairing</string>

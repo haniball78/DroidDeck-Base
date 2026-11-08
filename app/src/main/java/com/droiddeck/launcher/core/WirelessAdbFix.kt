@@ -111,6 +111,23 @@ object WirelessAdbFix {
     fun shouldAutoRetryDaemonStart(paired: Boolean, currentPort: Int?, lastAuthFailedPort: Int?): Boolean =
         paired && currentPort != null && currentPort != lastAuthFailedPort
 
+    /**
+     * True only when the card may restart wireless debugging itself:
+     * paired, with the current port still the one whose start last
+     * failed auth, and that port not already restarted for. The cap
+     * bounds it, so a repeated AUTH failure on fresh ports never
+     * loops the toggle.
+     */
+    fun shouldAutoRestartWireless(
+        paired: Boolean,
+        currentPort: Int?,
+        lastAuthFailedPort: Int?,
+        restartedPorts: Set<Int>,
+        maxRestarts: Int = 3,
+    ): Boolean =
+        paired && currentPort != null && currentPort == lastAuthFailedPort &&
+            currentPort !in restartedPorts && restartedPorts.size < maxRestarts
+
     /** First observed port that differs from [oldPort], or null if none did. */
     fun firstChangedPort(oldPort: Int?, observed: List<Int?>): Int? =
         observed.firstOrNull { it != null && it != oldPort }
@@ -135,6 +152,32 @@ object WirelessAdbFix {
             if (remaining <= 0) return null
             kotlinx.coroutines.delay(minOf(pollIntervalMs, remaining))
         }
+    }
+
+    /**
+     * Restarts wireless debugging from the app process by writing the
+     * adb_wifi_enabled setting off and on: the same toggle the user
+     * performs in Developer options, which restarts the listener on a
+     * new port. The app holds WRITE_SECURE_SETTINGS from the daemon
+     * start grant; without it the write fails and the caller falls
+     * back to asking the user. Refuses when wireless is already off,
+     * so it never turns on a toggle the user switched off. The
+     * setting ends on, as it started.
+     */
+    suspend fun restartWirelessDebugging(
+        context: Context,
+        offMs: Long = 1_500,
+    ): Boolean {
+        if (context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return false
+        return runCatching {
+            val resolver = context.applicationContext.contentResolver
+            if (android.provider.Settings.Global.getInt(resolver, "adb_wifi_enabled", 0) == 0) return@runCatching false
+            if (!android.provider.Settings.Global.putString(resolver, "adb_wifi_enabled", "0")) return@runCatching false
+            kotlinx.coroutines.delay(offMs)
+            android.provider.Settings.Global.putString(resolver, "adb_wifi_enabled", "1")
+        }.getOrDefault(false)
     }
 
     /**

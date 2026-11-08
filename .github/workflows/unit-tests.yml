@@ -45,6 +45,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.ConnectionCardStateTest" \
             --tests "com.droiddeck.launcher.core.WirelessAdbPairingStabilityTest" \
             --tests "com.droiddeck.launcher.core.PairingCodeOverlayTest" \
+            --tests "com.droiddeck.launcher.core.WirelessAdbAutoRestartTest" \
             --tests "com.droiddeck.launcher.core.privileged.GovernorTierCommandsTest" \
             --tests "com.droiddeck.launcher.core.privileged.FixedPerformanceGetterTest" \
             --tests "com.droiddeck.launcher.core.privileged.AppFreezerPackageSplitTest" \

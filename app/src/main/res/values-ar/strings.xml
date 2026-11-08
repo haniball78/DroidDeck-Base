@@ -3245,8 +3245,8 @@
     <string name="connection_card_action_pair">أدخل رمز الإقران</string>
     <string name="connection_card_action_start">تشغيل المحرك المميز (نقرة واحدة)</string>
     <string name="connection_card_action_starting">جارٍ التشغيل…</string>
+    <string name="connection_card_auto_restarting">جارٍ إعادة تشغيل التصحيح اللاسلكي تلقائياً…</string>
     <string name="connection_card_action_notify">إقران عبر الإشعار</string>
-    <string name="connection_card_action_notify_forget">اقتران بالإشعار مع حذف الهوية</string>
     <string name="connection_card_action_reset_auth">إعادة تشغيل التصحيح اللاسلكي</string>
     <string name="connection_card_action_wireless">افتح شاشة التصحيح اللاسلكي</string>
     <string name="connection_card_action_clear">مسح الإقران</string>
