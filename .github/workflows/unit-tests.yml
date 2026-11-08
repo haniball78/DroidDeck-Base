@@ -50,6 +50,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.PairingPanelStateTest" \
             --tests "com.droiddeck.launcher.core.PairingResetTest" \
             --tests "com.droiddeck.launcher.core.AdbIdentityGeneratorTest" \
+            --tests "com.droiddeck.launcher.core.AdbSlowPairingDiagnosticsTest" \
             --tests "com.droiddeck.launcher.core.privileged.GovernorTierCommandsTest" \
             --tests "com.droiddeck.launcher.core.privileged.FixedPerformanceGetterTest" \
             --tests "com.droiddeck.launcher.core.privileged.AppFreezerPackageSplitTest" \

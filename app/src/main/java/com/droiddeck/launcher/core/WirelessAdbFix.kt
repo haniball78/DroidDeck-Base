@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.ArrayDeque
 
 object WirelessAdbFix {
-    private const val CERT_FILE = "wireless-adb-cert.pem"
+    internal const val CERT_FILE = "wireless-adb-cert.pem"
     private const val KEY_FILE = "wireless-adb-key.pem"
     private const val HOST_FILE = "wireless-adb-host.txt"
     private const val CONNECTION_FILE = "wireless-adb-connection.txt"
@@ -326,6 +326,7 @@ object WirelessAdbFix {
      * changes or a start succeeds.
      */
     fun parkAuthFailure(context: Context, port: Int?) {
+        AdbSlowPairingDiagnostics.noteSlowPairParked()
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.noteDaemonFailure(
             "AdbPairAuthException", ConnectionFailure.AUTH,
         )
@@ -512,6 +513,7 @@ object WirelessAdbFix {
                 fingerprint?.let { put("identity", it) }
             },
         )
+        AdbSlowPairingDiagnostics.maybeDiagnoseSlowPair(context)
     }
 
     fun verifyConnection(context: Context, host: String, port: Int) {
