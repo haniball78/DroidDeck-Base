@@ -1877,7 +1877,6 @@
     <string name="adbpair_code_label">6-digit pairing code</string>
     <string name="adbpair_code_hint">Tap Enter code and type the 6 digits shown in Settings.</string>
     <string name="adbpair_code_big">Open Wireless debugging, tap “Pair device with pairing code”, then tap this notification and enter the 6-digit code.</string>
-    <string name="adbpair_overlay_hint">For a floating code field over the pairing pop-up instead of this screen, allow DroidDeck to draw over other apps.</string>
     <string name="adbpair_overlay_enable">Allow floating window</string>
     <string name="adbpair_title_code">Enter the Wi-Fi pairing code</string>
     <string name="adbpair_title_retry">Try the code again</string>

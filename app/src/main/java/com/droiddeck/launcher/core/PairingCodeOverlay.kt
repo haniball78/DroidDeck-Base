@@ -16,24 +16,6 @@ import android.widget.EditText
 import android.widget.TextView
 import com.droiddeck.launcher.R
 
-/** Where a tap on the pairing notification body goes. */
-enum class CodeEntryTarget { APP, OVERLAY, ACTIVITY }
-
-/**
- * Notification-body routing for the pairing flow. The overlay floats over
- * the system pairing dialog without taking the foreground — the code-entry
- * activity steals it, which dismisses the dialog and invalidates the code
- * (seen on device 2026-11-07) — so the overlay is used whenever the
- * draw-over-apps permission is granted. Without it the activity is the
- * fallback; anything but CodeNeeded just opens the app.
- */
-fun codeEntryTarget(codeNeeded: Boolean, overlayPermitted: Boolean): CodeEntryTarget =
-    if (codeNeeded) {
-        if (overlayPermitted) CodeEntryTarget.OVERLAY else CodeEntryTarget.ACTIVITY
-    } else {
-        CodeEntryTarget.APP
-    }
-
 fun canDrawOverlays(context: Context): Boolean = Settings.canDrawOverlays(context)
 
 /**

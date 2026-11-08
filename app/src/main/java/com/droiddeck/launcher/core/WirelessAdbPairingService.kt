@@ -15,7 +15,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import com.droiddeck.launcher.FrontEndActivity
-import com.droiddeck.launcher.PairingCodeEntryActivity
 import com.droiddeck.launcher.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +42,20 @@ class WirelessAdbPairingService : Service() {
     @Volatile private var working = false
     private val timeout = Runnable { finish(Stage.Failed(getString(R.string.adbpair_timed_out))) }
     private var overlay: PairingCodeOverlay? = null
+    private var repeakScheduled = false
+    private val repeakRunnable = Runnable {
+        repeakScheduled = false
+        repeakNotification()
+    }
+
+    /** Re-posts the code prompt so it peeks again expanded, with the inline code action. */
+    private fun repeakNotification() {
+        val stage = current.value
+        if (stage !is Stage.CodeNeeded) return
+        val manager = getSystemService(NotificationManager::class.java)
+        manager?.cancel(NOTIFICATION_ID)
+        manager?.notify(NOTIFICATION_ID, notification(stage))
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -57,22 +70,15 @@ class WirelessAdbPairingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_SHOW_OVERLAY -> {
-                // The notification body was tapped: re-show (or focus) the
-                // floating code field. Without the overlay permission the
-                // tap falls back to the code-entry activity, and a tap
-                // after the code is no longer needed just opens the app.
-                if (current.value is Stage.CodeNeeded) {
-                    if (canDrawOverlays(this)) overlay?.show()
-                    else startActivity(
-                        Intent(this, PairingCodeEntryActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
-                } else {
-                    startActivity(
-                        Intent(this, FrontEndActivity::class.java)
-                            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
-                    )
-                }
+            ACTION_REPEAK -> {
+                // A body tap re-posts the notification: it peeks again
+                // expanded, with the inline code action, wherever the
+                // user tapped. The pending timed re-post is cancelled
+                // so a re-post never lands while the user is typing
+                // into the inline field.
+                repeakNotification()
+                main.removeCallbacks(repeakRunnable)
+                repeakScheduled = false
             }
             ACTION_CODE -> {
                 val remoteCode = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(KEY_CODE)
@@ -222,10 +228,25 @@ class WirelessAdbPairingService : Service() {
         // The floating code field appears with the code prompt and leaves
         // with it; any other stage hides it.
         if (stage is Stage.CodeNeeded) overlay?.show() else overlay?.hide()
+        // The heads-up peek is system-timed, so one re-post keeps the
+        // prompt visible well past ten seconds: it peeks again expanded,
+        // with the inline code action. Once per code episode; a body tap
+        // re-posts immediately and cancels this one, so a re-post never
+        // lands while the user is typing into the inline field.
+        if (stage is Stage.CodeNeeded) {
+            if (!repeakScheduled) {
+                repeakScheduled = true
+                main.postDelayed(repeakRunnable, REPEAK_DELAY_MS)
+            }
+        } else {
+            main.removeCallbacks(repeakRunnable)
+            repeakScheduled = false
+        }
     }
 
     private fun finish(stage: Stage) {
         main.removeCallbacks(timeout)
+        main.removeCallbacks(repeakRunnable)
         stopDiscovery()
         publish(stage)
         overlay?.hide()
@@ -248,6 +269,7 @@ class WirelessAdbPairingService : Service() {
 
     override fun onDestroy() {
         main.removeCallbacks(timeout)
+        main.removeCallbacks(repeakRunnable)
         stopDiscovery()
         overlay?.hide()
         if (current.value.let { it is Stage.Waiting || it is Stage.CodeNeeded || it is Stage.Working }) publish(Stage.Idle)
@@ -270,28 +292,23 @@ class WirelessAdbPairingService : Service() {
         val open = PendingIntent.getActivity(this, 0,
             Intent(this, FrontEndActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
             PendingIntent.FLAG_IMMUTABLE)
-        // Tapping the notification body must reach code entry, not just the
-        // app: the inline RemoteInput action cannot be opened from a body
-        // tap. With the draw-over-apps permission the tap re-shows the
-        // floating code field, which leaves the system pairing dialog
-        // untouched underneath; without it the tap falls back to the
-        // code-entry activity. Anything but CodeNeeded just opens the app.
-        val codeEntry = PendingIntent.getActivity(this, 3,
-            Intent(this, PairingCodeEntryActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE)
-        val showOverlay = PendingIntent.getService(this, 4,
-            Intent(this, WirelessAdbPairingService::class.java).setAction(ACTION_SHOW_OVERLAY),
+        // A body tap cannot expand the notification — the expand chevron
+        // is system UI, and no API re-opens it — so the tap re-posts the
+        // notification instead: it peeks again expanded, with the inline
+        // code action, wherever the user tapped. The floating field
+        // appears on its own when the code is needed, and the inline
+        // reply reaches the service without opening anything, so the
+        // system pairing dialog underneath is never disturbed.
+        // Anything but CodeNeeded just opens the app.
+        val repeak = PendingIntent.getService(this, 5,
+            Intent(this, WirelessAdbPairingService::class.java).setAction(ACTION_REPEAK),
             PendingIntent.FLAG_IMMUTABLE)
         val cancel = PendingIntent.getService(this, 1,
             Intent(this, WirelessAdbPairingService::class.java).setAction(ACTION_CANCEL), PendingIntent.FLAG_IMMUTABLE)
         // No setTimeoutAfter: the heads-up peek duration is system-controlled,
         // and a timeout would cancel the pairing prompt itself mid-pairing.
         // The notification is ongoing, so it never vanishes early on its own.
-        val contentIntent = when (codeEntryTarget(stage is Stage.CodeNeeded, canDrawOverlays(this))) {
-            CodeEntryTarget.OVERLAY -> showOverlay
-            CodeEntryTarget.ACTIVITY -> codeEntry
-            CodeEntryTarget.APP -> open
-        }
+        val contentIntent = if (stage is Stage.CodeNeeded) repeak else open
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_session)
             .setContentIntent(contentIntent)
@@ -351,10 +368,11 @@ class WirelessAdbPairingService : Service() {
         private const val PAIRING_TYPE = "_adb-tls-pairing._tcp"
         private const val ACTION_CODE = "com.droiddeck.launcher.action.WIRELESS_ADB_CODE"
         private const val ACTION_CANCEL = "com.droiddeck.launcher.action.WIRELESS_ADB_CANCEL"
-        private const val ACTION_SHOW_OVERLAY = "com.droiddeck.launcher.action.WIRELESS_ADB_SHOW_OVERLAY"
+        private const val ACTION_REPEAK = "com.droiddeck.launcher.action.WIRELESS_ADB_REPEAK"
         private const val KEY_CODE = "code"
         private const val EXTRA_CODE = "code_extra"
         private const val TIMEOUT_MS = 5 * 60_000L
+        private const val REPEAK_DELAY_MS = 8_000L
 
         private val current = MutableStateFlow<Stage>(Stage.Idle)
         val stage: StateFlow<Stage> = current

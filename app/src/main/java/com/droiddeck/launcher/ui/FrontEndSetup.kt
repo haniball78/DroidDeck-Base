@@ -7,6 +7,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
 import android.os.Build
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -100,6 +103,7 @@ import com.droiddeck.launcher.core.ConnectionCardStateResolver
 import com.droiddeck.launcher.core.ConnectionFailure
 import com.droiddeck.launcher.core.WirelessAdbFix
 import com.droiddeck.launcher.core.WirelessAdbPairingService
+import com.droiddeck.launcher.core.canDrawOverlays
 import com.droiddeck.launcher.core.privileged.DiagnosticsLog
 import com.droiddeck.launcher.core.privileged.PrivilegedMode
 import com.droiddeck.launcher.session.SessionPrefs
@@ -1007,6 +1011,23 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                         if (privStatus.mode == PrivilegedMode.EMBEDDED_DAEMON) ConnectionDetailRow(stringResource(R.string.connection_card_detail_port), "127.0.0.1:28751")
                         if (privStatus.phantomDisabled) ConnectionDetailRow(stringResource(R.string.connection_card_detail_phantom), stringResource(R.string.connection_card_detail_phantom_off))
                     }
+                }
+            }
+
+            // The floating code field needs the draw-over-apps permission,
+            // and its old entry screen is gone: the card offers the
+            // one-tap enable here instead, while the daemon is not
+            // running, so granting it never disturbs a pairing in
+            // progress.
+            if (!canDrawOverlays(ctx) && !ConnectionCardStateResolver.daemonRunning(state)) {
+                SecondaryButton(stringResource(R.string.adbpair_overlay_enable), compact = true) {
+                    logAction("open-overlay-permission")
+                    ctx.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${ctx.packageName}"),
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
                 }
             }
 
