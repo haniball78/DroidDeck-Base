@@ -229,9 +229,6 @@ class FrontEndActions(
     val onBackActionsInverted: (Boolean) -> Unit = {},
     val onRefreshPhantomStatus: () -> Unit = {},
     val onOpenDeveloperOptions: (Int?) -> Unit = {},
-    val onWirelessAdbPair: (String, Int, String, (String?) -> Unit) -> Unit,
-    val onFindWirelessAdbPort: (String, (Int?) -> Unit) -> Unit = { _, done -> done(null) },
-    val onWirelessAdbApply: (String, Int, Boolean, (String?) -> Unit) -> Unit,
     val onSetPhantomProcessLimit: (Boolean, (String?) -> Unit) -> Unit,
     val onCopyPhantomCommand: (Boolean) -> Unit = {},
     val onDismissPhantomGate: () -> Unit = {},
@@ -398,23 +395,18 @@ private fun FrontEndScreenBody(s: FrontEndState, a: FrontEndActions, page: (@Com
         }
         a.onNavigated()
     }
-    var showWirelessAdbFix by rememberSaveable { mutableStateOf(false) }
     var showDeveloperDisplayChoice by rememberSaveable { mutableStateOf(false) }
-    var wirelessAdbDesiredEnabled by rememberSaveable { mutableStateOf(false) }
     var appToChooseDisplay by remember { mutableStateOf<HomeApp.LaunchableApp?>(null) }
     val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
     val ctx = LocalContext.current
     val phantomGateVisible = s.showPhantomGate && PhantomProcessLimit.blocksSteam(s.phantomProcessStatus)
-    val processSettingsPageVisible = phantomGateVisible || showWirelessAdbFix || showDeveloperDisplayChoice
+    val processSettingsPageVisible = phantomGateVisible || showDeveloperDisplayChoice
     val requestDeveloperOptions = {
         if (s.secondScreenDisplays.isEmpty()) a.onOpenDeveloperOptions(null)
         else showDeveloperDisplayChoice = true
     }
-    val requestWirelessAdbFix: (Boolean) -> Unit = { enabled ->
-        wirelessAdbDesiredEnabled = enabled
-        showWirelessAdbFix = true
-    }
+    val requestUnifiedPairing: () -> Unit = { startUnifiedPairing(ctx) }
     LaunchedEffect(s.showPhantomGate, s.phantomProcessStatus) {
         if (phantomGateVisible) {
             while (true) {
@@ -550,7 +542,7 @@ private fun FrontEndScreenBody(s: FrontEndState, a: FrontEndActions, page: (@Com
                         else appToChooseDisplay = app
                     },
                     onOpenDeveloperOptions = requestDeveloperOptions,
-                    onRequestWirelessAdb = requestWirelessAdbFix,
+                    onRequestWirelessAdb = requestUnifiedPairing,
                 )
             }
         }
@@ -575,7 +567,7 @@ private fun FrontEndScreenBody(s: FrontEndState, a: FrontEndActions, page: (@Com
                 onDismiss = { appToChooseDisplay = null },
             )
         }
-        if (phantomGateVisible && !showWirelessAdbFix) {
+        if (phantomGateVisible) {
             Box(Modifier.fillMaxSize().background(colors.background)) {
                 PhantomProcessGatePage(
                     status = s.phantomProcessStatus,
@@ -583,24 +575,10 @@ private fun FrontEndScreenBody(s: FrontEndState, a: FrontEndActions, page: (@Com
                     onOpenDeveloperOptions = requestDeveloperOptions,
                     onFixWithWirelessDebugging = {
                         a.onStartWirelessAdbPairing()
-                        requestDeveloperOptions()
                     },
-                    onEnterAddressManually = { requestWirelessAdbFix(false) },
                     onCopyCommand = { a.onCopyPhantomCommand(false) },
                     onOpenNotificationSettings = a.onOpenNotificationSettings,
                     onCopyDaemonCommand = { a.onCopyDaemonCommand() },
-                )
-            }
-        }
-        if (showWirelessAdbFix) {
-            Box(Modifier.fillMaxSize().background(colors.background)) {
-                WirelessAdbFixPage(
-                    onBack = { showWirelessAdbFix = false },
-                    desiredEnabled = wirelessAdbDesiredEnabled,
-                    onOpenDeveloperOptions = requestDeveloperOptions,
-                    onPair = a.onWirelessAdbPair,
-                    onFindConnectPort = a.onFindWirelessAdbPort,
-                    onApply = a.onWirelessAdbApply,
                 )
             }
         }

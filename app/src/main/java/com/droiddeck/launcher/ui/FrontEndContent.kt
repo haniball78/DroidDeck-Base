@@ -105,7 +105,7 @@ import java.io.File
 internal fun Pane(
     s: FrontEndState, selected: String, a: FrontEndActions, page: (@Composable () -> Unit)?, modifier: Modifier,
     onSelect: (String) -> Unit, onAndroidAppClick: (HomeApp.LaunchableApp) -> Unit,
-    onOpenDeveloperOptions: () -> Unit, onRequestWirelessAdb: (Boolean) -> Unit,
+    onOpenDeveloperOptions: () -> Unit, onRequestWirelessAdb: () -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier) {
       CompositionLocalProvider(LocalNarrowPane provides (maxWidth < NarrowPaneWidth)) {
@@ -223,7 +223,7 @@ private fun romFor(s: FrontEndState, selected: String): Pair<Library.Emulator, L
 private fun Content(
     s: FrontEndState, selected: String, a: FrontEndActions, modifier: Modifier,
     onSelect: (String) -> Unit, onAndroidAppClick: (HomeApp.LaunchableApp) -> Unit,
-    onOpenDeveloperOptions: () -> Unit, onRequestWirelessAdb: (Boolean) -> Unit,
+    onOpenDeveloperOptions: () -> Unit, onRequestWirelessAdb: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val detailPosterWidth = if (LocalConfiguration.current.screenHeightDp < 600) 72.dp else 120.dp

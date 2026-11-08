@@ -54,6 +54,7 @@ import com.droiddeck.launcher.core.WirelessAdbFix
 import com.droiddeck.launcher.core.WifiDiscovery
 import com.droiddeck.launcher.core.WirelessAdbPairingService
 import com.droiddeck.launcher.ui.CoreRow
+import com.droiddeck.launcher.ui.startUnifiedPairing
 import com.droiddeck.launcher.ui.PerformancePage
 import com.droiddeck.launcher.ui.ModeSettings
 import com.droiddeck.launcher.ui.ModeSettingsActions
@@ -1052,31 +1053,6 @@ class FrontEndActivity : ComponentActivity() {
                         },
                         onRefreshPhantomStatus = { refreshPhantomStatus() },
                         onOpenDeveloperOptions = { displayId -> openDeveloperOptions(displayId) },
-                        onWirelessAdbPair = { host, port, code, complete ->
-                            Thread({
-                                val result = runCatching {
-                                    kotlinx.coroutines.runBlocking { WirelessAdbFix.pair(this@FrontEndActivity, host, port, code) }
-                                }
-                                val error = result.exceptionOrNull()?.let { it.localizedMessage ?: getString(R.string.main_wadb_pair_failed) }
-                                ui.post { complete(error) }
-                            }, "wireless-adb-pair").start()
-                        },
-                        onFindWirelessAdbPort = { host, complete ->
-                            Thread({
-                                val port = WirelessAdbFix.findConnectPort(this@FrontEndActivity, host)
-                                ui.post { complete(port) }
-                            }, "wireless-adb-discovery").start()
-                        },
-                        onWirelessAdbApply = { host, port, enabled, complete ->
-                            Thread({
-                                val result = runCatching { WirelessAdbFix.setChildProcessLimit(this@FrontEndActivity, host, port, enabled) }
-                                val error = result.exceptionOrNull()?.let { it.localizedMessage ?: getString(R.string.main_wadb_command_failed) }
-                                ui.post {
-                                    if (error == null) refreshPhantomStatus()
-                                    complete(error)
-                                }
-                            }, "wireless-adb-fix").start()
-                        },
                         onSetPhantomProcessLimit = { enabled, complete ->
                             Thread({
                                 val result = runCatching { WirelessAdbFix.setUsingSavedPairing(this@FrontEndActivity, enabled) }
@@ -1106,7 +1082,7 @@ class FrontEndActivity : ComponentActivity() {
                                 .putExtra(SessionService.EXTRA_PROGRAM, "qterminal"))
                         },
                         onDismissPhantomGate = { showPhantomGate = false },
-                        onStartWirelessAdbPairing = { WirelessAdbPairingService.start(this) },
+                        onStartWirelessAdbPairing = { startUnifiedPairing(this) },
                         onOpenNotificationSettings = {
                             startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                                 .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName)

@@ -1,5 +1,6 @@
 package com.droiddeck.launcher.core
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.nsd.NsdManager
@@ -184,6 +185,33 @@ object WirelessAdbFix {
 
     /** Probe delay for [attemptIndex], or null when the schedule is exhausted. */
     fun samePortProbeDelay(attemptIndex: Int): Long? = SAME_PORT_PROBE_DELAYS_MS.getOrNull(attemptIndex)
+
+    /**
+     * The manual port field stays hidden until pairing has actually
+     * failed — a rejected code or a failed stage — so the normal flow
+     * never shows it.
+     */
+    fun shouldShowManualPort(
+        stage: WirelessAdbPairingService.Stage,
+        alreadyShown: Boolean,
+    ): Boolean =
+        alreadyShown || stage is WirelessAdbPairingService.Stage.Failed ||
+            (stage is WirelessAdbPairingService.Stage.CodeNeeded && stage.error != null)
+
+    /** Which half of a split screen the app occupies, from window bounds. */
+    fun splitHalfFromBounds(windowTop: Int, windowHeight: Int, displayHeight: Int): String {
+        if (windowHeight <= 0 || displayHeight <= 0) return "unknown"
+        if (windowHeight >= displayHeight * 3 / 4) return "fullscreen"
+        return if (windowTop + windowHeight / 2 < displayHeight / 2) "top" else "bottom"
+    }
+
+    /** Which half of a split screen the app occupies, or "unknown". */
+    fun splitHalf(activity: Activity): String = runCatching {
+        val decor = activity.window.decorView
+        val location = IntArray(2)
+        decor.getLocationOnScreen(location)
+        splitHalfFromBounds(location[1], decor.height, activity.resources.displayMetrics.heightPixels)
+    }.getOrDefault("unknown")
 
     /**
      * Waits up to [timeoutMs] for a usable connect port after a fresh pair:
@@ -550,6 +578,29 @@ object WirelessAdbFix {
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             context, "adb.pair", "cleared",
         )
+    }
+
+    /**
+     * Full reset: wipes every saved port and pairing and mints a fresh
+     * identity, so the next connection starts from zero. A start-from-zero
+     * tool, not an AUTH cure: a fresh key alone never fixed a rejected
+     * key — only a fresh listener (port change) does — so the fresh pair
+     * still goes through the port-change and auto-restart logic.
+     */
+    fun resetPairingCompletely(context: Context): String? {
+        val appContext = context.applicationContext
+        forgetIdentity(appContext)
+        pairingPrefs(appContext).edit().remove("secureGrantConsent").apply()
+        com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearAuthFailedPort()
+        com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearDaemonFailure()
+        com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearAuthRejected()
+        loadOrCreateIdentity(appContext)
+        val fingerprint = identityFingerprint(appContext)
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            appContext, "adb.pair", "reset-all",
+            fields = fingerprint?.let { mapOf("identity" to it) } ?: emptyMap(),
+        )
+        return fingerprint
     }
 
     fun startPrivilegedDaemonWithSavedPairing(context: Context): Boolean {

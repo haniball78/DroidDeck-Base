@@ -49,7 +49,6 @@ fun PhantomProcessGatePage(
     onDismiss: () -> Unit,
     onOpenDeveloperOptions: () -> Unit,
     onFixWithWirelessDebugging: () -> Unit,
-    onEnterAddressManually: () -> Unit,
     onCopyCommand: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onCopyDaemonCommand: () -> Unit = {},
@@ -85,7 +84,7 @@ fun PhantomProcessGatePage(
                 val side: @Composable ColumnScope.() -> Unit = {
                     PrivilegedStatusGroup(compact, onCopyDaemonCommand)
                     StatusGroup(status, compact)
-                    OtherWays(hasToggle, compact, onOpenDeveloperOptions, onFixWithWirelessDebugging, onEnterAddressManually, onCopyCommand)
+                    OtherWays(hasToggle, compact, onOpenDeveloperOptions, onFixWithWirelessDebugging, onCopyCommand)
                 }
                 if (wide) {
                     Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.widthIn(max = 900.dp).fillMaxWidth()) {
@@ -258,7 +257,6 @@ private fun OtherWays(
     compact: Boolean,
     onOpenDeveloperOptions: () -> Unit,
     onFixWithWirelessDebugging: () -> Unit,
-    onEnterAddressManually: () -> Unit,
     onCopyCommand: () -> Unit,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
@@ -281,7 +279,6 @@ private fun OtherWays(
                 SecondaryButton(stringResource(R.string.gate_open_dev), compact = true, onClick = onOpenDeveloperOptions)
             }
             Body(stringResource(R.string.gate_manual_hint))
-            SecondaryButton(stringResource(R.string.gate_enter_manually), compact = true, onClick = onEnterAddressManually)
             Body(stringResource(R.string.gate_from_computer))
             Text(
                 PhantomProcessLimit.adbCommand(),

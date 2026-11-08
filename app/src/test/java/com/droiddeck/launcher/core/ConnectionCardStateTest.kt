@@ -144,7 +144,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.primaryAction(ConnectionCardState.NEED_WIRELESS_ADB),
         )
         assertEquals(
-            ConnectionCardAction.PAIR_NOTIFICATION,
+            ConnectionCardAction.PAIR_UNIFIED,
             ConnectionCardStateResolver.primaryAction(ConnectionCardState.NEED_PAIRING),
         )
         assertEquals(

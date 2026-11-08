@@ -45,8 +45,7 @@ enum class ConnectionCardState {
 enum class ConnectionCardAction {
     OPEN_ABOUT_PHONE,
     OPEN_DEV_OPTIONS,
-    OPEN_PAIRING_DIALOG,
-    PAIR_NOTIFICATION,
+    PAIR_UNIFIED,
     ONE_TAP_START,
     NONE,
 }
@@ -97,7 +96,7 @@ object ConnectionCardStateResolver {
     fun primaryAction(state: ConnectionCardState): ConnectionCardAction = when (state) {
         ConnectionCardState.NEED_DEV_OPTIONS -> ConnectionCardAction.OPEN_ABOUT_PHONE
         ConnectionCardState.NEED_WIRELESS_ADB -> ConnectionCardAction.OPEN_DEV_OPTIONS
-        ConnectionCardState.NEED_PAIRING -> ConnectionCardAction.PAIR_NOTIFICATION
+        ConnectionCardState.NEED_PAIRING -> ConnectionCardAction.PAIR_UNIFIED
         ConnectionCardState.READY_TO_START -> ConnectionCardAction.ONE_TAP_START
         ConnectionCardState.ACTIVE -> ConnectionCardAction.NONE
         ConnectionCardState.ACTIVE_WIRELESS_OFF -> ConnectionCardAction.OPEN_DEV_OPTIONS

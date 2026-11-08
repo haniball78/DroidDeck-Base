@@ -66,7 +66,6 @@ class LaunchSettingsComponentsTest {
                         onImportLossless = {}, onProtons = {}, onComponents = { defaultOpens++ },
                         onGameComponents = { openedGame = it }, onPerformance = {},
                         onRoms = {}, onFiles = {}, onLogs = {}, onOffline = {},
-                        onWirelessAdbPair = { _, _, _, _ -> }, onWirelessAdbApply = { _, _, _, _ -> },
                         onSetPhantomProcessLimit = { _, _ -> },
                     ),
                     rememberMenuHost(),

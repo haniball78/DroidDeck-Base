@@ -26,7 +26,7 @@ class WirelessAdbPairingService : Service() {
     sealed interface Stage {
         data object Idle : Stage
         data object Waiting : Stage
-        data class CodeNeeded(val error: String? = null) : Stage
+        data class CodeNeeded(val error: String? = null, val pairingPort: Int? = null) : Stage
         data class Working(val step: String) : Stage
         data object Done : Stage
         /** Pairing succeeded, but the daemon start parked: the connect port never changed. */
@@ -41,8 +41,10 @@ class WirelessAdbPairingService : Service() {
     private var pairingPort: Int? = null
     @Volatile private var working = false
     private val timeout = Runnable { finish(Stage.Failed(getString(R.string.adbpair_timed_out))) }
-    private var overlay: PairingCodeOverlay? = null
     private var repeakScheduled = false
+    private var codePosted = false
+    private var lastCodePostMs = 0L
+    private var lastCodeError: String? = null
     private val repeakRunnable = Runnable {
         repeakScheduled = false
         repeakNotification()
@@ -55,15 +57,28 @@ class WirelessAdbPairingService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         manager?.cancel(NOTIFICATION_ID)
         manager?.notify(NOTIFICATION_ID, notification(stage))
+        logNotify(stage)
     }
 
     override fun onCreate() {
         super.onCreate()
-        overlay = PairingCodeOverlay(
-            this,
-            onSubmit = { code -> sendCode(this, code) },
-            onCancel = { overlay?.hide() },
-        )
+        ensureChannel()
+    }
+
+    /** The channel is created once, at service start — never rebuilt per post. */
+    private fun ensureChannel() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        // The original channel was created silent (no sound, no vibration),
+        // which is why the pairing prompt went unnoticed. Channel settings
+        // freeze at creation, so a new channel id carries the audible and
+        // visible one; the old silent channel is deleted.
+        manager.deleteNotificationChannel("wireless-adb-pairing")
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, getString(R.string.adbpair_channel_name),
+            NotificationManager.IMPORTANCE_HIGH).apply {
+            description = getString(R.string.adbpair_channel_description)
+            setShowBadge(false)
+            enableVibration(true)
+        })
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -96,6 +111,9 @@ class WirelessAdbPairingService : Service() {
         pairingHost = null
         pairingPort = null
         working = false
+        codePosted = false
+        lastCodePostMs = 0L
+        lastCodeError = null
         publish(Stage.Waiting)
         startForeground(NOTIFICATION_ID, notification(Stage.Waiting))
         startDiscovery()
@@ -133,7 +151,7 @@ class WirelessAdbPairingService : Service() {
                 if (working || current.value == Stage.Done) return@post
                 pairingHost = address.hostAddress
                 pairingPort = serviceInfo.port
-                if (current.value !is Stage.CodeNeeded) show(Stage.CodeNeeded())
+                if (current.value !is Stage.CodeNeeded) show(Stage.CodeNeeded(pairingPort = serviceInfo.port))
             }
         }
     }
@@ -147,7 +165,7 @@ class WirelessAdbPairingService : Service() {
             return
         }
         if (code.length != 6) {
-            show(Stage.CodeNeeded(getString(R.string.adbpair_six_digits)))
+            show(Stage.CodeNeeded(getString(R.string.adbpair_six_digits), pairingPort = port))
             return
         }
         working = true
@@ -161,7 +179,7 @@ class WirelessAdbPairingService : Service() {
                 main.post {
                     working = false
                     pairingPort = null
-                    show(Stage.CodeNeeded(getString(R.string.adbpair_code_rejected)))
+                    show(Stage.CodeNeeded(getString(R.string.adbpair_code_rejected), pairingPort = port))
                 }
                 return@Thread
             }
@@ -219,14 +237,28 @@ class WirelessAdbPairingService : Service() {
     private fun show(stage: Stage) {
         publish(stage)
         val manager = getSystemService(NotificationManager::class.java)
-        // A fresh post (not an update) is what makes the code prompt pop as
-        // a heads-up with sound/vibration; updates to the ongoing
-        // foreground-service notification do not reliably re-alert.
-        if (stage is Stage.CodeNeeded) manager?.cancel(NOTIFICATION_ID)
-        manager?.notify(NOTIFICATION_ID, notification(stage))
-        // The floating code field appears with the code prompt and leaves
-        // with it; any other stage hides it.
-        if (stage is Stage.CodeNeeded) overlay?.show() else overlay?.hide()
+        var posted = false
+        if (stage is Stage.CodeNeeded) {
+            // Alert once: the first code prompt is a fresh post (cancel +
+            // notify, so it peeks with sound); later prompts update the
+            // same notification in place and stay silent. Identical
+            // prompts within the debounce window are one event, not a
+            // re-post — so the prompt no longer re-alerts every few
+            // seconds. The 8 s re-peak and a body tap still re-post.
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (shouldRepostCode(lastCodePostMs, lastCodeError, now, stage.error)) {
+                if (shouldCancelBeforeCodePost(codePosted)) manager?.cancel(NOTIFICATION_ID)
+                manager?.notify(NOTIFICATION_ID, notification(stage))
+                codePosted = true
+                lastCodePostMs = now
+                lastCodeError = stage.error
+                posted = true
+            }
+        } else {
+            manager?.notify(NOTIFICATION_ID, notification(stage))
+            posted = true
+        }
+        if (posted) logNotify(stage)
         // The heads-up peek is system-timed, so one re-post keeps the
         // prompt visible well past ten seconds: it peeks again expanded,
         // with the inline code action. Once per code episode; a body tap
@@ -243,15 +275,22 @@ class WirelessAdbPairingService : Service() {
         }
     }
 
+    private fun logNotify(stage: Stage) {
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            this, "adbpair.notify", "posted",
+            fields = mapOf("stage" to stage.javaClass.simpleName),
+        )
+    }
+
     private fun finish(stage: Stage) {
         main.removeCallbacks(timeout)
         main.removeCallbacks(repeakRunnable)
         stopDiscovery()
         publish(stage)
-        overlay?.hide()
         val manager = getSystemService(NotificationManager::class.java)
         if (stage is Stage.Done || stage is Stage.Failed || stage is Stage.Parked) {
             manager?.notify(NOTIFICATION_ID, notification(stage))
+            logNotify(stage)
             stopForeground(STOP_FOREGROUND_DETACH)
         } else {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -270,34 +309,21 @@ class WirelessAdbPairingService : Service() {
         main.removeCallbacks(timeout)
         main.removeCallbacks(repeakRunnable)
         stopDiscovery()
-        overlay?.hide()
         if (current.value.let { it is Stage.Waiting || it is Stage.CodeNeeded || it is Stage.Working }) publish(Stage.Idle)
         super.onDestroy()
     }
 
     private fun notification(stage: Stage): Notification {
-        val manager = getSystemService(NotificationManager::class.java)
-        // The original channel was created silent (no sound, no vibration),
-        // which is why the pairing prompt went unnoticed. Channel settings
-        // freeze at creation, so a new channel id carries the audible and
-        // visible one; the old silent channel is deleted.
-        manager?.deleteNotificationChannel("wireless-adb-pairing")
-        manager?.createNotificationChannel(NotificationChannel(CHANNEL_ID, getString(R.string.adbpair_channel_name),
-            NotificationManager.IMPORTANCE_HIGH).apply {
-            description = getString(R.string.adbpair_channel_description)
-            setShowBadge(false)
-            enableVibration(true)
-        })
         val open = PendingIntent.getActivity(this, 0,
             Intent(this, FrontEndActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
             PendingIntent.FLAG_IMMUTABLE)
         // A body tap cannot expand the notification — the expand chevron
         // is system UI, and no API re-opens it — so the tap re-posts the
         // notification instead: it peeks again expanded, with the inline
-        // code action, wherever the user tapped. The floating field
-        // appears on its own when the code is needed, and the inline
-        // reply reaches the service without opening anything, so the
-        // system pairing dialog underneath is never disturbed.
+        // code action, wherever the user tapped. The code also goes in
+        // the in-app panel, and the inline reply reaches the service
+        // without opening anything, so the system pairing dialog
+        // underneath is never disturbed.
         // Anything but CodeNeeded just opens the app.
         val repeak = PendingIntent.getService(this, 5,
             Intent(this, WirelessAdbPairingService::class.java).setAction(ACTION_REPEAK),
@@ -333,6 +359,7 @@ class WirelessAdbPairingService : Service() {
                     .setContentText(text)
                     .setStyle(Notification.BigTextStyle().bigText(text + "\n" + getString(R.string.adbpair_code_big)))
                     .setOngoing(true)
+                    .setOnlyAlertOnce(true)
                     .addAction(Notification.Action.Builder(null, getString(R.string.adbpair_enter_code), reply).addRemoteInput(input).build())
                     .addAction(Notification.Action.Builder(null, getString(R.string.common_cancel), cancel).build())
             }
@@ -372,6 +399,17 @@ class WirelessAdbPairingService : Service() {
         private const val EXTRA_CODE = "code_extra"
         private const val TIMEOUT_MS = 5 * 60_000L
         private const val REPEAK_DELAY_MS = 8_000L
+        /** Identical code prompts closer than this are one event, not a new alert. */
+        const val REPOST_DEBOUNCE_MS = 3_000L
+
+        /** Only the first code prompt is a fresh post; later ones update in place. */
+        fun shouldCancelBeforeCodePost(alreadyPosted: Boolean): Boolean = !alreadyPosted
+
+        /** True when this code prompt deserves a re-post at all. */
+        fun shouldRepostCode(lastPostMs: Long, lastError: String?, nowMs: Long, error: String?): Boolean {
+            if (lastPostMs == 0L) return true
+            return nowMs - lastPostMs >= REPOST_DEBOUNCE_MS || error != lastError
+        }
 
         private val current = MutableStateFlow<Stage>(Stage.Idle)
         val stage: StateFlow<Stage> = current
@@ -393,7 +431,7 @@ class WirelessAdbPairingService : Service() {
             context.startService(Intent(context, WirelessAdbPairingService::class.java).setAction(ACTION_CANCEL))
         }
 
-        /** Code typed in the code-entry activity (not via RemoteInput). */
+        /** Code typed in the in-app panel (not via RemoteInput). */
         fun sendCode(context: Context, code: String) {
             context.startService(
                 Intent(context, WirelessAdbPairingService::class.java)

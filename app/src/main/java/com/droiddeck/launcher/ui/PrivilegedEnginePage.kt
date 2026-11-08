@@ -348,33 +348,20 @@ internal fun openAboutPhone(ctx: Context) {
     }
 }
 
-internal enum class PairingEntryKind { NOTIFICATION, DIALOG }
-
 /**
- * The notification pairing entry: starts discovery and posts the code
- * prompt before opening Developer options. Falls back to the in-app
- * dialog when notifications are off — without it the code has nowhere
- * to be typed.
+ * The single pairing entry: starts the pairing service (the quiet
+ * notification engine) and opens Developer options beside the app
+ * (split-screen), best-effort — the system may open it fullscreen, and
+ * the split ratio is the user's to drag. The in-app panel is the code
+ * entry, so no dialog fallback is needed when notifications are off:
+ * the code still goes in the panel.
  */
-internal fun startNotificationPairing(ctx: Context, onNotificationsOff: () -> Unit) {
-    if (!WirelessAdbPairingService.notificationsEnabled(ctx)) {
+internal fun startUnifiedPairing(ctx: Context) {
+    if (WirelessAdbPairingService.notificationsEnabled(ctx)) {
+        Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_watch_notification), Toast.LENGTH_LONG).show()
+    } else {
         Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_notifications_off), Toast.LENGTH_LONG).show()
-        onNotificationsOff()
-        return
     }
-    Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_watch_notification), Toast.LENGTH_LONG).show()
-    WirelessAdbPairingService.start(ctx)
-    openDevOptions(ctx)
-}
-
-/**
- * Opens Developer options beside the app (split-screen), best-effort:
- * the system may open it fullscreen, and the split ratio is the user's
- * to drag. The pairing service starts first so the code prompt is
- * already waiting as a notification.
- */
-internal fun startSideBySidePairing(ctx: Context) {
-    Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_side_by_side), Toast.LENGTH_LONG).show()
     WirelessAdbPairingService.start(ctx)
     ctx.startActivity(WirelessAdbFix.wirelessDebuggingAdjacentIntent())
 }
@@ -404,77 +391,17 @@ internal fun SecureGrantConsentDialog(
 }
 
 @Composable
-internal fun PairingCodeDialog(
-    onDismiss: () -> Unit,
-    onPair: (port: Int, code: String) -> Unit,
-) {
-    var portText by remember { mutableStateOf("") }
-    var codeText by remember { mutableStateOf("") }
-    val colors = MaterialTheme.colorScheme
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Wireless ADB Pairing", fontWeight = FontWeight.Bold, color = colors.onSurface) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    "In Developer options -> Wireless debugging -> 'Pair device with pairing code', note the 6-digit code and pairing port:",
-                    fontSize = 12.sp,
-                    color = colors.onSurfaceVariant,
-                )
-                Text(
-                    "⚠️ Use the pairing port from that dialog — not the 'IP address & Port' on the main Wireless debugging screen (that is the connect port, and pairing to it always fails).\n⚠️ استخدم منفذ الإقران من نافذة الإقران نفسها — وليس عنوان 'IP address & Port' في الشاشة الرئيسية (ذلك منفذ الاتصال، والإقران إليه يفشل دائماً).",
-                    fontSize = 12.sp,
-                    color = colors.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = portText,
-                    onValueChange = { portText = it.filter(Char::isDigit) },
-                    label = { Text("Pairing Port (e.g. 39123)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = codeText,
-                    onValueChange = { if (it.length <= 6) codeText = it.filter(Char::isDigit) },
-                    label = { Text("6-Digit Pairing Code") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val port = portText.toIntOrNull()
-                    if (port != null && codeText.length == 6) {
-                        onPair(port, codeText)
-                    }
-                },
-                enabled = portText.toIntOrNull() != null && codeText.length == 6,
-            ) {
-                Text("Pair & Start")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        },
-    )
-}
-
-@Composable
 private fun DaemonActivationCard(ctx: Context) {
     val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
     val cmd = PrivilegedBridge.getStarterAdbCommand(ctx)
     val scope = rememberCoroutineScope()
     var startingAdb by remember { mutableStateOf(false) }
-    var showPairDialog by remember { mutableStateOf(false) }
     var oneTapFailed by remember { mutableStateOf(false) }
-    var grantConsentPending by remember { mutableStateOf<PairingEntryKind?>(null) }
+    var grantConsentPending by remember { mutableStateOf(false) }
+    var showResetConfirm by remember { mutableStateOf(false) }
     val lastFailure by PrivilegedBridge.lastDaemonFailureFlow.collectAsState()
+    val pairingStage by WirelessAdbPairingService.stage.collectAsState()
 
     val devOptionsOn = remember { mutableStateOf(isDevOptionsOn(ctx)) }
     val wirelessAdbOn = remember { mutableStateOf(isWirelessAdbOn(ctx)) }
@@ -493,52 +420,44 @@ private fun DaemonActivationCard(ctx: Context) {
     // The self-grant runs only with the user's consent: the first new
     // pairing asks once; a decline still pairs, but the automatic
     // wireless restart stays unavailable.
-    fun runPairing(kind: PairingEntryKind) {
-        when (kind) {
-            PairingEntryKind.NOTIFICATION -> startNotificationPairing(ctx) { showPairDialog = true }
-            PairingEntryKind.DIALOG -> showPairDialog = true
-        }
+    fun runPairing() {
+        startUnifiedPairing(ctx)
     }
 
-    fun requestPairing(kind: PairingEntryKind) {
-        if (WirelessAdbFix.secureGrantDecision(ctx) == null) grantConsentPending = kind
-        else runPairing(kind)
+    fun requestPairing() {
+        if (WirelessAdbFix.secureGrantDecision(ctx) == null) grantConsentPending = true
+        else runPairing()
     }
 
-    if (showPairDialog) {
-        PairingCodeDialog(
-            onDismiss = { showPairDialog = false },
-            onPair = { port, code ->
-                showPairDialog = false
-                scope.launch {
-                    startingAdb = true
-                    val result = com.droiddeck.launcher.core.WirelessAdbFix.pairAndStartPrivilegedDaemon(ctx, port, code)
-                    if (result.isSuccess) {
-                        withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "engine-pair") }
-                        Toast.makeText(ctx, "Paired & Privileged Daemon Started!", Toast.LENGTH_SHORT).show()
-                    } else {
-                        val err = result.exceptionOrNull()?.localizedMessage ?: "Pairing failed"
-                        Toast.makeText(ctx, "Error: $err", Toast.LENGTH_LONG).show()
-                    }
-                    startingAdb = false
-                }
-            }
-        )
-    }
-
-    grantConsentPending?.let { pending ->
+    if (grantConsentPending) {
         SecureGrantConsentDialog(
             onApprove = {
                 WirelessAdbFix.setSecureGrantDecision(ctx, true)
-                grantConsentPending = null
-                runPairing(pending)
+                grantConsentPending = false
+                runPairing()
             },
             onDecline = {
                 WirelessAdbFix.setSecureGrantDecision(ctx, false)
-                grantConsentPending = null
-                runPairing(pending)
+                grantConsentPending = false
+                runPairing()
             },
-            onDismiss = { grantConsentPending = null },
+            onDismiss = { grantConsentPending = false },
+        )
+    }
+
+    if (showResetConfirm) {
+        PairingResetConfirmDialog(
+            onConfirm = {
+                showResetConfirm = false
+                WirelessAdbFix.resetPairingCompletely(ctx)
+                isPaired.value = false
+                oneTapFailed = false
+                PrivilegedBridge.clearDaemonFailure()
+                PrivilegedBridge.clearAuthFailedPort()
+                PrivilegedBridge.clearAuthRejected()
+                Toast.makeText(ctx, ctx.getString(R.string.pairing_reset_toast), Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showResetConfirm = false },
         )
     }
 
@@ -587,21 +506,11 @@ private fun DaemonActivationCard(ctx: Context) {
                 Text("🔗 الخطوة 3: الاقتران لأول مرة (Pairing)", fontWeight = FontWeight.Bold, color = colors.primary, fontSize = 13.sp)
                 Text(
                     "تصحيح اللاسلكي قيد التشغيل! نحتاج للاقتران لمرة واحدة فقط لحفظ مفاتيح الأمان:\n" +
-                    "1. اضغط «إقران عبر الإشعار» — سيظهر إشعار لإدخال الرمز.\n" +
-                    "2. في خيارات المطور اضغط 'إقران الجهاز باستخدام رمز إقران' (Pair with pairing code).\n" +
-                    "3. أدخل الأرقام الستة في الإشعار دون مغادرة الإعدادات — أو أدخل الرمز والمنفذ يدوياً أدناه:",
+                    "اضغط «اقتران» — تُفتح الإعدادات بجانب التطبيق، وفي خيارات المطور اضغط 'إقران الجهاز باستخدام رمز إقران' (Pair with pairing code)، ثم أدخل الأرقام الستة في اللوحة أدناه أو في الإشعار:",
                     fontSize = 12.sp, color = colors.onSurfaceVariant
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Box(Modifier.weight(1f)) {
-                        PrimaryButton("Pair via Notification", compact = true) { requestPairing(PairingEntryKind.NOTIFICATION) }
-                    }
-                    Box(Modifier.weight(1f)) {
-                        SecondaryButton("Enter Pairing Code", compact = true) { requestPairing(PairingEntryKind.DIALOG) }
-                    }
-                }
-                SecondaryButton("Open side by side", compact = true) { startSideBySidePairing(ctx) }
-                SecondaryButton("Open Wireless Debugging Screen", compact = true) { openDevOptions(ctx) }
+                PrimaryButton(stringResource(R.string.pairing_action_pair), compact = true) { requestPairing() }
+                PairingCodePanel(onRetry = { requestPairing() })
             }
         } else {
             // ── Step 4: Ready to Start ──
@@ -661,43 +570,26 @@ private fun DaemonActivationCard(ctx: Context) {
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                                 Box(Modifier.weight(1f)) {
-                                    SecondaryButton("نسيان الهوية بالكامل", compact = true) {
-                                        com.droiddeck.launcher.core.WirelessAdbFix.forgetIdentity(ctx)
-                                        isPaired.value = false
-                                        oneTapFailed = false
-                                        PrivilegedBridge.clearDaemonFailure()
-                                        Toast.makeText(ctx, "تم نسيان الهوية. اقترن من جديد برمز جديد.", Toast.LENGTH_SHORT).show()
+                                    SecondaryButton(stringResource(R.string.connection_card_action_clear), compact = true) {
+                                        showResetConfirm = true
                                     }
                                 }
                             }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Box(Modifier.weight(1f)) {
-                                PrimaryButton("إقران عبر الإشعار", compact = true) { requestPairing(PairingEntryKind.NOTIFICATION) }
-                            }
-                            Box(Modifier.weight(1f)) {
-                                SecondaryButton("إدخال رمز إقران جديد", compact = true) { requestPairing(PairingEntryKind.DIALOG) }
-                            }
-                        }
+                        PrimaryButton(stringResource(R.string.pairing_action_pair), compact = true) { requestPairing() }
                     }
                 }
 
-                // Fallback actions: always accessible
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Box(Modifier.weight(1f)) {
-                        SecondaryButton("إعادة الإقران (Re-pair)", compact = true) {
-                            requestPairing(PairingEntryKind.DIALOG)
-                        }
-                    }
-                    Box(Modifier.weight(1f)) {
-                        SecondaryButton("مسح الإقران السابق", compact = true) {
-                            com.droiddeck.launcher.core.WirelessAdbFix.clearPairing(ctx)
-                            isPaired.value = false
-                            oneTapFailed = false
-                            PrivilegedBridge.clearDaemonFailure()
-                            Toast.makeText(ctx, "تم مسح الإقران. يمكنك الآن الاقتران برمز جديد.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                // Fallback action: always accessible
+                SecondaryButton(stringResource(R.string.connection_card_action_clear), compact = true) {
+                    showResetConfirm = true
+                }
+                if (pairingStage is WirelessAdbPairingService.Stage.Waiting ||
+                    pairingStage is WirelessAdbPairingService.Stage.CodeNeeded ||
+                    pairingStage is WirelessAdbPairingService.Stage.Working ||
+                    pairingStage is WirelessAdbPairingService.Stage.Failed
+                ) {
+                    PairingCodePanel(onRetry = { requestPairing() })
                 }
             }
         }

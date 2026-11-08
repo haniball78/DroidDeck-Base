@@ -103,7 +103,7 @@ import com.droiddeck.launcher.core.ConnectionCardStateResolver
 import com.droiddeck.launcher.core.FailureBoxMode
 import com.droiddeck.launcher.core.ConnectionFailure
 import com.droiddeck.launcher.core.WirelessAdbFix
-import com.droiddeck.launcher.core.canDrawOverlays
+import com.droiddeck.launcher.core.WirelessAdbPairingService
 import com.droiddeck.launcher.core.privileged.DiagnosticsLog
 import com.droiddeck.launcher.core.privileged.PrivilegedMode
 import com.droiddeck.launcher.session.SessionPrefs
@@ -171,7 +171,7 @@ internal fun SetupPanel(
     s: FrontEndState,
     a: FrontEndActions,
     onOpenDeveloperOptions: () -> Unit,
-    onRequestWirelessAdb: (Boolean) -> Unit,
+    onRequestWirelessAdb: () -> Unit,
     onSelect: (String) -> Unit = {},
 ) {
     val host = rememberMenuHost()
@@ -187,7 +187,7 @@ internal fun SetupPanel(
                 a.onRefreshPhantomStatus()
             } else {
                 processLimitMessage = ctx.getString(R.string.setup_limit_adb_failed)
-                onRequestWirelessAdb(enabled)
+                onRequestWirelessAdb()
             }
         }
     }
@@ -386,7 +386,7 @@ internal fun SetupPanel(
                             }
                         }
                         SettingsGroup(stringResource(R.string.setup_runtime)) { runtimeCheck(false) }
-                        PhantomDisableCard(host, s.phantomProcessStatus, a.onSetPhantomProcessLimit, a.onRefreshPhantomStatus) { limitEnabled -> onRequestWirelessAdb(limitEnabled) }
+                        PhantomDisableCard(host, s.phantomProcessStatus, a.onSetPhantomProcessLimit, a.onRefreshPhantomStatus) { _ -> onRequestWirelessAdb() }
                         ConnectionCard(onSelect = onSelect)
                     }
                     ADVANCED_TAB -> {
@@ -531,6 +531,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     val authRejected by PrivilegedBridge.authRejectedFlow.collectAsState()
     val lastFailure by PrivilegedBridge.lastDaemonFailureFlow.collectAsState()
     val parkedPort by PrivilegedBridge.lastAuthFailedPortFlow.collectAsState()
+    val pairingStage by WirelessAdbPairingService.stage.collectAsState()
     val currentPort = remember { mutableStateOf<Int?>(null) }
 
     // Same three checks the engine page's activation card polls, same 1.5 s
@@ -618,14 +619,14 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         prevState = state
     }
 
-    var showPairDialog by remember { mutableStateOf(false) }
     var showDetails by rememberSaveable { mutableStateOf(false) }
     var starting by remember { mutableStateOf(false) }
     var oneTapFailed by remember { mutableStateOf(false) }
     var autoRestartedPorts by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var autoRestarting by remember { mutableStateOf(false) }
     var autoRestartFailed by remember { mutableStateOf(false) }
-    var grantConsentPending by remember { mutableStateOf<PairingEntryKind?>(null) }
+    var grantConsentPending by remember { mutableStateOf(false) }
+    var showResetConfirm by remember { mutableStateOf(false) }
     var pcGrantNoteDismissed by remember { mutableStateOf(false) }
 
     fun logAction(name: String) {
@@ -657,16 +658,13 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     // The self-grant runs only with the user's consent: the first new
     // pairing asks once; a decline still pairs, but the automatic
     // wireless restart stays unavailable.
-    fun runPairing(kind: PairingEntryKind) {
-        when (kind) {
-            PairingEntryKind.NOTIFICATION -> startNotificationPairing(ctx) { showPairDialog = true }
-            PairingEntryKind.DIALOG -> showPairDialog = true
-        }
+    fun runPairing() {
+        startUnifiedPairing(ctx)
     }
 
-    fun requestPairing(kind: PairingEntryKind) {
-        if (WirelessAdbFix.secureGrantDecision(ctx) == null) grantConsentPending = kind
-        else runPairing(kind)
+    fun requestPairing() {
+        if (WirelessAdbFix.secureGrantDecision(ctx) == null) grantConsentPending = true
+        else runPairing()
     }
 
     // Guided reset for an AUTH failure: the key is rejected on this port,
@@ -759,42 +757,36 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         }
     }
 
-    if (showPairDialog) {
-        PairingCodeDialog(
-            onDismiss = { showPairDialog = false },
-            onPair = { port, code ->
-                showPairDialog = false
-                logAction("pair-dialog")
-                scope.launch {
-                    starting = true
-                    val result = WirelessAdbFix.pairAndStartPrivilegedDaemon(ctx, port, code)
-                    if (result.isSuccess) {
-                        oneTapFailed = false
-                        withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "card-pair") }
-                        Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_paired), Toast.LENGTH_SHORT).show()
-                    } else {
-                        val err = result.exceptionOrNull()?.localizedMessage ?: ""
-                        Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_error, err), Toast.LENGTH_LONG).show()
-                    }
-                    starting = false
-                }
-            },
-        )
-    }
-
-    grantConsentPending?.let { pending ->
+    if (grantConsentPending) {
         SecureGrantConsentDialog(
             onApprove = {
                 WirelessAdbFix.setSecureGrantDecision(ctx, true)
-                grantConsentPending = null
-                runPairing(pending)
+                grantConsentPending = false
+                runPairing()
             },
             onDecline = {
                 WirelessAdbFix.setSecureGrantDecision(ctx, false)
-                grantConsentPending = null
-                runPairing(pending)
+                grantConsentPending = false
+                runPairing()
             },
-            onDismiss = { grantConsentPending = null },
+            onDismiss = { grantConsentPending = false },
+        )
+    }
+
+    if (showResetConfirm) {
+        PairingResetConfirmDialog(
+            onConfirm = {
+                showResetConfirm = false
+                logAction("reset-pairing-confirmed")
+                WirelessAdbFix.resetPairingCompletely(ctx)
+                paired.value = false
+                oneTapFailed = false
+                PrivilegedBridge.clearDaemonFailure()
+                PrivilegedBridge.clearAuthFailedPort()
+                PrivilegedBridge.clearAuthRejected()
+                Toast.makeText(ctx, ctx.getString(R.string.pairing_reset_toast), Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showResetConfirm = false },
         )
     }
 
@@ -945,7 +937,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                                     ) {
                                         if (authFailure) startGuidedReset() else {
                                             logAction("repair")
-                                            requestPairing(PairingEntryKind.DIALOG)
+                                            requestPairing()
                                         }
                                     }
                                 }
@@ -957,7 +949,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                                     ) {
                                         if (authFailure) startGuidedReset() else {
                                             logAction("repair")
-                                            requestPairing(PairingEntryKind.DIALOG)
+                                            requestPairing()
                                         }
                                     }
                                 }
@@ -976,7 +968,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                     } else {
                         PrimaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
                             logAction("repair")
-                            requestPairing(PairingEntryKind.DIALOG)
+                            requestPairing()
                         }
                     }
                 }
@@ -999,13 +991,9 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                         }
                     }
                 }
-                ConnectionCardAction.OPEN_PAIRING_DIALOG -> PrimaryButton(stringResource(R.string.connection_card_action_pair), compact = true) {
-                    logAction("open-pair-dialog")
-                    requestPairing(PairingEntryKind.DIALOG)
-                }
-                ConnectionCardAction.PAIR_NOTIFICATION -> PrimaryButton(stringResource(R.string.connection_card_action_notify), compact = true) {
-                    logAction("pair-notification")
-                    requestPairing(PairingEntryKind.NOTIFICATION)
+                ConnectionCardAction.PAIR_UNIFIED -> PrimaryButton(stringResource(R.string.pairing_action_pair), compact = true) {
+                    logAction("pair-unified")
+                    requestPairing()
                 }
                 ConnectionCardAction.ONE_TAP_START -> if (!showFailureBox) {
                     PrimaryButton(
@@ -1046,26 +1034,11 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             }
 
             if (state == ConnectionCardState.NEED_PAIRING) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Box(Modifier.weight(1f)) {
-                        SecondaryButton(stringResource(R.string.connection_card_action_pair), compact = true) {
-                            logAction("open-pair-dialog")
-                            requestPairing(PairingEntryKind.DIALOG)
-                        }
-                    }
-                    Box(Modifier.weight(1f)) {
-                        SecondaryButton(stringResource(R.string.connection_card_action_wireless), compact = true) {
-                            logAction("open-dev-options")
-                            openDevOptions(ctx)
-                        }
-                    }
-                }
-                // Split-screen is a manual fallback, not the main flow:
-                // the system may open Settings fullscreen instead, and
-                // the split ratio is the user's to drag.
-                SecondaryButton(stringResource(R.string.connection_card_action_side_by_side), compact = true) {
-                    logAction("pair-side-by-side")
-                    startSideBySidePairing(ctx)
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
+                        .background(colors.surfaceVariant.copy(alpha = 0.5f)).padding(8.dp),
+                ) {
+                    PairingCodePanel(onRetry = { requestPairing() })
                 }
             }
 
@@ -1075,19 +1048,27 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                         Box(Modifier.weight(1f)) {
                             SecondaryButton(stringResource(R.string.connection_card_action_repair), compact = true) {
                                 logAction("repair")
-                                requestPairing(PairingEntryKind.DIALOG)
+                                requestPairing()
                             }
                         }
                     }
                     Box(Modifier.weight(1f)) {
                         SecondaryButton(stringResource(R.string.connection_card_action_clear), compact = true) {
-                            logAction("clear-pairing")
-                            WirelessAdbFix.clearPairing(ctx)
-                            paired.value = false
-                            oneTapFailed = false
-                            PrivilegedBridge.clearDaemonFailure()
-                            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_cleared), Toast.LENGTH_SHORT).show()
+                            logAction("reset-pairing")
+                            showResetConfirm = true
                         }
+                    }
+                }
+                if (pairingStage is WirelessAdbPairingService.Stage.Waiting ||
+                    pairingStage is WirelessAdbPairingService.Stage.CodeNeeded ||
+                    pairingStage is WirelessAdbPairingService.Stage.Working ||
+                    pairingStage is WirelessAdbPairingService.Stage.Failed
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
+                            .background(colors.surfaceVariant.copy(alpha = 0.5f)).padding(8.dp),
+                    ) {
+                        PairingCodePanel(onRetry = { requestPairing() })
                     }
                 }
             }
@@ -1117,23 +1098,6 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                         if (privStatus.mode == PrivilegedMode.EMBEDDED_DAEMON) ConnectionDetailRow(stringResource(R.string.connection_card_detail_port), "127.0.0.1:28751")
                         if (privStatus.phantomDisabled) ConnectionDetailRow(stringResource(R.string.connection_card_detail_phantom), stringResource(R.string.connection_card_detail_phantom_off))
                     }
-                }
-            }
-
-            // The floating code field needs the draw-over-apps permission,
-            // and its old entry screen is gone: the card offers the
-            // one-tap enable here instead, while the daemon is not
-            // running, so granting it never disturbs a pairing in
-            // progress.
-            if (!canDrawOverlays(ctx) && !ConnectionCardStateResolver.daemonRunning(state)) {
-                SecondaryButton(stringResource(R.string.adbpair_overlay_enable), compact = true) {
-                    logAction("open-overlay-permission")
-                    ctx.startActivity(
-                        Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:${ctx.packageName}"),
-                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
                 }
             }
 
