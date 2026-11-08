@@ -625,6 +625,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     var autoRestartedPorts by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var autoRestarting by remember { mutableStateOf(false) }
     var autoRestartFailed by remember { mutableStateOf(false) }
+    var patientRetries by remember { mutableStateOf(0) }
     var grantConsentPending by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
     var pcGrantNoteDismissed by remember { mutableStateOf(false) }
@@ -636,20 +637,22 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         )
     }
 
-    fun startOneTap(auto: Boolean = false) {
-        logAction(if (auto) "one-tap-auto" else "one-tap")
+    fun startOneTap(auto: Boolean = false, patient: Boolean = false) {
+        logAction(if (patient) "one-tap-patient" else if (auto) "one-tap-auto" else "one-tap")
         scope.launch {
             starting = true
-            oneTapFailed = false
+            if (!patient) oneTapFailed = false
             PrivilegedBridge.clearDaemonFailure()
             val ok = withContext(Dispatchers.IO) { WirelessAdbFix.startPrivilegedDaemonWithSavedPairing(ctx) }
             if (ok) {
                 autoRestartFailed = false
                 withContext(Dispatchers.IO) { PrivilegedBridge.refresh(caller = "card-start") }
-                Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_started), Toast.LENGTH_SHORT).show()
+                if (!patient) Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_started), Toast.LENGTH_SHORT).show()
             } else {
-                oneTapFailed = true
-                Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_pair_failed), Toast.LENGTH_LONG).show()
+                if (!patient) {
+                    oneTapFailed = true
+                    Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_pair_failed), Toast.LENGTH_LONG).show()
+                }
             }
             starting = false
         }
@@ -754,6 +757,35 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                     autoRestartFailed = true
                 }
             }
+        }
+    }
+
+    // Patient retry while parked: the key can take minutes to land in the
+    // system's list after a pair, and the port does not change in that
+    // case, so the once-per-port auto-attempt never refires and the
+    // restart is dead without the secure-settings grant. While the card
+    // is parked on the same port, retry the saved pairing silently every
+    // 30 s, up to 14 times (7 minutes); then the failure box shows and
+    // the user acts. The loop is tied to this composition, so it stops
+    // when the user leaves the Overview tab.
+    LaunchedEffect(state, parkedPort) {
+        patientRetries = 0
+        val parked = parkedPort
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        while (isActive && WirelessAdbFix.shouldPatientRetry(
+            state == ConnectionCardState.READY_TO_START,
+            parked != null,
+            patientRetries,
+            android.os.SystemClock.elapsedRealtime() - startedAt,
+        )) {
+            delay(WirelessAdbFix.PATIENT_RETRY_DELAY_MS)
+            if (!isActive) break
+            if (starting || autoRestarting) continue
+            patientRetries++
+            startOneTap(auto = true, patient = true)
+        }
+        if (isActive && parked != null && state == ConnectionCardState.READY_TO_START) {
+            autoRestartFailed = true
         }
     }
 

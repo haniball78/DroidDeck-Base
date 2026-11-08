@@ -43,6 +43,22 @@ object WirelessAdbFix {
      */
     const val AUTO_RESTART_PORT_WAIT_MS = 15_000L
 
+    /**
+     * Patient retry while parked: the key can take minutes to land in the
+     * system's list after a pair (2m21s-6m25s observed 2026-11-08), and
+     * the port does not change in that case, so the once-per-port
+     * auto-attempt never refires. Retry the saved pairing every 30 s
+     * for 7 minutes — long enough to cover the observed landing window.
+     */
+    const val PATIENT_RETRY_DELAY_MS = 30_000L
+    const val MAX_PATIENT_RETRIES = 14
+    const val PATIENT_RETRY_WINDOW_MS = 420_000L
+
+    fun patientRetryExhausted(attempts: Int): Boolean = attempts >= MAX_PATIENT_RETRIES
+
+    fun shouldPatientRetry(isReady: Boolean, parked: Boolean, attempts: Int, elapsedMs: Long): Boolean =
+        isReady && parked && !patientRetryExhausted(attempts) && elapsedMs < PATIENT_RETRY_WINDOW_MS
+
     private data class SavedConnection(val host: String, val port: Int?)
 
     @Synchronized
