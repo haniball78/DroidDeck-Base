@@ -21,6 +21,14 @@ class PairingResetTest {
         "wireless-adb-connection.txt",
     )
 
+    // The decision is seeded straight into the pairing prefs: the
+    // consent dialog that used to write it is gone, so the test writes
+    // the same key the getter reads.
+    private fun seedGrantDecision(allowed: Boolean) {
+        context.getSharedPreferences("wireless-adb-pairing", Context.MODE_PRIVATE)
+            .edit().putBoolean("secureGrantConsent", allowed).apply()
+    }
+
     // The full reset (resetPairingCompletely) cannot run here: it mints an
     // identity through KadbCert, whose class file targets Java 21, while
     // these tests run on JDK 17. The minting path is the same one pair()
@@ -30,7 +38,7 @@ class PairingResetTest {
     fun `reset pieces wipe the saved pairing and the grant decision`() {
         val dir = context.noBackupFilesDir
         for (name in pairingFiles) File(dir, name).writeText("seed")
-        WirelessAdbFix.setSecureGrantDecision(context, true)
+        seedGrantDecision(true)
         assertEquals(true, WirelessAdbFix.secureGrantDecision(context))
 
         WirelessAdbFix.forgetIdentity(context)
@@ -41,12 +49,12 @@ class PairingResetTest {
     }
 
     @Test
-    fun `grant decision round-trips and clears`() {
+    fun `grant decision reads and clears`() {
         WirelessAdbFix.clearSecureGrantDecision(context)
         assertNull(WirelessAdbFix.secureGrantDecision(context))
-        WirelessAdbFix.setSecureGrantDecision(context, true)
+        seedGrantDecision(true)
         assertEquals(true, WirelessAdbFix.secureGrantDecision(context))
-        WirelessAdbFix.setSecureGrantDecision(context, false)
+        seedGrantDecision(false)
         assertEquals(false, WirelessAdbFix.secureGrantDecision(context))
         WirelessAdbFix.clearSecureGrantDecision(context)
         assertNull(WirelessAdbFix.secureGrantDecision(context))

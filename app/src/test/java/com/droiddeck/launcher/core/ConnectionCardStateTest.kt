@@ -13,6 +13,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.resolve(
                 daemonActive = true, authRejected = false,
                 devOptionsOn = true, wirelessAdbOn = true, paired = true,
+                pairingRequired = true,
             ),
         )
     }
@@ -25,6 +26,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.resolve(
                 daemonActive = true, authRejected = false,
                 devOptionsOn = true, wirelessAdbOn = false, paired = true,
+                pairingRequired = true,
             ),
         )
     }
@@ -37,6 +39,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.resolve(
                 daemonActive = true, authRejected = false,
                 devOptionsOn = false, wirelessAdbOn = false, paired = true,
+                pairingRequired = true,
             ),
         )
     }
@@ -47,6 +50,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.resolve(
                 daemonActive = true, authRejected = true,
                 devOptionsOn = true, wirelessAdbOn = false, paired = true,
+                pairingRequired = true,
             ),
         )
     }
@@ -79,6 +83,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.resolve(
                 daemonActive = true, authRejected = true,
                 devOptionsOn = true, wirelessAdbOn = true, paired = true,
+                pairingRequired = true,
             ),
         )
     }
@@ -90,6 +95,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.resolve(
                 daemonActive = false, authRejected = true,
                 devOptionsOn = false, wirelessAdbOn = false, paired = false,
+                pairingRequired = true,
             ),
         )
     }
@@ -100,6 +106,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.resolve(
                 daemonActive = false, authRejected = false,
                 devOptionsOn = false, wirelessAdbOn = true, paired = true,
+                pairingRequired = true,
             ),
         )
     }
@@ -110,6 +117,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.resolve(
                 daemonActive = false, authRejected = false,
                 devOptionsOn = true, wirelessAdbOn = false, paired = true,
+                pairingRequired = true,
             ),
         )
     }
@@ -120,6 +128,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.resolve(
                 daemonActive = false, authRejected = false,
                 devOptionsOn = true, wirelessAdbOn = true, paired = false,
+                pairingRequired = true,
             ),
         )
     }
@@ -130,6 +139,7 @@ class ConnectionCardStateTest {
             ConnectionCardStateResolver.resolve(
                 daemonActive = false, authRejected = false,
                 devOptionsOn = true, wirelessAdbOn = true, paired = true,
+                pairingRequired = true,
             ),
         )
     }
@@ -166,6 +176,48 @@ class ConnectionCardStateTest {
         assertEquals(
             ConnectionCardAction.OPEN_DEV_OPTIONS,
             ConnectionCardStateResolver.primaryAction(ConnectionCardState.AUTH_REJECTED),
+        )
+    }
+
+    @Test fun activeWithStalePairingShowsDegraded() {
+        // A running daemon whose own pairing record is gone is not
+        // "ready": it answers while fresh connections fail.
+        assertEquals(
+            ConnectionCardState.ACTIVE_PAIRING_STALE,
+            ConnectionCardStateResolver.resolve(
+                daemonActive = true, authRejected = false,
+                devOptionsOn = true, wirelessAdbOn = true, paired = false,
+                pairingRequired = true,
+            ),
+        )
+    }
+
+    @Test fun stalePairingDoesNotApplyWhenPairingIsNotRequired() {
+        // A backend that does not use the app's own pairing (Shizuku)
+        // is not stale just because the app has no pairing record.
+        assertEquals(
+            ConnectionCardState.ACTIVE,
+            ConnectionCardStateResolver.resolve(
+                daemonActive = true, authRejected = false,
+                devOptionsOn = true, wirelessAdbOn = true, paired = false,
+                pairingRequired = false,
+            ),
+        )
+    }
+
+    @Test fun stalePairingIsDaemonRunningDegradedAndRepairsByPairing() {
+        assertTrue(
+            ConnectionCardStateResolver.daemonRunning(ConnectionCardState.ACTIVE_PAIRING_STALE),
+        )
+        assertTrue(
+            ConnectionCardStateResolver.isDegraded(ConnectionCardState.ACTIVE_PAIRING_STALE),
+        )
+        assertEquals(
+            ConnectionCardAction.PAIR_UNIFIED,
+            ConnectionCardStateResolver.primaryAction(ConnectionCardState.ACTIVE_PAIRING_STALE),
+        )
+        assertFalse(
+            ConnectionCardStateResolver.showFailureGuidance(ConnectionCardState.ACTIVE_PAIRING_STALE, true),
         )
     }
 

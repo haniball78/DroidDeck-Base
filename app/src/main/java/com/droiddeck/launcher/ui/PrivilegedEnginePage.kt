@@ -86,6 +86,7 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
         devOptionsOn = engineDevOn.value,
         wirelessAdbOn = engineWirelessOn.value,
         paired = enginePaired.value,
+        pairingRequired = status.mode == PrivilegedMode.EMBEDDED_DAEMON,
     )
 
     // Auto-refresh every 4 seconds in background
@@ -269,6 +270,7 @@ private fun StatusBanner(status: PrivilegedStatus, cardState: ConnectionCardStat
                 Text(
                     if (good && authRejected) "Daemon responding — auth rejected"
                     else if (degraded && cardState == ConnectionCardState.ACTIVE_DEV_OFF) "Active — developer options off"
+                    else if (degraded && cardState == ConnectionCardState.ACTIVE_PAIRING_STALE) "Active — pairing is stale"
                     else if (degraded) "Active — wireless debugging off"
                     else if (good) "Active — ${status.modeLabel}"
                     else "Privileged Engine Inactive",
@@ -370,30 +372,6 @@ internal fun startUnifiedPairing(ctx: Context) {
 }
 
 @Composable
-internal fun SecureGrantConsentDialog(
-    onApprove: () -> Unit,
-    onDecline: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.secure_grant_title), fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(stringResource(R.string.secure_grant_body), fontSize = 12.sp)
-                Text(stringResource(R.string.secure_grant_decline_note), fontSize = 12.sp)
-            }
-        },
-        confirmButton = {
-            Button(onClick = onApprove) { Text(stringResource(R.string.secure_grant_allow)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDecline) { Text(stringResource(R.string.secure_grant_decline)) }
-        },
-    )
-}
-
-@Composable
 private fun DaemonActivationCard(ctx: Context) {
     val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
@@ -401,7 +379,6 @@ private fun DaemonActivationCard(ctx: Context) {
     val scope = rememberCoroutineScope()
     var startingAdb by remember { mutableStateOf(false) }
     var oneTapFailed by remember { mutableStateOf(false) }
-    var grantConsentPending by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
     val lastFailure by PrivilegedBridge.lastDaemonFailureFlow.collectAsState()
     val pairingStage by WirelessAdbPairingService.stage.collectAsState()
@@ -420,32 +397,8 @@ private fun DaemonActivationCard(ctx: Context) {
         }
     }
 
-    // The self-grant runs only with the user's consent: the first new
-    // pairing asks once; a decline still pairs, but the automatic
-    // wireless restart stays unavailable.
-    fun runPairing() {
-        startUnifiedPairing(ctx)
-    }
-
     fun requestPairing() {
-        if (WirelessAdbFix.secureGrantDecision(ctx) == null) grantConsentPending = true
-        else runPairing()
-    }
-
-    if (grantConsentPending) {
-        SecureGrantConsentDialog(
-            onApprove = {
-                WirelessAdbFix.setSecureGrantDecision(ctx, true)
-                grantConsentPending = false
-                runPairing()
-            },
-            onDecline = {
-                WirelessAdbFix.setSecureGrantDecision(ctx, false)
-                grantConsentPending = false
-                runPairing()
-            },
-            onDismiss = { grantConsentPending = false },
-        )
+        startUnifiedPairing(ctx)
     }
 
     if (showResetConfirm) {

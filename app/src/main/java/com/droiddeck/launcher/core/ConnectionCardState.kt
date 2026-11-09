@@ -38,6 +38,15 @@ enum class ConnectionCardState {
      */
     ACTIVE_DEV_OFF,
 
+    /**
+     * Daemon active and auth OK, but the app's own pairing record is
+     * gone — for example after a phone restart cleared it — so the
+     * daemon answers while fresh connections to the saved port fail.
+     * The card must not read as ready: it names the stale pairing and
+     * offers one-tap re-pairing.
+     */
+    ACTIVE_PAIRING_STALE,
+
     /** Daemon answers PING but rejects commands — token mismatch (PING != AUTH). */
     AUTH_REJECTED,
 }
@@ -72,9 +81,11 @@ object ConnectionCardStateResolver {
      * rejected token is NOT usable), a running daemon with a missing
      * restart prerequisite is degraded rather than ready (dev options off
      * names the root cause, since it turns wireless debugging off with
-     * it), activity beats setup steps, and the setup steps follow their
-     * real dependency order (dev -> wireless -> pairing), so the card
-     * never asks for a step whose prerequisite is missing.
+     * it), a running daemon whose own pairing record is gone is degraded
+     * rather than ready (it answers while fresh connections fail), activity
+     * beats setup steps, and the setup steps follow their real dependency
+     * order (dev -> wireless -> pairing), so the card never asks for a step
+     * whose prerequisite is missing.
      */
     fun resolve(
         daemonActive: Boolean,
@@ -82,10 +93,12 @@ object ConnectionCardStateResolver {
         devOptionsOn: Boolean,
         wirelessAdbOn: Boolean,
         paired: Boolean,
+        pairingRequired: Boolean,
     ): ConnectionCardState {
         if (daemonActive && authRejected) return ConnectionCardState.AUTH_REJECTED
         if (daemonActive && !devOptionsOn) return ConnectionCardState.ACTIVE_DEV_OFF
         if (daemonActive && !wirelessAdbOn) return ConnectionCardState.ACTIVE_WIRELESS_OFF
+        if (daemonActive && pairingRequired && !paired) return ConnectionCardState.ACTIVE_PAIRING_STALE
         if (daemonActive) return ConnectionCardState.ACTIVE
         if (!devOptionsOn) return ConnectionCardState.NEED_DEV_OPTIONS
         if (!wirelessAdbOn) return ConnectionCardState.NEED_WIRELESS_ADB
@@ -101,6 +114,7 @@ object ConnectionCardStateResolver {
         ConnectionCardState.ACTIVE -> ConnectionCardAction.NONE
         ConnectionCardState.ACTIVE_WIRELESS_OFF -> ConnectionCardAction.OPEN_DEV_OPTIONS
         ConnectionCardState.ACTIVE_DEV_OFF -> ConnectionCardAction.OPEN_ABOUT_PHONE
+        ConnectionCardState.ACTIVE_PAIRING_STALE -> ConnectionCardAction.PAIR_UNIFIED
         // AUTH is not fixed by re-pairing: the key is rejected on this
         // port, so the primary action is the guided reset (open Developer
         // options: revoke authorizations, toggle wireless), and the card
@@ -112,12 +126,14 @@ object ConnectionCardStateResolver {
     fun daemonRunning(state: ConnectionCardState): Boolean =
         state == ConnectionCardState.ACTIVE ||
             state == ConnectionCardState.ACTIVE_WIRELESS_OFF ||
-            state == ConnectionCardState.ACTIVE_DEV_OFF
+            state == ConnectionCardState.ACTIVE_DEV_OFF ||
+            state == ConnectionCardState.ACTIVE_PAIRING_STALE
 
     /** True only for the degraded variants — running, but restart or re-pairing is blocked. */
     fun isDegraded(state: ConnectionCardState): Boolean =
         state == ConnectionCardState.ACTIVE_WIRELESS_OFF ||
-            state == ConnectionCardState.ACTIVE_DEV_OFF
+            state == ConnectionCardState.ACTIVE_DEV_OFF ||
+            state == ConnectionCardState.ACTIVE_PAIRING_STALE
 
     /**
      * The failure-guidance box is shown only where a start or pair attempt

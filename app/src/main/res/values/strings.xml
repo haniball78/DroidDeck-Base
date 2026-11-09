@@ -3160,6 +3160,7 @@
     <string name="connection_card_state_active">Connected and ready</string>
     <string name="connection_card_state_active_wireless_off">Connected — wireless debugging off</string>
     <string name="connection_card_state_active_dev_off">Connected — developer options off</string>
+    <string name="connection_card_state_active_pairing_stale">Daemon running — pairing is stale</string>
     <string name="connection_card_state_ready">Paired and ready — one tap to start</string>
     <string name="connection_card_state_auth">Daemon responding — auth rejected</string>
     <string name="connection_card_state_pending">Not connected yet</string>
@@ -3188,13 +3189,6 @@
     <string name="connection_card_auto_restarting">Restarting wireless debugging automatically…</string>
     <string name="connection_card_finishing_setup">Finishing setup… the app restarts wireless debugging on its own and connects automatically.</string>
     <string name="connection_card_toast_notifications_off">Notifications are off — enter the code in the app instead.</string>
-    <string name="connection_card_pc_grant_body">Automatic restart is off — the app could not keep the secure-settings permission. From a computer, run:</string>
-    <string name="connection_card_pc_grant_dismiss">Dismiss</string>
-    <string name="secure_grant_title">One permission, granted by the app itself</string>
-    <string name="secure_grant_body">To finish setup on its own, DroidDeck grants itself the “write secure settings” permission over its own ADB connection after the first pairing. It uses it only to turn wireless debugging back on and restart it when the connection fails. You can revoke it anytime in Settings → Apps → DroidDeck → Permissions. No computer is needed.</string>
-    <string name="secure_grant_decline_note">If you decline, automatic restart will not work — you will restart wireless debugging yourself when needed.</string>
-    <string name="secure_grant_allow">Allow</string>
-    <string name="secure_grant_decline">Not now</string>
     <string name="connection_card_action_reset_auth">Restart wireless debugging</string>
     <string name="connection_card_action_wireless">Open wireless debugging screen</string>
     <string name="connection_card_action_clear">Clear pairing</string>
@@ -3239,6 +3233,7 @@
     <string name="connection_card_note_daemon_survives">Turning wireless debugging off does not stop a running daemon — it only blocks restarting it.</string>
     <string name="connection_card_warn_wireless_off">Daemon running — wireless debugging is off. Sessions work, but restart or re-pairing needs wireless debugging.</string>
     <string name="connection_card_warn_dev_off">Daemon running — developer options are off. Sessions work, but restart or re-pairing needs developer options, then wireless debugging.</string>
+    <string name="connection_card_warn_pairing_stale">The daemon is running, but the saved pairing no longer works — for example after a phone restart. Pair again to reconnect.</string>
     <string name="step_guide_channel_name">Setup guide</string>
     <string name="step_guide_channel_desc">Next step while setting up wireless debugging.</string>
     <string name="step_guide_title">Next step</string>

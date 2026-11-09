@@ -572,6 +572,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         devOptionsOn = devOn.value,
         wirelessAdbOn = wirelessOn.value,
         paired = paired.value,
+        pairingRequired = privStatus.mode == PrivilegedMode.EMBEDDED_DAEMON,
     )
     val action = ConnectionCardStateResolver.primaryAction(state)
 
@@ -628,9 +629,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     var autoRestarting by remember { mutableStateOf(false) }
     var autoRestartFailed by remember { mutableStateOf(false) }
     var patientRetries by remember { mutableStateOf(0) }
-    var grantConsentPending by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
-    var pcGrantNoteDismissed by remember { mutableStateOf(false) }
 
     fun logAction(name: String) {
         DiagnosticsLog.log(
@@ -660,16 +659,8 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         }
     }
 
-    // The self-grant runs only with the user's consent: the first new
-    // pairing asks once; a decline still pairs, but the automatic
-    // wireless restart stays unavailable.
-    fun runPairing() {
-        startUnifiedPairing(ctx)
-    }
-
     fun requestPairing() {
-        if (WirelessAdbFix.secureGrantDecision(ctx) == null) grantConsentPending = true
-        else runPairing()
+        startUnifiedPairing(ctx)
     }
 
     // Guided reset for an AUTH failure: the key is rejected on this port,
@@ -749,7 +740,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         } else {
             val parked = parkedPort
             if (!starting && !autoRestarting && parked != null) {
-                if (WirelessAdbFix.shouldAutoRestartWireless(paired.value, currentPort.value, parked, autoRestartedPorts)) {
+                if (WirelessAdbFix.shouldAutoRestartWireless(paired.value, currentPort.value, parked, autoRestartedPorts, WirelessAdbFix.hasSecureSettingsGrant(ctx))) {
                     restartWirelessAuto(parked)
                 } else if (paired.value && currentPort.value == parked &&
                     autoRestartedPorts.size >= WirelessAdbFix.MAX_AUTO_RESTARTS
@@ -816,22 +807,6 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         }
     }
 
-    if (grantConsentPending) {
-        SecureGrantConsentDialog(
-            onApprove = {
-                WirelessAdbFix.setSecureGrantDecision(ctx, true)
-                grantConsentPending = false
-                runPairing()
-            },
-            onDecline = {
-                WirelessAdbFix.setSecureGrantDecision(ctx, false)
-                grantConsentPending = false
-                runPairing()
-            },
-            onDismiss = { grantConsentPending = false },
-        )
-    }
-
     if (showResetConfirm) {
         PairingResetConfirmDialog(
             onConfirm = {
@@ -860,6 +835,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                             ConnectionCardState.ACTIVE -> stringResource(R.string.connection_card_state_active)
                             ConnectionCardState.ACTIVE_WIRELESS_OFF -> stringResource(R.string.connection_card_state_active_wireless_off)
                             ConnectionCardState.ACTIVE_DEV_OFF -> stringResource(R.string.connection_card_state_active_dev_off)
+                            ConnectionCardState.ACTIVE_PAIRING_STALE -> stringResource(R.string.connection_card_state_active_pairing_stale)
                             ConnectionCardState.READY_TO_START -> stringResource(R.string.connection_card_state_ready)
                             ConnectionCardState.AUTH_REJECTED -> stringResource(R.string.connection_card_state_auth)
                             else -> stringResource(R.string.connection_card_state_pending)
@@ -871,6 +847,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                             ConnectionCardState.ACTIVE -> stringResource(R.string.connection_card_active_detail, privStatus.modeLabel)
                             ConnectionCardState.ACTIVE_WIRELESS_OFF -> stringResource(R.string.connection_card_warn_wireless_off)
                             ConnectionCardState.ACTIVE_DEV_OFF -> stringResource(R.string.connection_card_warn_dev_off)
+                            ConnectionCardState.ACTIVE_PAIRING_STALE -> stringResource(R.string.connection_card_warn_pairing_stale)
                             ConnectionCardState.READY_TO_START -> stringResource(R.string.connection_card_why_ready)
                             ConnectionCardState.AUTH_REJECTED -> stringResource(R.string.connection_card_auth_detail)
                             else -> stringResource(R.string.connection_card_pending_detail)
@@ -1061,35 +1038,6 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                     ) { startOneTap() }
                 }
                 ConnectionCardAction.NONE -> {}
-            }
-
-            // The automatic restart needs the secure-settings grant: when
-            // the user allowed the self-grant but the app still does not
-            // hold it, the one-time PC command is the fallback.
-            val grantMissing = WirelessAdbFix.secureGrantDecision(ctx) == true &&
-                !WirelessAdbFix.hasSecureSettingsGrant(ctx) &&
-                (paired.value || ConnectionCardStateResolver.daemonRunning(state))
-            if (grantMissing && !pcGrantNoteDismissed) {
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
-                        .background(colors.surfaceVariant.copy(alpha = 0.5f))
-                        .padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        stringResource(R.string.connection_card_pc_grant_body),
-                        fontSize = 11.sp, color = colors.onBackground,
-                    )
-                    Text(
-                        "adb shell pm grant ${ctx.packageName} android.permission.WRITE_SECURE_SETTINGS",
-                        fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = colors.onSurfaceVariant,
-                    )
-                    Text(
-                        stringResource(R.string.connection_card_pc_grant_dismiss),
-                        fontSize = 11.sp, color = colors.primary,
-                        modifier = Modifier.clickable { pcGrantNoteDismissed = true },
-                    )
-                }
             }
 
             if (state == ConnectionCardState.NEED_PAIRING) {
@@ -1775,6 +1723,7 @@ private fun AdvancedSetupTab(
             devOptionsOn = advDevOn.value,
             wirelessAdbOn = advWirelessOn.value,
             paired = advPaired.value,
+            pairingRequired = privStatus.mode == PrivilegedMode.EMBEDDED_DAEMON,
         )
         SettingsGroup(stringResource(R.string.setup_adv_group_privileged)) {
             CheckRow(
@@ -1784,6 +1733,7 @@ private fun AdvancedSetupTab(
                     ConnectionCardState.ACTIVE -> stringResource(R.string.setup_adv_privileged_active, privStatus.modeLabel)
                     ConnectionCardState.ACTIVE_DEV_OFF -> stringResource(R.string.connection_card_warn_dev_off)
                     ConnectionCardState.ACTIVE_WIRELESS_OFF -> stringResource(R.string.connection_card_warn_wireless_off)
+                    ConnectionCardState.ACTIVE_PAIRING_STALE -> stringResource(R.string.connection_card_warn_pairing_stale)
                     ConnectionCardState.AUTH_REJECTED -> stringResource(R.string.connection_card_auth_detail)
                     else -> stringResource(R.string.setup_adv_privileged_inactive)
                 },

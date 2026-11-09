@@ -152,10 +152,6 @@ object WirelessAdbFix {
         return if (prefs.contains("secureGrantConsent")) prefs.getBoolean("secureGrantConsent", false) else null
     }
 
-    fun setSecureGrantDecision(context: Context, allowed: Boolean) {
-        pairingPrefs(context.applicationContext).edit().putBoolean("secureGrantConsent", allowed).apply()
-    }
-
     fun clearSecureGrantDecision(context: Context) {
         pairingPrefs(context.applicationContext).edit().remove("secureGrantConsent").apply()
     }
@@ -174,19 +170,21 @@ object WirelessAdbFix {
 
     /**
      * True only when the card may restart wireless debugging itself:
-     * paired, with the current port still the one whose start last
-     * failed auth, and that port not already restarted for. The cap
-     * bounds it, so a repeated AUTH failure on fresh ports never
-     * loops the toggle.
+     * the secure-settings grant is actually held, paired, with the
+     * current port still the one whose start last failed auth, and that
+     * port not already restarted for. The cap bounds it, so a repeated
+     * AUTH failure on fresh ports never loops the toggle. Without the
+     * grant the restart can never run, so it is never attempted.
      */
     fun shouldAutoRestartWireless(
         paired: Boolean,
         currentPort: Int?,
         lastAuthFailedPort: Int?,
         restartedPorts: Set<Int>,
+        grantHeld: Boolean,
         maxRestarts: Int = MAX_AUTO_RESTARTS,
     ): Boolean =
-        paired && currentPort != null && currentPort == lastAuthFailedPort &&
+        grantHeld && paired && currentPort != null && currentPort == lastAuthFailedPort &&
             currentPort !in restartedPorts && restartedPorts.size < maxRestarts
 
     /** First observed port that differs from [oldPort], or null if none did. */
@@ -462,23 +460,29 @@ object WirelessAdbFix {
         val appContext = context.applicationContext
         val saved = savedConnection(appContext)
             ?: error(appContext.getString(R.string.adbfix_no_pairing))
-        val cachedPort = saved.port
-        if (cachedPort != null) {
-            val cachedResult = runCatching {
-                setChildProcessLimit(appContext, saved.host, cachedPort, enabled)
-            }
-            if (cachedResult.isSuccess) return
-            val discoveredPort = findConnectPort(appContext, saved.host)
-            if (discoveredPort != null && discoveredPort != cachedPort) {
-                setChildProcessLimit(appContext, saved.host, discoveredPort, enabled)
-            } else {
-                cachedResult.getOrThrow()
-            }
-        } else {
-            val discoveredPort = findConnectPort(appContext, saved.host)
-                ?: error(appContext.getString(R.string.adbfix_enter_address))
-            setChildProcessLimit(appContext, saved.host, discoveredPort, enabled)
+        var failure: Throwable? = null
+        fun attempt(port: Int): Boolean {
+            val result = runCatching { setChildProcessLimit(appContext, saved.host, port, enabled) }
+            if (result.isSuccess) return true
+            if (failure == null) failure = result.exceptionOrNull()
+            return false
         }
+        // The listener moves after a phone restart, so the saved port
+        // goes stale: try it first (usually right), then the live port
+        // from the system property, then mDNS discovery — each only
+        // when the previous one failed.
+        val cachedPort = saved.port
+        if (cachedPort != null && attempt(cachedPort)) return
+        val livePort = tlsPortProperty()
+        if (livePort != null && livePort != cachedPort && attempt(livePort)) return
+        val discoveredPort = findConnectPort(appContext, saved.host)
+        if (discoveredPort != null && discoveredPort != cachedPort && discoveredPort != livePort &&
+            attempt(discoveredPort)
+        ) return
+        if (cachedPort == null && livePort == null && discoveredPort == null) {
+            error(appContext.getString(R.string.adbfix_enter_address))
+        }
+        throw failure ?: error(appContext.getString(R.string.adbfix_no_pairing))
     }
 
     fun startPrivilegedDaemonViaAdb(context: Context, host: String, port: Int) {
