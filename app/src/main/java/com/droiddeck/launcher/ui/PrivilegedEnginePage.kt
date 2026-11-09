@@ -43,6 +43,7 @@ import com.droiddeck.launcher.core.ConnectionCardState
 import com.droiddeck.launcher.core.ConnectionCardStateResolver
 import com.droiddeck.launcher.core.privileged.PrivilegedBridge
 import com.droiddeck.launcher.core.WirelessAdbFix
+import com.droiddeck.launcher.core.SplitScreenWindowing
 import com.droiddeck.launcher.core.WirelessAdbPairingService
 import com.droiddeck.launcher.core.ConnectionFailure
 import com.droiddeck.launcher.session.SessionPrefs
@@ -363,7 +364,9 @@ internal fun startUnifiedPairing(ctx: Context) {
         Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_notifications_off), Toast.LENGTH_LONG).show()
     }
     WirelessAdbPairingService.start(ctx)
-    ctx.startActivity(WirelessAdbFix.wirelessDebuggingAdjacentIntent())
+    val intent = WirelessAdbFix.wirelessDebuggingAdjacentIntent()
+    val options = SplitScreenWindowing.splitPrimaryOptions()
+    if (options != null) ctx.startActivity(intent, options) else ctx.startActivity(intent)
 }
 
 @Composable

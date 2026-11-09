@@ -75,6 +75,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.droiddeck.launcher.FrontEndActivity
 import com.droiddeck.launcher.core.privileged.PrivilegedBridge
 import com.droiddeck.launcher.core.StepGuideNotifier
 import androidx.compose.ui.draw.alpha
@@ -103,6 +104,7 @@ import com.droiddeck.launcher.core.ConnectionCardStateResolver
 import com.droiddeck.launcher.core.FailureBoxMode
 import com.droiddeck.launcher.core.ConnectionFailure
 import com.droiddeck.launcher.core.WirelessAdbFix
+import com.droiddeck.launcher.core.SplitScreenWindowing
 import com.droiddeck.launcher.core.WirelessAdbPairingService
 import com.droiddeck.launcher.core.privileged.DiagnosticsLog
 import com.droiddeck.launcher.core.privileged.PrivilegedMode
@@ -786,6 +788,31 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         }
         if (isActive && parked != null && state == ConnectionCardState.READY_TO_START) {
             autoRestartFailed = true
+        }
+    }
+
+    // After a successful pair, return the app to fullscreen 3 s later —
+    // only when split-screen actually engaged, and only on the transition
+    // into Done, so a stale Done stage never pulls the user out of a
+    // split they opened themselves. The return is a fresh launch of the
+    // activity with a fullscreen windowing mode; when the hidden call is
+    // blocked, nothing happens and the divider stays the way out. The
+    // effect is tied to this composition, so leaving the Overview tab
+    // cancels it.
+    var prevPairingStage by remember { mutableStateOf(pairingStage) }
+    LaunchedEffect(pairingStage) {
+        val wasDone = prevPairingStage is WirelessAdbPairingService.Stage.Done
+        prevPairingStage = pairingStage
+        if (pairingStage is WirelessAdbPairingService.Stage.Done && !wasDone) {
+            val activity = ctx as? android.app.Activity ?: return@LaunchedEffect
+            if (!activity.isInMultiWindowMode) return@LaunchedEffect
+            delay(SplitScreenWindowing.RETURN_TO_FULLSCREEN_DELAY_MS)
+            if (!isActive || !activity.isInMultiWindowMode) return@LaunchedEffect
+            val options = SplitScreenWindowing.fullscreenOptions() ?: return@LaunchedEffect
+            val intent = Intent(activity, FrontEndActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            activity.startActivity(intent, options)
         }
     }
 
