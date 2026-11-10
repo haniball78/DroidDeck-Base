@@ -1,9 +1,12 @@
 package com.droiddeck.launcher.ui
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -352,23 +355,45 @@ internal fun openAboutPhone(ctx: Context) {
 }
 
 /**
- * The single pairing entry: starts the pairing service (the quiet
- * notification engine) and opens Developer options beside the app
- * (split-screen), best-effort — the system may open it fullscreen, and
- * the split ratio is the user's to drag. The in-app panel is the code
- * entry, so no dialog fallback is needed when notifications are off:
- * the code still goes in the panel.
+ * The single pairing entry, in two quick stages. Stage 1 opens Developer
+ * options beside the app (split-screen) and nothing else, so the window
+ * opens before the pairing work begins. Stage 2, after a short settle
+ * gap, starts the pairing service (the quiet notification engine) and,
+ * if split-screen did not engage, brings Settings forward plainly so a
+ * Pair tap always opens it visibly even when its task is already warm.
+ * Settings is launched for a result so a successful pair can close
+ * exactly that activity (see the Done effect in FrontEndSetup). The
+ * in-app panel is the code entry, so no dialog fallback is needed when
+ * notifications are off: the code still goes in the panel.
  */
 internal fun startUnifiedPairing(ctx: Context) {
-    if (WirelessAdbPairingService.notificationsEnabled(ctx)) {
-        Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_watch_notification), Toast.LENGTH_LONG).show()
-    } else {
-        Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_notifications_off), Toast.LENGTH_LONG).show()
-    }
-    WirelessAdbPairingService.start(ctx)
     val intent = WirelessAdbFix.wirelessDebuggingAdjacentIntent()
     val options = SplitScreenWindowing.splitPrimaryOptions()
-    if (options != null) ctx.startActivity(intent, options) else ctx.startActivity(intent)
+    val activity = ctx as? Activity
+    if (activity != null) {
+        @Suppress("DEPRECATION")
+        activity.startActivityForResult(intent, SplitScreenWindowing.REQUEST_PAIRING_SETTINGS, options)
+    } else if (options != null) {
+        ctx.startActivity(intent, options)
+    } else {
+        ctx.startActivity(intent)
+    }
+    Handler(Looper.getMainLooper()).postDelayed({
+        if (WirelessAdbPairingService.notificationsEnabled(ctx)) {
+            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_watch_notification), Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(ctx, ctx.getString(R.string.connection_card_toast_notifications_off), Toast.LENGTH_LONG).show()
+        }
+        WirelessAdbPairingService.start(ctx)
+        val act = ctx as? Activity
+        if (act != null && !act.isInMultiWindowMode) {
+            val forward = Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(":settings:fragment_args_key", "toggle_adb_wireless")
+            }
+            runCatching { ctx.startActivity(forward) }
+        }
+    }, SplitScreenWindowing.PAIRING_STAGE_DELAY_MS)
 }
 
 @Composable

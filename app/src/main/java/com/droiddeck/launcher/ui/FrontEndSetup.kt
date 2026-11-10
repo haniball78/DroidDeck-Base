@@ -7,7 +7,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
 import android.os.Build
-import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
@@ -75,7 +74,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.droiddeck.launcher.FrontEndActivity
 import com.droiddeck.launcher.core.privileged.PrivilegedBridge
 import com.droiddeck.launcher.core.StepGuideNotifier
 import androidx.compose.ui.draw.alpha
@@ -782,14 +780,13 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         }
     }
 
-    // After a successful pair, return the app to fullscreen 3 s later —
-    // only when split-screen actually engaged, and only on the transition
-    // into Done, so a stale Done stage never pulls the user out of a
-    // split they opened themselves. The return is a fresh launch of the
-    // activity with a fullscreen windowing mode; when the hidden call is
-    // blocked, nothing happens and the divider stays the way out. The
-    // effect is tied to this composition, so leaving the Overview tab
-    // cancels it.
+    // After a successful pair, close Settings 4 s later — never relaunch
+    // our own app: closing Settings leaves only our app, so it takes the
+    // full screen by itself. finishActivity only closes the Settings
+    // activity started for a result by startUnifiedPairing; otherwise it
+    // is a no-op. Only on the transition into Done, so a stale Done stage
+    // never closes a split the user opened themselves. The effect is tied
+    // to this composition, so leaving the Overview tab cancels it.
     var prevPairingStage by remember { mutableStateOf(pairingStage) }
     LaunchedEffect(pairingStage) {
         val wasDone = prevPairingStage is WirelessAdbPairingService.Stage.Done
@@ -797,13 +794,13 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         if (pairingStage is WirelessAdbPairingService.Stage.Done && !wasDone) {
             val activity = ctx as? android.app.Activity ?: return@LaunchedEffect
             if (!activity.isInMultiWindowMode) return@LaunchedEffect
-            delay(SplitScreenWindowing.RETURN_TO_FULLSCREEN_DELAY_MS)
+            delay(SplitScreenWindowing.CLOSE_SETTINGS_DELAY_MS)
             if (!isActive || !activity.isInMultiWindowMode) return@LaunchedEffect
-            val options = SplitScreenWindowing.fullscreenOptions() ?: return@LaunchedEffect
-            val intent = Intent(activity, FrontEndActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            }
-            activity.startActivity(intent, options)
+            activity.finishActivity(SplitScreenWindowing.REQUEST_PAIRING_SETTINGS)
+            DiagnosticsLog.log(
+                "adbpair", "settings-close",
+                fields = mapOf("after_ms" to SplitScreenWindowing.CLOSE_SETTINGS_DELAY_MS.toString()),
+            )
         }
     }
 
