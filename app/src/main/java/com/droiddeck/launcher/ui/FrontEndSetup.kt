@@ -1251,6 +1251,7 @@ private fun AdvancedSetupTab(
     var deepSystemDoze by remember { mutableStateOf(SessionPrefs.deepSystemDoze(ctx)) }
     var freezeBloatware by remember { mutableStateOf(SessionPrefs.freezeBloatware(ctx)) }
     var freezeUserApps by remember { mutableStateOf(SessionPrefs.freezeUserApps(ctx)) }
+    var restrictBackgroundHogs by remember { mutableStateOf(SessionPrefs.restrictBackgroundHogs(ctx)) }
 
     var restoring by remember { mutableStateOf(false) }
     var safeRestoreReport by remember { mutableStateOf<String?>(null) }
@@ -1315,6 +1316,7 @@ private fun AdvancedSetupTab(
                     scope.launch(Dispatchers.IO) {
                         com.droiddeck.launcher.core.privileged.GameModeEngine.restore(ctx, 0)
                         com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(ctx, 0)
+                        com.droiddeck.launcher.core.privileged.HogRestrictionEngine.restore(ctx, 0)
                         com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(ctx)
                         liveMetrics = com.droiddeck.launcher.core.privileged.GameModeEngine.runLiveVerification(ctx) +
                             com.droiddeck.launcher.core.privileged.AppFreezerEngine.runDiagnostic(ctx) +
@@ -1347,9 +1349,11 @@ private fun AdvancedSetupTab(
                         safeRestoreReport = null
                         var gameModeOk = false
                         var freezerOk = false
+                        var hogOk = false
                         withContext(Dispatchers.IO) {
                             gameModeOk = com.droiddeck.launcher.core.privileged.GameModeEngine.restore(ctx, 0)
                             freezerOk = com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(ctx, 0)
+                            hogOk = com.droiddeck.launcher.core.privileged.HogRestrictionEngine.restore(ctx, 0)
                             com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(ctx)
                         }
                         liveMetrics = withContext(Dispatchers.IO) {
@@ -1362,7 +1366,7 @@ private fun AdvancedSetupTab(
                             ctx, "advanced.action", "safe-restore-result",
                             fields = com.droiddeck.launcher.core.privileged.SafeRestoreResult.resultFields(gameModeOk, freezerOk, remaining),
                         )
-                        safeRestoreReport = if (com.droiddeck.launcher.core.privileged.SafeRestoreResult.succeeded(gameModeOk, freezerOk, remaining)) {
+                        safeRestoreReport = if (com.droiddeck.launcher.core.privileged.SafeRestoreResult.succeeded(gameModeOk, freezerOk, remaining) && hogOk) {
                             ctx.getString(R.string.setup_adv_safe_restore_success)
                         } else {
                             ctx.getString(R.string.setup_adv_safe_restore_failed, remaining)
@@ -1863,6 +1867,17 @@ private fun AdvancedSetupTab(
             ) { on ->
                 freezeUserApps = on
                 SessionPrefs.setFreezeUserApps(ctx, on)
+            }
+            ToggleRow(
+                host = host,
+                key = "adv-restrict-hogs",
+                label = stringResource(R.string.setup_adv_restrict_hogs),
+                hint = stringResource(R.string.setup_adv_restrict_hogs_hint),
+                checked = restrictBackgroundHogs,
+                enabled = com.droiddeck.launcher.core.privileged.AdvancedTogglePolicy.enabled(masterEnabled, s.sessionRunning),
+            ) { on ->
+                restrictBackgroundHogs = on
+                SessionPrefs.setRestrictBackgroundHogs(ctx, on)
             }
         }
     }

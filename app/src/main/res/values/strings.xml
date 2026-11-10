@@ -770,6 +770,8 @@
     <string name="setup_adv_freeze_bloat_hint">Temporarily suspends background bloatware (Bixby, Facebook services, Digital Wellbeing) during gameplay</string>
     <string name="setup_adv_freeze_user_apps">Freeze 3rd-Party User Apps</string>
     <string name="setup_adv_freeze_user_apps_hint">Suspends all non-system downloaded apps during gameplay for absolute zero background wakeups</string>
+    <string name="setup_adv_restrict_hogs">Restrict Background Hogs</string>
+    <string name="setup_adv_restrict_hogs_hint">Cuts background jobs, alarms, network and foreground services for the 5-7 worst hogs during gameplay. Restored on exit</string>
     <string name="setup_adv_group_telemetry">Live Telemetry &amp; Diagnostics</string>
     <string name="setup_adv_group_test">Interactive Verification &amp; Safe Test</string>
     <string name="setup_adv_test_apply">Test Apply Now</string>

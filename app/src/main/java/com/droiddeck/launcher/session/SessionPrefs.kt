@@ -531,6 +531,13 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("freezeUserApps", on).apply()
     }
 
+    /** Background Hog Restriction — cuts background jobs, alarms, network and foreground services for the worst 5-7 hogs during gameplay. Restored on exit. */
+    fun restrictBackgroundHogs(context: Context): Boolean = prefs(context).getBoolean("restrictBackgroundHogs", true)
+
+    fun setRestrictBackgroundHogs(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("restrictBackgroundHogs", on).apply()
+    }
+
     /** Dynamic Adaptive Governor — monitors device thermal state and flexes system load automatically. */
     fun dynamicGovernor(context: Context): Boolean = prefs(context).getBoolean("dynamicGovernor", true)
 

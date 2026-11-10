@@ -58,6 +58,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.privileged.BatchCVerifyTest" \
             --tests "com.droiddeck.launcher.core.privileged.FixedPerformanceGetterTest" \
             --tests "com.droiddeck.launcher.core.privileged.AppFreezerPackageSplitTest" \
+            --tests "com.droiddeck.launcher.core.privileged.HogRestrictionTest" \
             --tests "com.droiddeck.launcher.core.privileged.GameModeBoostTest" \
             --tests "com.droiddeck.launcher.core.privileged.SessionStartTweaksDecisionTest" \
             --tests "com.droiddeck.launcher.core.privileged.PackagesVerifyChunksTest" \
