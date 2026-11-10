@@ -538,6 +538,20 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("restrictBackgroundHogs", on).apply()
     }
 
+    /** Live Hog Watcher — samples background apps every 90 s during gameplay and restricts or closes sustained hogs. Restored on exit. */
+    fun liveHogWatcher(context: Context): Boolean = prefs(context).getBoolean("liveHogWatcher", true)
+
+    fun setLiveHogWatcher(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("liveHogWatcher", on).apply()
+    }
+
+    /** Live Hog Watcher aggressive force-stop — only after restrict and kill, user apps only. Off by default. */
+    fun liveHogAggressiveForceStop(context: Context): Boolean = prefs(context).getBoolean("liveHogAggressiveForceStop", false)
+
+    fun setLiveHogAggressiveForceStop(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("liveHogAggressiveForceStop", on).apply()
+    }
+
     /** Dynamic Adaptive Governor — monitors device thermal state and flexes system load automatically. */
     fun dynamicGovernor(context: Context): Boolean = prefs(context).getBoolean("dynamicGovernor", true)
 

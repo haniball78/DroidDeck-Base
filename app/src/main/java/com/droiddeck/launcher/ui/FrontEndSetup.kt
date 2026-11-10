@@ -1252,6 +1252,8 @@ private fun AdvancedSetupTab(
     var freezeBloatware by remember { mutableStateOf(SessionPrefs.freezeBloatware(ctx)) }
     var freezeUserApps by remember { mutableStateOf(SessionPrefs.freezeUserApps(ctx)) }
     var restrictBackgroundHogs by remember { mutableStateOf(SessionPrefs.restrictBackgroundHogs(ctx)) }
+    var liveHogWatcher by remember { mutableStateOf(SessionPrefs.liveHogWatcher(ctx)) }
+    var liveHogAggressiveForceStop by remember { mutableStateOf(SessionPrefs.liveHogAggressiveForceStop(ctx)) }
 
     var restoring by remember { mutableStateOf(false) }
     var safeRestoreReport by remember { mutableStateOf<String?>(null) }
@@ -1878,6 +1880,28 @@ private fun AdvancedSetupTab(
             ) { on ->
                 restrictBackgroundHogs = on
                 SessionPrefs.setRestrictBackgroundHogs(ctx, on)
+            }
+            ToggleRow(
+                host = host,
+                key = "adv-live-hog-watcher",
+                label = stringResource(R.string.setup_adv_live_hog_watcher),
+                hint = stringResource(R.string.setup_adv_live_hog_watcher_hint),
+                checked = liveHogWatcher,
+                enabled = com.droiddeck.launcher.core.privileged.AdvancedTogglePolicy.enabled(masterEnabled, s.sessionRunning),
+            ) { on ->
+                liveHogWatcher = on
+                SessionPrefs.setLiveHogWatcher(ctx, on)
+            }
+            ToggleRow(
+                host = host,
+                key = "adv-live-hog-aggressive",
+                label = stringResource(R.string.setup_adv_live_hog_aggressive),
+                hint = stringResource(R.string.setup_adv_live_hog_aggressive_hint),
+                checked = liveHogAggressiveForceStop,
+                enabled = com.droiddeck.launcher.core.privileged.AdvancedTogglePolicy.enabled(masterEnabled, s.sessionRunning),
+            ) { on ->
+                liveHogAggressiveForceStop = on
+                SessionPrefs.setLiveHogAggressiveForceStop(ctx, on)
             }
         }
     }

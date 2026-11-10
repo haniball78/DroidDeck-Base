@@ -341,6 +341,14 @@ object HogRestrictionEngine {
 
     fun getRestrictedList(): List<String> = restrictedPackages.toList()
 
+    // Shared by LiveHogWatcher: the same app lists and protected set, so the
+    // live watcher never disagrees with the session-start restriction.
+    internal fun liveAppLists(context: Context): Pair<List<String>, List<String>> =
+        queryUserApps(context) to querySystemApps(context)
+
+    internal fun liveProtectedPackages(context: Context): Set<String> =
+        mergeProtectedPackages(RESTRICTION_PROTECTED, queryDynamicProtected(context), context.packageName)
+
     private fun queryUserApps(context: Context): List<String> {
         return exec(context, "pm list packages -3").lines()
             .filter { it.startsWith("package:") }

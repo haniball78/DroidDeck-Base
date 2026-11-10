@@ -35,6 +35,7 @@ object CrashHandler {
                 runCatching { com.droiddeck.launcher.core.privileged.GameModeEngine.restore(context) }
                 runCatching { com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(context) }
                 runCatching { com.droiddeck.launcher.core.privileged.HogRestrictionEngine.restore(context) }
+                runCatching { com.droiddeck.launcher.core.privileged.LiveHogWatcher.restore(context) }
             } catch (e: Throwable) {
             } finally {
                 previous?.uncaughtException(thread, error) ?: Runtime.getRuntime().halt(2)

@@ -519,6 +519,7 @@ class SessionService : Service() {
                 Log.i(TAG, applyGameModeNotingSuspect(gen))
                 Log.i(TAG, com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen))
                 Log.i(TAG, com.droiddeck.launcher.core.privileged.HogRestrictionEngine.apply(this, gen))
+                Log.i(TAG, com.droiddeck.launcher.core.privileged.LiveHogWatcher.start(this, gen) { SessionState.running && !SessionState.suspended && !SessionExit.isExiting() })
             }
         } else {
             Log.i(TAG, "advanced performance engines: SKIPPED (master switch off)")
@@ -2000,6 +2001,7 @@ class SessionService : Service() {
         com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, sessionGen)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, sessionGen)
         com.droiddeck.launcher.core.privileged.HogRestrictionEngine.restore(this, sessionGen)
+        com.droiddeck.launcher.core.privileged.LiveHogWatcher.restore(this, sessionGen)
         safetyMonitor?.setTweaksActive(false)
     }
 
@@ -2073,6 +2075,7 @@ class SessionService : Service() {
         applyGameModeNotingSuspect(gen)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen)
         com.droiddeck.launcher.core.privileged.HogRestrictionEngine.apply(this, gen)
+        com.droiddeck.launcher.core.privileged.LiveHogWatcher.start(this, gen) { SessionState.running && !SessionState.suspended && !SessionExit.isExiting() }
         val pid = SessionState.guestPid.takeIf { it > 1 } ?: sessionPid
         if (pid > 1) {
             if (com.droiddeck.launcher.core.privileged.GameModeEngine.shouldBoostAtResume(
@@ -2140,8 +2143,9 @@ class SessionService : Service() {
                 val gameOk = com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, leaveGen)
                 val freezerOk = com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, leaveGen)
                 val hogOk = com.droiddeck.launcher.core.privileged.HogRestrictionEngine.restore(this, leaveGen)
+                val liveHogOk = com.droiddeck.launcher.core.privileged.LiveHogWatcher.restore(this, leaveGen)
                 if (leaveGen != sessionGen || !SessionState.running || SessionState.suspended || SessionExit.isExiting()) return@Thread
-                if (gameOk && freezerOk && hogOk) {
+                if (gameOk && freezerOk && hogOk && liveHogOk) {
                     leaveRestored = true
                     safetyMonitor?.setTweaksActive(false)
                     SessionEvents.record("session.leave_timeout_restored", mapOf("gen" to sessionGen))
@@ -2236,7 +2240,8 @@ class SessionService : Service() {
                 val gameOk = com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, stoppedGen)
                 val freezerOk = com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, stoppedGen)
                 val hogOk = com.droiddeck.launcher.core.privileged.HogRestrictionEngine.restore(this, stoppedGen)
-                gameOk && freezerOk && hogOk
+                val liveHogOk = com.droiddeck.launcher.core.privileged.LiveHogWatcher.restore(this, stoppedGen)
+                gameOk && freezerOk && hogOk && liveHogOk
             } catch (t: Throwable) {
                 Log.w(TAG, "teardown restore", t)
                 false
@@ -2354,6 +2359,7 @@ class SessionService : Service() {
         SessionEvents.record("guest.exited", mapOf("status" to status))
         safetyMonitor?.stop()
         safetyMonitor = null
+        com.droiddeck.launcher.core.privileged.LiveHogWatcher.stop()
         SessionExit.beginTeardown(sessionGen)
         GpuClockPin.stop(this)
         GameThreadHints.stop()
