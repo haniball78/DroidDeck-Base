@@ -758,6 +758,11 @@
     <string name="setup_adv_aggressive_hint">Forces all performance &amp; prime cores (0xfc) and activates Samsung Enhanced Processing (increases heat &amp; battery draw)</string>
     <string name="setup_adv_dynamic_gov">Dynamic Adaptive Balancer</string>
     <string name="setup_adv_dynamic_gov_hint">Zero-polling thermal interrupt listener that dynamically flexes background load and CPU headroom during gameplay</string>
+    <string name="setup_adv_thermal_raise">Raise thermal limit to 4 (risky)</string>
+    <string name="setup_adv_thermal_raise_hint">Thermal safety starts at level 4 instead of 3. The phone runs hotter, reaches level 4 faster, and the battery wears faster.</string>
+    <string name="setup_adv_thermal_raise_warn_title">Raise the thermal limit?</string>
+    <string name="setup_adv_thermal_raise_warn_body">At level 3 the phone already throttles hard, and dropping the turbo is what keeps it from reaching 4. With this on, the turbo stays on at 3, the phone reaches 4 faster and more often, and the battery wears faster. Only use it for short sessions.</string>
+    <string name="setup_adv_thermal_raise_confirm">Enable anyway</string>
     <string name="setup_adv_group_freezer">Android Framework &amp; App Freezing</string>
     <string name="setup_adv_deep_doze">Deep System Doze</string>
     <string name="setup_adv_deep_doze_hint">Forces Android framework into deep idle to halt background sync, alarms, and unnecessary wakelocks</string>

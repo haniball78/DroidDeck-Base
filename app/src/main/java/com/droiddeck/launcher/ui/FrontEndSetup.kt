@@ -49,6 +49,7 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.VideogameAsset
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,6 +64,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -1244,6 +1246,8 @@ private fun AdvancedSetupTab(
     var gameModeEngine by remember { mutableStateOf(SessionPrefs.gameModeEngine(ctx)) }
     var gameModeAggressive by remember { mutableStateOf(SessionPrefs.gameModeAggressive(ctx)) }
     var dynamicGovernor by remember { mutableStateOf(SessionPrefs.dynamicGovernor(ctx)) }
+    var thermalRaiseTo4 by remember { mutableStateOf(SessionPrefs.thermalRaiseTo4(ctx)) }
+    var showThermalRaiseWarning by remember { mutableStateOf(false) }
     var deepSystemDoze by remember { mutableStateOf(SessionPrefs.deepSystemDoze(ctx)) }
     var freezeBloatware by remember { mutableStateOf(SessionPrefs.freezeBloatware(ctx)) }
     var freezeUserApps by remember { mutableStateOf(SessionPrefs.freezeUserApps(ctx)) }
@@ -1783,6 +1787,38 @@ private fun AdvancedSetupTab(
                 dynamicGovernor = on
                 SessionPrefs.setDynamicGovernor(ctx, on)
             }
+            ToggleRow(
+                host = host,
+                key = "adv-thermal-raise",
+                label = stringResource(R.string.setup_adv_thermal_raise),
+                hint = stringResource(R.string.setup_adv_thermal_raise_hint),
+                checked = thermalRaiseTo4,
+                enabled = com.droiddeck.launcher.core.privileged.AdvancedTogglePolicy.enabled(masterEnabled, s.sessionRunning, gameModeEngine),
+                labelColor = colors.error,
+            ) { on ->
+                if (on) showThermalRaiseWarning = true
+                else {
+                    thermalRaiseTo4 = false
+                    SessionPrefs.setThermalRaiseTo4(ctx, false)
+                }
+            }
+        }
+        if (showThermalRaiseWarning) {
+            AlertDialog(
+                onDismissRequest = { showThermalRaiseWarning = false },
+                title = { Text(stringResource(R.string.setup_adv_thermal_raise_warn_title), fontWeight = FontWeight.Bold) },
+                text = { Text(stringResource(R.string.setup_adv_thermal_raise_warn_body), fontSize = 12.sp) },
+                confirmButton = {
+                    Button(onClick = {
+                        showThermalRaiseWarning = false
+                        thermalRaiseTo4 = true
+                        SessionPrefs.setThermalRaiseTo4(ctx, true)
+                    }) { Text(stringResource(R.string.setup_adv_thermal_raise_confirm)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showThermalRaiseWarning = false }) { Text(stringResource(R.string.common_cancel)) }
+                },
+            )
         }
     }
 

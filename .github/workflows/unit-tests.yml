@@ -42,6 +42,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.privileged.PlainModeLatchTest" \
             --tests "com.droiddeck.launcher.session.SafetyMonitorPlainModeTest" \
             --tests "com.droiddeck.launcher.session.PlainResumePolicyTest" \
+            --tests "com.droiddeck.launcher.session.SuspendStateTest" \
             --tests "com.droiddeck.launcher.core.ConnectionCardStateTest" \
             --tests "com.droiddeck.launcher.core.WirelessAdbPairingStabilityTest" \
             --tests "com.droiddeck.launcher.core.WirelessAdbAutoRestartTest" \

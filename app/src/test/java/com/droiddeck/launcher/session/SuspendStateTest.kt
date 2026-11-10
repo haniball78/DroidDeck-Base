@@ -92,6 +92,17 @@ class SuspendStateTest {
     }
 
     @Test
+    fun thermalRaiseToFourAllowsResumeAtThree() {
+        assertTrue(
+            SuspendPolicy.checkResume(SuspendKind.SAFETY, true, true, 80, false, 3, true, thermalSevereLevel = 4).allowed,
+        )
+        assertEquals(
+            ResumeBlock.THERMAL_SEVERE_SAFETY,
+            SuspendPolicy.checkResume(SuspendKind.SAFETY, true, true, 80, false, 4, true, thermalSevereLevel = 4).block,
+        )
+    }
+
+    @Test
     fun userResumeWithoutOptimizationsNeedsNoBridge() {
         assertTrue(
             SuspendPolicy.checkResume(SuspendKind.USER, false, false, null, false, 0, false).allowed,
@@ -129,6 +140,16 @@ class SuspendStateTest {
         )
         assertFalse(
             SuspendPolicy.shouldReapplyOnReturn(true, false, true, 80, false, 3),
+        )
+    }
+
+    @Test
+    fun thermalRaiseToFourAllowsReapplyAtThree() {
+        assertTrue(
+            SuspendPolicy.shouldReapplyOnReturn(true, false, true, 80, false, 3, thermalSevereLevel = 4),
+        )
+        assertFalse(
+            SuspendPolicy.shouldReapplyOnReturn(true, false, true, 80, false, 4, thermalSevereLevel = 4),
         )
     }
 }

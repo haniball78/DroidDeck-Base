@@ -44,6 +44,7 @@ data class SafetyThresholds(
     val warnLevel: Int = 15,
     val tweaksLevel: Int = 10,
     val emergencyLevel: Int = 5,
+    val thermalSevereLevel: Int = SafetyPolicy.THERMAL_SEVERE,
 )
 
 internal object SafetyPolicy {
@@ -79,13 +80,14 @@ internal object SafetyPolicy {
                 return decision(SafetyAction.WARN_BATTERY_15)
             }
         }
-        if (input.thermalStatus != THERMAL_UNKNOWN && input.thermalStatus >= THERMAL_SEVERE && input.tweaksActive && !tweaksEnded) {
+        if (input.thermalStatus != THERMAL_UNKNOWN && input.thermalStatus >= thresholds.thermalSevereLevel && input.tweaksActive && !tweaksEnded) {
             // Thermal safety never ends tweaks: the load-reducing tweaks
             // (freezer, doze, background limit, governor) lower load and
             // heat, so removing them at high heat would add load. Only the
             // heat-making aggressive keys are rolled back, once per episode;
             // afterwards the coolers stay on and the governor keeps
-            // managing in COOLING_RELIEF.
+            // managing in COOLING_RELIEF. The severe level is configurable
+            // (raise-to-4 option) via thresholds.thermalSevereLevel.
             if (input.aggressiveActive && !deescalated) {
                 deescalated = true
                 deescalatedAt = input.nowMs

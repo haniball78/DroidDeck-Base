@@ -1647,6 +1647,7 @@ class SessionService : Service() {
                 charging = readBatteryCharging(),
                 thermalStatus = readThermalStatus(),
                 explicitResume = explicitResumeRequested,
+                thermalSevereLevel = SessionPrefs.thermalSevereLevel(this),
             )
             if (!resumeCheck.allowed &&
                 ResumeOptimizationPolicy.fallbackWithoutOptimizations(
@@ -1662,6 +1663,7 @@ class SessionService : Service() {
                     charging = readBatteryCharging(),
                     thermalStatus = readThermalStatus(),
                     explicitResume = explicitResumeRequested,
+                    thermalSevereLevel = SessionPrefs.thermalSevereLevel(this),
                 )
             }
             com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
@@ -1951,6 +1953,7 @@ class SessionService : Service() {
                 warnLevel = SessionPrefs.safetyWarnLevel(appContext),
                 tweaksLevel = SessionPrefs.safetyTweaksLevel(appContext),
                 emergencyLevel = SessionPrefs.safetyEmergencyLevel(appContext),
+                thermalSevereLevel = SessionPrefs.thermalSevereLevel(appContext),
             ),
             countdownSeconds = SessionPrefs.safetyCountdownSeconds(appContext),
             listener = object : SafetyListener {
@@ -2053,6 +2056,7 @@ class SessionService : Service() {
             charging = readBatteryCharging(),
             thermalStatus = readThermalStatus(),
             explicitResume = true,
+            thermalSevereLevel = SessionPrefs.thermalSevereLevel(this),
         )
         if (!check.allowed) {
             Log.w(TAG, "resume re-apply blocked: ${check.block}")
@@ -2164,6 +2168,7 @@ class SessionService : Service() {
             batteryLevel = readBatteryLevel(),
             charging = readBatteryCharging(),
             thermalStatus = readThermalStatus(),
+            thermalSevereLevel = SessionPrefs.thermalSevereLevel(this),
         )
         if (!reapply) {
             Log.w(TAG, "leave return: tweaks stay off after temporary restore")

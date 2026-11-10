@@ -188,6 +188,7 @@ internal object SuspendPolicy {
         charging: Boolean,
         thermalStatus: Int,
         explicitResume: Boolean,
+        thermalSevereLevel: Int = THERMAL_SEVERE,
     ): ResumeCheck {
         if (kind == SuspendKind.SAFETY && !explicitResume) {
             return ResumeCheck(false, ResumeBlock.EXPLICIT_REQUIRED)
@@ -204,7 +205,7 @@ internal object SuspendPolicy {
             if (batteryLevel != null && !charging && batteryLevel <= TWEAKS_REAPPLY_MAX_BATTERY) {
                 return ResumeCheck(false, ResumeBlock.BATTERY_LOW_SAFETY)
             }
-            if (thermalStatus != SafetyPolicy.THERMAL_UNKNOWN && thermalStatus >= THERMAL_SEVERE) {
+            if (thermalStatus != SafetyPolicy.THERMAL_UNKNOWN && thermalStatus >= thermalSevereLevel) {
                 return ResumeCheck(false, ResumeBlock.THERMAL_SEVERE_SAFETY)
             }
         }
@@ -228,9 +229,10 @@ internal object SuspendPolicy {
         batteryLevel: Int?,
         charging: Boolean,
         thermalStatus: Int,
+        thermalSevereLevel: Int = THERMAL_SEVERE,
     ): Boolean {
         if (!leaveRestored || tweaksEndedForSafety || !bridgeOk) return false
-        if (thermalStatus != SafetyPolicy.THERMAL_UNKNOWN && thermalStatus >= THERMAL_SEVERE) return false
+        if (thermalStatus != SafetyPolicy.THERMAL_UNKNOWN && thermalStatus >= thermalSevereLevel) return false
         if (batteryLevel != null && !charging && batteryLevel <= TWEAKS_REAPPLY_MAX_BATTERY) return false
         return true
     }

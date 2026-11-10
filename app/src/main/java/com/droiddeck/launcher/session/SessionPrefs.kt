@@ -538,6 +538,17 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("dynamicGovernor", on).apply()
     }
 
+    /** Raise thermal safety threshold — de-escalation starts at level 4 instead of 3. Off by default; enabling shows a warning. */
+    fun thermalRaiseTo4(context: Context): Boolean = prefs(context).getBoolean("thermalRaiseTo4", false)
+
+    fun setThermalRaiseTo4(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("thermalRaiseTo4", on).apply()
+    }
+
+    /** Effective thermal-severe level: one level above the default when the raise option is on. */
+    fun thermalSevereLevel(context: Context): Int =
+        if (thermalRaiseTo4(context)) SafetyPolicy.THERMAL_SEVERE + 1 else SafetyPolicy.THERMAL_SEVERE
+
     fun safetyWarnLevel(context: Context): Int = prefs(context).getInt("safetyWarnLevel", 15)
 
     fun setSafetyWarnLevel(context: Context, level: Int) {

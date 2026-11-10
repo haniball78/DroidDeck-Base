@@ -434,7 +434,7 @@ fun SettingsGroup(title: String, compact: Boolean = false, content: @Composable 
 }
 
 @Composable
-fun SettingsRow(label: String, hint: String?, highlighted: Boolean = false, hintLines: Int? = null, stacked: Boolean = false, control: @Composable () -> Unit) {
+fun SettingsRow(label: String, hint: String?, highlighted: Boolean = false, hintLines: Int? = null, stacked: Boolean = false, labelColor: Color? = null, control: @Composable () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
     val bg by animateColorAsState(if (highlighted) pal.signal.copy(alpha = 0.10f) else Color.Transparent, Motion.tw(200), label = "rowBg")
@@ -445,7 +445,7 @@ fun SettingsRow(label: String, hint: String?, highlighted: Boolean = false, hint
     if (stacked || LocalNarrowPane.current) Column(
         modifier = Modifier.fillMaxWidth().background(bg).padding(start = 14.dp, end = 14.dp, top = 11.dp, bottom = 12.dp),
     ) {
-        Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.onBackground)
+        Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = labelColor ?: colors.onBackground)
         if (hint != null || hintLines != null) hintText(13.sp)
         Box(Modifier.padding(top = 8.dp)) { control() }
     } else Row(
@@ -453,7 +453,7 @@ fun SettingsRow(label: String, hint: String?, highlighted: Boolean = false, hint
         modifier = Modifier.fillMaxWidth().background(bg).padding(horizontal = 14.dp, vertical = 11.dp),
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.onBackground)
+            Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = labelColor ?: colors.onBackground)
             if (hint != null || hintLines != null) hintText(12.5.sp)
         }
         control()
@@ -498,8 +498,8 @@ fun UncertainMark(description: String) {
 }
 
 @Composable
-fun ToggleRow(host: MenuHost, key: String, label: String, hint: String?, checked: Boolean, enabled: Boolean = true, chipModifier: Modifier = Modifier, onChange: (Boolean) -> Unit) =
-    SettingsRow(label, hint) {
+fun ToggleRow(host: MenuHost, key: String, label: String, hint: String?, checked: Boolean, enabled: Boolean = true, chipModifier: Modifier = Modifier, labelColor: Color? = null, onChange: (Boolean) -> Unit) =
+    SettingsRow(label, hint, labelColor = labelColor) {
         ToggleSwitch(checked, enabled, label, chipModifier.testTag("setting-$key")) {
             host.open = null
             if (key.startsWith("adv-")) {

@@ -724,6 +724,11 @@
     <string name="setup_adv_aggressive_hint">تثبيت كافة أنوية الأداء والنواة الخارقة (0xfc) وتفعيل المعالجة المعززة من سامسونج (يزيد الحرارة واستهلاك البطارية)</string>
     <string name="setup_adv_dynamic_gov">الموازن الذكي التكيفي (Dynamic Balancer)</string>
     <string name="setup_adv_dynamic_gov_hint">مراقبة مستمرة لحرارة المعالج وتعديل حمل النظام وقوة المعالجة ذاتياً وبشكل ديناميكي فوري أثناء اللعب</string>
+    <string name="setup_adv_thermal_raise">رفع حد الحرارة إلى 4 (خطير)</string>
+    <string name="setup_adv_thermal_raise_hint">تبدأ حماية الحرارة من المستوى 4 بدل 3. الهاتف يسخن أكثر، ويصل للمستوى 4 أسرع، والبطارية تتعب أسرع.</string>
+    <string name="setup_adv_thermal_raise_warn_title">رفع حد الحرارة؟</string>
+    <string name="setup_adv_thermal_raise_warn_body">على المستوى 3 الهاتف أصلاً بيخفف الأداء بقوة، وإنزال التوربو هو يلي بيمنعه يوصل لـ 4. مع هاد الخيار، التوربو بيضل شغال على 3، والهاتف بيوصل لـ 4 أسرع وأكتر، والبطارية بتتعب أسرع. استعمله للجلسات القصيرة بس.</string>
+    <string name="setup_adv_thermal_raise_confirm">تفعيل رغم ذلك</string>
     <string name="setup_adv_group_freezer">تجميد تطبيقات وخدمات أندرويد</string>
     <string name="setup_adv_deep_doze">السكون العميق للنظام (Deep Doze)</string>
     <string name="setup_adv_deep_doze_hint">إدخال نظام أندرويد في وضع الخمول العميق لمنع المزامنة والتنبيهات الخلفية أثناء اللعب</string>

@@ -137,6 +137,22 @@ class SafetyPolicyTest {
     }
 
     @Test
+    fun thermalSevereLevelFourDefersDeescalation() {
+        val levelFour = SafetyThresholds(thermalSevereLevel = 4)
+        val atThree = SafetyPolicy.evaluate(input(50, thermal = 3, aggressive = true), levelFour)
+        assertEquals(SafetyAction.NONE, atThree.action)
+        assertFalse(atThree.deescalated)
+        assertFalse(atThree.tweaksAlreadyEnded)
+        val atFour = SafetyPolicy.evaluate(input(50, thermal = 4, aggressive = true), levelFour)
+        assertEquals(SafetyAction.DEESCALATE_AGGRESSIVE, atFour.action)
+        assertTrue(atFour.deescalated)
+        assertFalse(atFour.tweaksAlreadyEnded)
+        val atFourPlain = SafetyPolicy.evaluate(input(50, thermal = 4, aggressive = false), levelFour)
+        assertEquals(SafetyAction.NONE, atFourPlain.action)
+        assertFalse(atFourPlain.tweaksAlreadyEnded)
+    }
+
+    @Test
     fun batteryLowEndsEvenAfterDeescalation() {
         val decision = SafetyPolicy.evaluate(
             input(10, thermal = 3, deescalated = true, deescalatedAt = 1000L, nowMs = 1000L + 60_000L)
