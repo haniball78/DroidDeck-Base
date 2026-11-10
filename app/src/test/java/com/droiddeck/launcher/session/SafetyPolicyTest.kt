@@ -81,16 +81,21 @@ class SafetyPolicyTest {
     }
 
     @Test
-    fun severeThermalEndsTweaksButModerateDoesNot() {
+    fun thermalStatusNeverEndsTweaks() {
         assertEquals(SafetyAction.NONE, SafetyPolicy.evaluate(input(50, thermal = 2)).action)
         val severe = SafetyPolicy.evaluate(input(50, thermal = 3))
-        assertEquals(SafetyAction.END_TWEAKS, severe.action)
+        assertEquals(SafetyAction.NONE, severe.action)
+        assertFalse(severe.tweaksAlreadyEnded)
         val critical = SafetyPolicy.evaluate(input(50, thermal = 4))
-        assertEquals(SafetyAction.END_TWEAKS, critical.action)
+        assertEquals(SafetyAction.NONE, critical.action)
+        assertFalse(critical.tweaksAlreadyEnded)
+        val emergency = SafetyPolicy.evaluate(input(50, thermal = 5))
+        assertEquals(SafetyAction.NONE, emergency.action)
+        assertFalse(emergency.tweaksAlreadyEnded)
     }
 
     @Test
-    fun severeThermalDeescalatesAggressiveFirstThenEndsAfterWindow() {
+    fun severeThermalDeescalatesAggressiveOnceAndStaysDeescalated() {
         val first = SafetyPolicy.evaluate(input(50, thermal = 3, aggressive = true))
         assertEquals(SafetyAction.DEESCALATE_AGGRESSIVE, first.action)
         assertTrue(first.deescalated)
@@ -100,27 +105,35 @@ class SafetyPolicyTest {
         )
         assertEquals(SafetyAction.NONE, waiting.action)
         assertFalse(waiting.tweaksAlreadyEnded)
-        val ended = SafetyPolicy.evaluate(
+        val afterWindow = SafetyPolicy.evaluate(
             input(50, thermal = 3, deescalated = true, deescalatedAt = 1000L, nowMs = 1000L + 300_000L)
         )
-        assertEquals(SafetyAction.END_TWEAKS, ended.action)
-        assertTrue(ended.tweaksAlreadyEnded)
+        assertEquals(SafetyAction.NONE, afterWindow.action)
+        assertFalse(afterWindow.tweaksAlreadyEnded)
     }
 
     @Test
-    fun severeThermalWithoutAggressiveEndsImmediately() {
+    fun severeThermalWithoutAggressiveKeepsTweaks() {
         val decision = SafetyPolicy.evaluate(input(50, thermal = 3, aggressive = false))
-        assertEquals(SafetyAction.END_TWEAKS, decision.action)
-        assertTrue(decision.tweaksAlreadyEnded)
+        assertEquals(SafetyAction.NONE, decision.action)
+        assertFalse(decision.tweaksAlreadyEnded)
     }
 
     @Test
-    fun criticalThermalEndsEvenAfterDeescalation() {
+    fun criticalThermalKeepsTweaksAfterDeescalation() {
         val decision = SafetyPolicy.evaluate(
             input(50, thermal = 4, deescalated = true, deescalatedAt = 1000L, nowMs = 1000L + 60_000L)
         )
-        assertEquals(SafetyAction.END_TWEAKS, decision.action)
-        assertTrue(decision.tweaksAlreadyEnded)
+        assertEquals(SafetyAction.NONE, decision.action)
+        assertFalse(decision.tweaksAlreadyEnded)
+    }
+
+    @Test
+    fun criticalThermalDeescalatesAggressive() {
+        val decision = SafetyPolicy.evaluate(input(50, thermal = 4, aggressive = true))
+        assertEquals(SafetyAction.DEESCALATE_AGGRESSIVE, decision.action)
+        assertTrue(decision.deescalated)
+        assertFalse(decision.tweaksAlreadyEnded)
     }
 
     @Test
@@ -143,7 +156,7 @@ class SafetyPolicyTest {
     @Test
     fun unknownBatteryStillEvaluatesThermalAndBridge() {
         val noBattery = SafetyInput(null, 3, true, true, false, false, false, false)
-        assertEquals(SafetyAction.END_TWEAKS, SafetyPolicy.evaluate(noBattery).action)
+        assertEquals(SafetyAction.NONE, SafetyPolicy.evaluate(noBattery).action)
     }
 
     @Test

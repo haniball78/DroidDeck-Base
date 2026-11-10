@@ -29,7 +29,6 @@ data class SafetyInput(
     val deescalated: Boolean = false,
     val deescalatedAtMs: Long = 0L,
     val nowMs: Long = 0L,
-    val deescalationWindowMs: Long = 300_000L,
 )
 
 data class SafetyDecision(
@@ -54,7 +53,6 @@ internal object SafetyPolicy {
     const val HYSTERESIS = 3
     const val COUNTDOWN_SECONDS = 20
     const val THERMAL_SEVERE = 3
-    const val THERMAL_CRITICAL = 4
     const val THERMAL_UNKNOWN = -1
 
     fun evaluate(input: SafetyInput, thresholds: SafetyThresholds = SafetyThresholds()): SafetyDecision {
@@ -82,24 +80,18 @@ internal object SafetyPolicy {
             }
         }
         if (input.thermalStatus != THERMAL_UNKNOWN && input.thermalStatus >= THERMAL_SEVERE && input.tweaksActive && !tweaksEnded) {
-            if (input.thermalStatus >= THERMAL_CRITICAL) {
-                tweaksEnded = true
-                return decision(SafetyAction.END_TWEAKS)
-            }
+            // Thermal safety never ends tweaks: the load-reducing tweaks
+            // (freezer, doze, background limit, governor) lower load and
+            // heat, so removing them at high heat would add load. Only the
+            // heat-making aggressive keys are rolled back, once per episode;
+            // afterwards the coolers stay on and the governor keeps
+            // managing in COOLING_RELIEF.
             if (input.aggressiveActive && !deescalated) {
                 deescalated = true
                 deescalatedAt = input.nowMs
                 return decision(SafetyAction.DEESCALATE_AGGRESSIVE)
             }
-            if (deescalated) {
-                if (input.nowMs - deescalatedAt >= input.deescalationWindowMs) {
-                    tweaksEnded = true
-                    return decision(SafetyAction.END_TWEAKS)
-                }
-                return decision(SafetyAction.NONE)
-            }
-            tweaksEnded = true
-            return decision(SafetyAction.END_TWEAKS)
+            return decision(SafetyAction.NONE)
         }
         if (input.bridgeUnknown) {
             return decision(SafetyAction.NONE)

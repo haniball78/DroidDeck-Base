@@ -26,12 +26,13 @@ class BatchCVerifyTest {
     }
 
     @Test
-    fun unknownThermalNeverTriggersEndTweaks() {
+    fun thermalNeverTriggersEndTweaks() {
         val unknown = SafetyPolicy.evaluate(baseInput(SafetyPolicy.THERMAL_UNKNOWN, true))
         assertEquals(SafetyAction.NONE, unknown.action)
         assertFalse(unknown.tweaksAlreadyEnded)
         val severe = SafetyPolicy.evaluate(baseInput(SafetyPolicy.THERMAL_SEVERE, true))
-        assertEquals(SafetyAction.END_TWEAKS, severe.action)
+        assertEquals(SafetyAction.NONE, severe.action)
+        assertFalse(severe.tweaksAlreadyEnded)
     }
 
     @Test

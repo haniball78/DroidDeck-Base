@@ -54,6 +54,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.WirelessAdbPatientRetryTest" \
             --tests "com.droiddeck.launcher.core.SplitScreenWindowingTest" \
             --tests "com.droiddeck.launcher.core.privileged.GovernorTierCommandsTest" \
+            --tests "com.droiddeck.launcher.core.privileged.BatchCVerifyTest" \
             --tests "com.droiddeck.launcher.core.privileged.FixedPerformanceGetterTest" \
             --tests "com.droiddeck.launcher.core.privileged.AppFreezerPackageSplitTest" \
             --tests "com.droiddeck.launcher.core.privileged.GameModeBoostTest" \
