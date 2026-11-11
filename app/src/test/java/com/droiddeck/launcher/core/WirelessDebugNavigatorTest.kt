@@ -81,8 +81,7 @@ class WirelessDebugNavigatorTest {
         }
         shadowOf(context.packageManager).addResolveInfoForIntent(
             Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
-            settings,
-            permissionController,
+            listOf(settings, permissionController),
         )
         val intent = WirelessDebugNavigator.targetIntent(context)
         assertEquals(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS, intent.action)
