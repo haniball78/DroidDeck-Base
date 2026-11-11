@@ -67,6 +67,7 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val status by PrivilegedBridge.statusFlow.collectAsState()
     var refreshing by remember { mutableStateOf(false) }
+    var autoGrant by remember { mutableStateOf(WirelessAdbFix.isAutoGrantSecureEnabled(ctx)) }
 
     // Same three checks the Overview connection card polls, same 1.5 s
     // rhythm: without them the banner below would still say Active
@@ -156,6 +157,15 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
                 } else {
                     DaemonActivationCard(ctx)
                 }
+                SettingsRow(
+                    label = "Automatic secure-settings grant",
+                    hint = "DroidDeck grants itself WRITE_SECURE_SETTINGS from its own shell at every daemon start, so wireless debugging can restart itself. No computer involved.",
+                ) {
+                    ToggleSwitch(checked = autoGrant, onChange = { on ->
+                        autoGrant = on
+                        WirelessAdbFix.setAutoGrantSecureEnabled(ctx, on)
+                    })
+                }
             }
         }
 
@@ -197,6 +207,15 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
                     ) {
                         withContext(Dispatchers.IO) { PrivilegedBridge.grantDroidDeckPermissions(ctx) }
                         Toast.makeText(ctx, "Permissions granted", Toast.LENGTH_SHORT).show()
+                    }
+                    QuickActionButton(
+                        Icons.Outlined.KeyOff, "Revoke secure-settings grant",
+                        "Removes WRITE_SECURE_SETTINGS and turns the automatic grant off",
+                    ) {
+                        withContext(Dispatchers.IO) { PrivilegedBridge.revokeSecureSettingsGrant(ctx) }
+                        WirelessAdbFix.setAutoGrantSecureEnabled(ctx, false)
+                        autoGrant = false
+                        Toast.makeText(ctx, "Secure-settings grant revoked", Toast.LENGTH_SHORT).show()
                     }
                 }
             }

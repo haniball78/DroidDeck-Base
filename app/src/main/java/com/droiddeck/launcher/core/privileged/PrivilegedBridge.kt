@@ -290,6 +290,7 @@ object PrivilegedBridge {
         command.startsWith("cmd game") -> "game-mode"
         command.startsWith("cmd deviceidle") || command.startsWith("cmd package suspend") -> "app-freezer"
         command.startsWith("pm grant") -> "grant"
+        command.startsWith("pm revoke") -> "revoke"
         else -> "shell"
     }
 
@@ -427,6 +428,17 @@ object PrivilegedBridge {
             ).exitCode == 0
         }
         DiagnosticsLog.log(context, "device.change", if (result) "grants-succeeded" else "grants-failed")
+        return result
+    }
+
+    /** Revokes only WRITE_SECURE_SETTINGS, through the same backend the grant
+     * uses (embedded daemon or Shizuku). Called from the Engine page
+     * toggle-off path, so turning the automatic grant off also removes
+     * the grant itself. Returns false when no privileged backend is active. */
+    fun revokeSecureSettingsGrant(context: Context): Boolean {
+        val pkg = context.packageName
+        val result = execute("pm revoke $pkg android.permission.WRITE_SECURE_SETTINGS").exitCode == 0
+        DiagnosticsLog.log(context, "device.change", if (result) "revoke-secure-succeeded" else "revoke-secure-failed")
         return result
     }
 

@@ -53,6 +53,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.AdbIdentityGeneratorTest" \
             --tests "com.droiddeck.launcher.core.AdbSlowPairingDiagnosticsTest" \
             --tests "com.droiddeck.launcher.core.WirelessAdbPatientRetryTest" \
+            --tests "com.droiddeck.launcher.core.WirelessAdbAutoGrantTest" \
             --tests "com.droiddeck.launcher.core.SplitScreenWindowingTest" \
             --tests "com.droiddeck.launcher.core.privileged.GovernorTierCommandsTest" \
             --tests "com.droiddeck.launcher.core.privileged.BatchCVerifyTest" \

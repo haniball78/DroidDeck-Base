@@ -147,10 +147,15 @@ object WirelessAdbFix {
     private fun pairingPrefs(context: Context) =
         context.getSharedPreferences("wireless-adb-pairing", Context.MODE_PRIVATE)
 
-    /** The user's self-grant decision: true = allow, false = decline, null = not asked yet. */
-    fun secureGrantDecision(context: Context): Boolean? {
-        val prefs = pairingPrefs(context.applicationContext)
-        return if (prefs.contains("secureGrantConsent")) prefs.getBoolean("secureGrantConsent", false) else null
+    /** Automatic self-grant of WRITE_SECURE_SETTINGS at daemon start. Default ON:
+     * the user approved the automatic self-grant on 2026-11-11; the app grants
+     * itself from its own shell, no computer involved. Turned off from the
+     * Engine page toggle, which also revokes the grant. */
+    fun isAutoGrantSecureEnabled(context: Context): Boolean =
+        pairingPrefs(context.applicationContext).getBoolean("autoGrantSecure", true)
+
+    fun setAutoGrantSecureEnabled(context: Context, enabled: Boolean) {
+        pairingPrefs(context.applicationContext).edit().putBoolean("autoGrantSecure", enabled).apply()
     }
 
     /** Whether the current identity was ever verified (a live daemon start succeeded).
@@ -177,10 +182,6 @@ object WirelessAdbFix {
      * One retry rules out a transient; after that, offer the reset instead
      * of retrying for 7 minutes. */
     fun isRevokedIdentity(verified: Boolean, attempts: Int): Boolean = verified && attempts >= 1
-
-    fun clearSecureGrantDecision(context: Context) {
-        pairingPrefs(context.applicationContext).edit().remove("secureGrantConsent").apply()
-    }
 
     /** True when the app process itself holds WRITE_SECURE_SETTINGS. */
     fun hasSecureSettingsGrant(context: Context): Boolean =
@@ -522,14 +523,11 @@ object WirelessAdbFix {
             } else {
                 steps.append("phantom:skipped,")
             }
-            // The self-grant runs only with the user's consent: a decline
-            // leaves the app without WRITE_SECURE_SETTINGS, so the
-            // automatic wireless restart is unavailable and the manual
-            // guided reset is the fallback. Undecided keeps the old
-            // behaviour — the consent screen gates every new pairing, so
-            // undecided here means a pairing from an older build.
-            val grantSecure = secureGrantDecision(context) != false
-            val grantSecureResult = if (grantSecure) {
+            // Automatic self-grant (approved 2026-11-11): the app grants
+            // itself WRITE_SECURE_SETTINGS from its own shell at every
+            // daemon start, no computer involved. The Engine page toggle
+            // turns it off; turning it off also revokes the grant.
+            val grantSecureResult = if (isAutoGrantSecureEnabled(context)) {
                 adb.shell("pm grant ${context.packageName} android.permission.WRITE_SECURE_SETTINGS 2>/dev/null || true").exitCode.toString()
             } else {
                 "skipped"
@@ -664,7 +662,6 @@ object WirelessAdbFix {
     fun resetPairingCompletely(context: Context): String? {
         val appContext = context.applicationContext
         forgetIdentity(appContext)
-        clearSecureGrantDecision(appContext)
         setIdentityVerified(appContext, false)
         setLastPairMs(appContext, 0L)
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearAuthFailedPort()
