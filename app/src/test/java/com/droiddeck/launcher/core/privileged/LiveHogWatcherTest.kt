@@ -157,4 +157,33 @@ class LiveHogWatcherTest {
         assertEquals("live-hog-buckets-com.example.app", liveHogJournalKey("buckets", "com.example.app"))
         assertEquals("live-hog-whitelist-com.example.app", liveHogJournalKey("whitelist", "com.example.app"))
     }
+
+    @Test
+    fun pollIsThirtySecondsForFirstThreeMinutesThenNinety() {
+        assertEquals(30_000L, liveHogPollDelay(0L))
+        assertEquals(30_000L, liveHogPollDelay(179_999L))
+        assertEquals(90_000L, liveHogPollDelay(180_000L))
+        assertEquals(90_000L, liveHogPollDelay(1_000_000L))
+    }
+
+    @Test
+    fun phaseNameIsFastThenSteady() {
+        assertEquals("fast", liveHogPhaseName(0L))
+        assertEquals("fast", liveHogPhaseName(179_999L))
+        assertEquals("steady", liveHogPhaseName(180_000L))
+    }
+
+    @Test
+    fun topSummaryListsTopThreeByRssWithHits() {
+        val samples = mapOf(
+            "com.a" to LiveHogSample("com.a", 260L, 15.0),
+            "com.b" to LiveHogSample("com.b", 180L, null),
+            "com.c" to LiveHogSample("com.c", 320L, 5.0),
+            "com.d" to LiveHogSample("com.d", 100L, 2.0),
+        )
+        val hits = mapOf("com.a" to 2, "com.c" to 1)
+        assertEquals("com.c:320:5.0:1;com.a:260:15.0:2;com.b:180:?:0", liveHogTopSummary(samples, hits))
+        assertEquals("com.c:320:5.0:1;com.a:260:15.0:2", liveHogTopSummary(samples, hits, 2))
+        assertEquals("", liveHogTopSummary(emptyMap(), emptyMap()))
+    }
 }

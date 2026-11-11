@@ -8,15 +8,17 @@ import java.util.concurrent.atomic.AtomicInteger
 
 // Live Hog Watcher — the session-start hog restriction (HogRestrictionEngine)
 // picks its targets once, from yesterday's foreground time, and never looks
-// again. This watcher samples the live processes every 90 s while the game
-// runs and acts only on a package that keeps hogging for two samples in a
-// row, so a one-off sync or update never gets killed.
+// again. This watcher samples the live processes while the game runs —
+// every 30 s for the first 3 minutes, then every 90 s — and acts only on
+// a package that keeps hogging for two samples in a row, so a one-off sync
+// or update never gets killed.
 //
 // Thresholds are the user's own: user apps 250 MB RAM or 14% CPU;
 // tracking-only system apps 300 MB RAM or 18% CPU. Every other system app
 // is excluded, exactly like the session-start restriction. CPU% is the
-// share of total CPU capacity (all cores), from /proc deltas over the 90 s
-// interval. RAM is VmRSS (resident set) summed over the package's processes.
+// share of total CPU capacity (all cores), from /proc deltas over the
+// sampling interval. RAM is VmRSS (resident set) summed over the package's
+// processes.
 //
 // The action ladder is graduated: restrict first (the same journaled bundle
 // as the session-start restriction, restored on exit), then `am kill` when
@@ -60,6 +62,31 @@ internal fun isLiveHog(sample: LiveHogSample, kind: LiveHogClass): Boolean {
     if (sample.rssMb >= t.ramMb) return true
     val cpu = sample.cpuPct ?: return false
     return cpu >= t.cpuPct
+}
+
+// Sampling schedule: 30 s ticks for the first 3 minutes of a session, then
+// 90 s. Hogs show up early, right after the session-start restriction, so
+// the fast phase catches one after 1 minute of hogging instead of 3.
+internal fun liveHogPollDelay(elapsedMs: Long): Long =
+    if (elapsedMs < LiveHogWatcher.FAST_PHASE_MS) LiveHogWatcher.FAST_POLL_MS else LiveHogWatcher.POLL_MS
+
+internal fun liveHogPhaseName(elapsedMs: Long): String =
+    if (elapsedMs < LiveHogWatcher.FAST_PHASE_MS) "fast" else "steady"
+
+// Compact top-consumers summary for the per-tick diagnostics event:
+// "pkg:rssMb:cpuPct:hits" per package, top `limit` by RSS, ";"-joined.
+// cpuPct is "?" when unknown (first tick after a restart).
+internal fun liveHogTopSummary(
+    samples: Map<String, LiveHogSample>,
+    hits: Map<String, Int>,
+    limit: Int = 3,
+): String {
+    return samples.entries
+        .sortedByDescending { it.value.rssMb }
+        .take(limit)
+        .joinToString(";") { (pkg, s) ->
+            "$pkg:${s.rssMb}:${s.cpuPct?.toString() ?: "?"}:${hits[pkg] ?: 0}"
+        }
 }
 
 internal enum class LiveHogStage { NONE, RESTRICTED, KILLED, FORCE_STOPPED }
@@ -191,9 +218,11 @@ internal fun liveHogJournalKey(aspect: String, pkg: String): String = "live-hog-
 object LiveHogWatcher {
     private const val TAG = "LiveHogWatcher"
 
-    // User's own settings: sample every 90 s; two consecutive hog ticks
-    // before any action.
+    // User's own settings: 30 s ticks for the first 3 minutes, then 90 s;
+    // two consecutive hog ticks before any action.
     const val POLL_MS = 90_000L
+    const val FAST_POLL_MS = 30_000L
+    const val FAST_PHASE_MS = 180_000L
     const val CONFIRM_TICKS = 2
     const val KILL_COOLDOWN_MS = 300_000L
     const val MAX_KILLS_PER_SESSION = 3
@@ -220,6 +249,11 @@ object LiveHogWatcher {
     private var prevSnapshot: LiveProcSnapshot? = null
     private val restrictedPkgs = mutableListOf<String>()
     private var sampleFailureLogged = false
+    private var startedAtMs = 0L
+    private var tickCount = 0
+    private var lastPhase: String? = null
+    private var pausedLogged = false
+    private var noBackgroundLogged = false
 
     @Synchronized
     fun start(context: Context, sessionGen: Int = 0, isSessionActive: () -> Boolean = { true }): String {
@@ -247,13 +281,26 @@ object LiveHogWatcher {
         prevSnapshot = null
         restrictedPkgs.clear()
         sampleFailureLogged = false
+        startedAtMs = System.currentTimeMillis()
+        tickCount = 0
+        lastPhase = null
+        pausedLogged = false
+        noBackgroundLogged = false
         appContext = context.applicationContext
         this.isSessionActive = isSessionActive
         running = true
         thread = Thread({ loop() }, "live-hog-watcher").apply { isDaemon = true; start() }
-        val summary = "live hog watcher: ON [gen=$sessionGen, poll=90s]"
+        val summary = "live hog watcher: ON [gen=$sessionGen, poll=30s/3min then 90s]"
         Log.i(TAG, summary)
-        DiagnosticsLog.log(context, "device.change", "live-hog-watcher-started", fields = mapOf("generation" to sessionGen.toString()))
+        DiagnosticsLog.log(
+            context, "device.change", "live-hog-watcher-started",
+            fields = mapOf(
+                "generation" to sessionGen.toString(),
+                "aggressive" to SessionPrefs.liveHogAggressiveForceStop(context).toString(),
+                "poll" to "30s-first-3min-then-90s",
+                "thresholds" to "user-250MB-14pct-tracking-300MB-18pct",
+            ),
+        )
         return summary
     }
 
@@ -272,6 +319,11 @@ object LiveHogWatcher {
         stop()
         states.clear()
         prevSnapshot = null
+        startedAtMs = 0L
+        tickCount = 0
+        lastPhase = null
+        pausedLogged = false
+        noBackgroundLogged = false
         if (!hasLiveHogJournal(context)) {
             restrictedPkgs.clear()
             return true
@@ -294,7 +346,7 @@ object LiveHogWatcher {
     private fun loop() {
         while (running) {
             try {
-                Thread.sleep(POLL_MS)
+                Thread.sleep(liveHogPollDelay(System.currentTimeMillis() - startedAtMs))
             } catch (_: InterruptedException) {
                 break
             }
@@ -310,7 +362,13 @@ object LiveHogWatcher {
     private fun tick() {
         val context = appContext ?: return
         if (!running) return
-        if (isSessionActive?.invoke() == false) return
+        if (isSessionActive?.invoke() == false) {
+            if (!pausedLogged) {
+                pausedLogged = true
+                DiagnosticsLog.log(context, "device.change", "live-hog-paused", generation = activeGen.get())
+            }
+            return
+        }
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return
         val procs = try {
             am.runningAppProcesses
@@ -325,7 +383,13 @@ object LiveHogWatcher {
             if (pkg.isEmpty() || pkg == ownPackage) continue
             pidToPkg[info.pid] = pkg
         }
-        if (pidToPkg.isEmpty()) return
+        if (pidToPkg.isEmpty()) {
+            if (!noBackgroundLogged) {
+                noBackgroundLogged = true
+                DiagnosticsLog.log(context, "device.change", "live-hog-no-background", generation = activeGen.get())
+            }
+            return
+        }
         val output = exec(context, buildLiveProcSampleCmd(pidToPkg.keys.toList()))
         if (output.isBlank()) {
             logSampleFailureOnce(context)
@@ -338,9 +402,24 @@ object LiveHogWatcher {
         }
         val samples = aggregateLiveSamples(snapshot, prevSnapshot, pidToPkg)
         prevSnapshot = snapshot
+        pausedLogged = false
+        noBackgroundLogged = false
+        tickCount += 1
+        val phase = liveHogPhaseName(System.currentTimeMillis() - startedAtMs)
+        if (phase != lastPhase) {
+            if (lastPhase != null) {
+                DiagnosticsLog.log(
+                    context, "device.change", "live-hog-phase", generation = activeGen.get(),
+                    fields = mapOf("phase" to phase, "tick" to tickCount.toString()),
+                )
+            }
+            lastPhase = phase
+        }
         val now = System.currentTimeMillis()
         val aggressive = SessionPrefs.liveHogAggressiveForceStop(context)
         val seen = mutableSetOf<String>()
+        val candidateSamples = mutableMapOf<String, LiveHogSample>()
+        var hogCount = 0
         for ((pkg, sample) in samples) {
             seen.add(pkg)
             val kind = classifyLiveHog(pkg, userApps, systemApps, protected, ownPackage)
@@ -348,11 +427,13 @@ object LiveHogWatcher {
                 states.remove(pkg)
                 continue
             }
+            candidateSamples[pkg] = sample
             val state = states.getOrPut(pkg) { LiveHogState(pkg, kind) }
             if (!isLiveHog(sample, kind)) {
                 state.hits = 0
                 continue
             }
+            hogCount += 1
             state.hits += 1
             val action = liveHogActionFor(
                 state.hits, state.stage, now, state.lastKillMs, state.killCount,
@@ -370,6 +451,8 @@ object LiveHogWatcher {
                                 "package" to pkg,
                                 "rssMb" to sample.rssMb.toString(),
                                 "cpuPct" to (sample.cpuPct?.toString() ?: "unknown"),
+                                "hits" to state.hits.toString(),
+                                "phase" to phase,
                             ),
                         )
                     } else {
@@ -387,6 +470,8 @@ object LiveHogWatcher {
                                 "package" to pkg,
                                 "rssMb" to sample.rssMb.toString(),
                                 "cpuPct" to (sample.cpuPct?.toString() ?: "unknown"),
+                                "hits" to state.hits.toString(),
+                                "phase" to phase,
                             ),
                         )
                     } else {
@@ -402,6 +487,8 @@ object LiveHogWatcher {
                                 "package" to pkg,
                                 "rssMb" to sample.rssMb.toString(),
                                 "cpuPct" to (sample.cpuPct?.toString() ?: "unknown"),
+                                "hits" to state.hits.toString(),
+                                "phase" to phase,
                             ),
                         )
                     } else {
@@ -413,6 +500,18 @@ object LiveHogWatcher {
         // Drop state for packages that disappeared; their restriction (if any)
         // stays journaled and is restored on exit.
         states.keys.retainAll(seen)
+        DiagnosticsLog.log(
+            context, "device.change", "live-hog-tick", generation = activeGen.get(),
+            fields = mapOf(
+                "tick" to tickCount.toString(),
+                "phase" to phase,
+                "procs" to snapshot.entries.size.toString(),
+                "candidates" to candidateSamples.size.toString(),
+                "hogs" to hogCount.toString(),
+                "top" to liveHogTopSummary(candidateSamples, states.mapValues { it.value.hits }),
+                "aggressive" to aggressive.toString(),
+            ),
+        )
     }
 
     // Restrict one package with the same snapshot/journal/apply shape as the

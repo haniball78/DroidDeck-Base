@@ -538,7 +538,7 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("restrictBackgroundHogs", on).apply()
     }
 
-    /** Live Hog Watcher — samples background apps every 90 s during gameplay and restricts or closes sustained hogs. Restored on exit. */
+    /** Live Hog Watcher — samples background apps every 30 s for the first 3 minutes, then every 90 s, and restricts or closes sustained hogs. Restored on exit. */
     fun liveHogWatcher(context: Context): Boolean = prefs(context).getBoolean("liveHogWatcher", true)
 
     fun setLiveHogWatcher(context: Context, on: Boolean) {

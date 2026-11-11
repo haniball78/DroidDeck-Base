@@ -739,7 +739,7 @@
     <string name="setup_adv_restrict_hogs">تقييد التطبيقات المستنزفة</string>
     <string name="setup_adv_restrict_hogs_hint">يقطع المهام والمنبهات والشبكة والخدمات الخلفية عن أسوأ ٥-٧ تطبيقات مستنزفة أثناء اللعب. تُعاد كما كانت عند الخروج</string>
     <string name="setup_adv_live_hog_watcher">مراقب المستنزفين الحي</string>
-    <string name="setup_adv_live_hog_watcher_hint">يفحص التطبيقات الخلفية كل ٩٠ ثانية أثناء اللعب ويقيّد أو يغلق المستنزف المستمر فوق ٢٥٠ ميغا رام أو ١٤٪ معالج (٣٠٠ ميغا / ١٨٪ لتطبيقات التتبع). تُعاد كما كانت عند الخروج</string>
+    <string name="setup_adv_live_hog_watcher_hint">يفحص التطبيقات الخلفية كل ٣٠ ثانية في أول ٣ دقائق، ثم كل ٩٠ ثانية، ويقيّد أو يغلق المستنزف المستمر فوق ٢٥٠ ميغا رام أو ١٤٪ معالج (٣٠٠ ميغا / ١٨٪ لتطبيقات التتبع). تُعاد كما كانت عند الخروج</string>
     <string name="setup_adv_live_hog_aggressive">إيقاف قسري للمستنزف (عدواني)</string>
     <string name="setup_adv_live_hog_aggressive_hint">بعد التقييد والقتل، يوقف قسرياً تطبيق مستخدم يستمر بالاستهلاك. تطبيقات النظام لا تُوقف قسرياً أبداً</string>
     <string name="setup_adv_group_telemetry">القياسات الحية وبيانات العتاد</string>
