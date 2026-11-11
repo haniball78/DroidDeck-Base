@@ -27,14 +27,24 @@ install_packages() {
 if install_packages; then
   exit 0
 fi
-echo "::warning::Runner mirror failed or timed out; retrying with the official Ubuntu mirror."
+echo "::warning::Runner mirror failed or timed out; retrying with other Ubuntu mirrors."
 sources=$(mktemp --suffix=.sources)
 trap 'rm -f "$sources"' EXIT
-mirror=https://archive.ubuntu.com/ubuntu
+# The runner can fail to resolve ports.ubuntu.com entirely (DNS), so a
+# longer timeout does not help: try several mirrors in turn until one
+# resolves. Each is a different hostname, so a DNS failure for one does
+# not doom the others.
+mirrors=(https://archive.ubuntu.com/ubuntu)
 case "$(dpkg --print-architecture)" in
-  arm64) mirror=https://ports.ubuntu.com/ubuntu-ports ;;
+  arm64) mirrors=(https://ports.ubuntu.com/ubuntu-ports https://us.ports.ubuntu.com/ubuntu-ports https://gb.ports.ubuntu.com/ubuntu-ports https://de.ports.ubuntu.com/ubuntu-ports) ;;
 esac
-sed -E "s@^URIs:.*@URIs: $mirror@" /etc/apt/sources.list.d/ubuntu.sources > "$sources"
-chmod 644 "$sources"
-options[1]="Dir::Etc::sourcelist=$sources"
-install_packages
+for mirror in "${mirrors[@]}"; do
+  sed -E "s@^URIs:.*@URIs: $mirror@" /etc/apt/sources.list.d/ubuntu.sources > "$sources"
+  chmod 644 "$sources"
+  options[1]="Dir::Etc::sourcelist=$sources"
+  if install_packages; then
+    exit 0
+  fi
+  echo "::warning::Mirror $mirror failed; trying the next mirror."
+done
+exit 1
