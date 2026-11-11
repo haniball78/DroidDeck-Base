@@ -368,15 +368,34 @@ internal fun openAboutPhone(ctx: Context) {
  */
 internal fun startUnifiedPairing(ctx: Context) {
     val intent = WirelessAdbFix.wirelessDebuggingAdjacentIntent()
-    val options = SplitScreenWindowing.splitPrimaryOptions()
     val activity = ctx as? Activity
+    // Adjacent-task launch first, while the activity is still resumed: it
+    // forces a new Settings task, so it can split even when Settings is
+    // already open (a plain relaunch reuses the existing fullscreen task
+    // and never splits). Falls back to the flag launch below.
+    var launched = false
     if (activity != null) {
-        @Suppress("DEPRECATION")
-        activity.startActivityForResult(intent, SplitScreenWindowing.REQUEST_PAIRING_SETTINGS, options)
-    } else if (options != null) {
-        ctx.startActivity(intent, options)
-    } else {
-        ctx.startActivity(intent)
+        val adjacentOptions = SplitScreenWindowing.adjacentTaskOptions(activity)
+        if (adjacentOptions != null) {
+            @Suppress("DEPRECATION")
+            launched = runCatching {
+                activity.startActivityForResult(
+                    intent, SplitScreenWindowing.REQUEST_PAIRING_SETTINGS, adjacentOptions,
+                )
+                true
+            }.getOrDefault(false)
+        }
+    }
+    if (!launched) {
+        val options = SplitScreenWindowing.splitPrimaryOptions()
+        if (activity != null) {
+            @Suppress("DEPRECATION")
+            activity.startActivityForResult(intent, SplitScreenWindowing.REQUEST_PAIRING_SETTINGS, options)
+        } else if (options != null) {
+            ctx.startActivity(intent, options)
+        } else {
+            ctx.startActivity(intent)
+        }
     }
     Handler(Looper.getMainLooper()).postDelayed({
         if (WirelessAdbPairingService.notificationsEnabled(ctx)) {

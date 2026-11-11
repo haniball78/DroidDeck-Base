@@ -96,6 +96,7 @@ object WirelessAdbFix {
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(context, "adb.pair", "started", fields = mapOf("port" to port.toString()) + identityFields)
         Kadb.pair(host, port, pairingCode, "DroidDeck")
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(context, "adb.pair", "succeeded", fields = mapOf("port" to port.toString()) + identityFields)
+        setLastPairMs(context, System.currentTimeMillis())
         writeAtomically(context, File(context.noBackupFilesDir, HOST_FILE), host.toByteArray())
         writeAtomically(context, File(context.noBackupFilesDir, CONNECTION_FILE), ByteArray(0))
     }
@@ -151,6 +152,31 @@ object WirelessAdbFix {
         val prefs = pairingPrefs(context.applicationContext)
         return if (prefs.contains("secureGrantConsent")) prefs.getBoolean("secureGrantConsent", false) else null
     }
+
+    /** Whether the current identity was ever verified (a live daemon start succeeded).
+     * Set on a verified start, cleared on forget. A previously-verified key
+     * failing AUTH is a revoke, not a landing. */
+    fun isIdentityVerified(context: Context): Boolean =
+        pairingPrefs(context.applicationContext).getBoolean("identityVerified", false)
+
+    fun setIdentityVerified(context: Context, verified: Boolean) {
+        pairingPrefs(context.applicationContext).edit().putBoolean("identityVerified", verified).apply()
+    }
+
+    /** When the last pair succeeded (ms since epoch), or null if none / forgotten. */
+    fun getLastPairMs(context: Context): Long? {
+        val ms = pairingPrefs(context.applicationContext).getLong("lastPairMs", 0L)
+        return ms.takeIf { it > 0 }
+    }
+
+    fun setLastPairMs(context: Context, ms: Long) {
+        pairingPrefs(context.applicationContext).edit().putLong("lastPairMs", ms).apply()
+    }
+
+    /** A verified identity failing AUTH is a revoke (expired), not a landing.
+     * One retry rules out a transient; after that, offer the reset instead
+     * of retrying for 7 minutes. */
+    fun isRevokedIdentity(verified: Boolean, attempts: Int): Boolean = verified && attempts >= 1
 
     fun clearSecureGrantDecision(context: Context) {
         pairingPrefs(context.applicationContext).edit().remove("secureGrantConsent").apply()
@@ -533,6 +559,7 @@ object WirelessAdbFix {
                 fingerprint?.let { put("identity", it) }
             },
         )
+        setIdentityVerified(context, true)
         AdbSlowPairingDiagnostics.maybeDiagnoseSlowPair(context)
     }
 
@@ -638,6 +665,8 @@ object WirelessAdbFix {
         val appContext = context.applicationContext
         forgetIdentity(appContext)
         clearSecureGrantDecision(appContext)
+        setIdentityVerified(appContext, false)
+        setLastPairMs(appContext, 0L)
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearAuthFailedPort()
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearDaemonFailure()
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.clearAuthRejected()

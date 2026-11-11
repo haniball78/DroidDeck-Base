@@ -15,4 +15,10 @@ class SplitScreenWindowingTest {
         // reflection path must fail soft instead of crashing.
         assertNull(SplitScreenWindowing.splitPrimaryOptions())
     }
+
+    @Test fun adjacentTaskOptionsAreNullWithoutAnAndroidRuntime() {
+        // Same fail-soft contract as splitPrimaryOptions: the hidden
+        // adjacent-task API is unreachable here, so the launch falls back.
+        assertNull(SplitScreenWindowing.adjacentTaskOptions(android.app.Activity()))
+    }
 }

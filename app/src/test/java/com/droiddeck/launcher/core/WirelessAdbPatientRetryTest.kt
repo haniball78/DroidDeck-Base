@@ -31,4 +31,11 @@ class WirelessAdbPatientRetryTest {
         assertFalse(WirelessAdbFix.shouldPatientRetry(true, true, 14, 0))
         assertFalse(WirelessAdbFix.shouldPatientRetry(true, true, 0, 420_000))
     }
+
+    @Test fun revokedIdentityNeedsVerifiedKeyAndOneAttempt() {
+        assertFalse(WirelessAdbFix.isRevokedIdentity(false, 1))
+        assertFalse(WirelessAdbFix.isRevokedIdentity(true, 0))
+        assertTrue(WirelessAdbFix.isRevokedIdentity(true, 1))
+        assertTrue(WirelessAdbFix.isRevokedIdentity(true, 14))
+    }
 }

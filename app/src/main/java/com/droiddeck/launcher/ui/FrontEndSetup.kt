@@ -774,7 +774,22 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             delay(WirelessAdbFix.PATIENT_RETRY_DELAY_MS)
             if (!isActive) break
             if (starting || autoRestarting) continue
+            // A verified identity failing repeatedly is a revoke, not a
+            // landing: offer the user-confirmed reset instead of retrying
+            // for 7 minutes. The dialog is the existing reset confirm;
+            // nothing is minted until the user taps it.
+            if (WirelessAdbFix.isRevokedIdentity(WirelessAdbFix.isIdentityVerified(ctx), patientRetries)) {
+                showResetConfirm = true
+                break
+            }
             patientRetries++
+            DiagnosticsLog.log(
+                "adbpair", "patient-retry-attempt",
+                fields = mapOf(
+                    "n" to patientRetries.toString(),
+                    "port" to (parked?.toString() ?: ""),
+                ),
+            )
             startOneTap(auto = true, patient = true)
         }
         if (isActive && parked != null && state == ConnectionCardState.READY_TO_START) {
@@ -792,7 +807,17 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     var prevPairingStage by remember { mutableStateOf(pairingStage) }
     LaunchedEffect(pairingStage) {
         val wasDone = prevPairingStage is WirelessAdbPairingService.Stage.Done
+        val wasParked = prevPairingStage is WirelessAdbPairingService.Stage.Parked
         prevPairingStage = pairingStage
+        // A new pair (or a new park) means a fresh retry budget: the
+        // patient-retry effect is keyed on (state, parkedPort), so a re-pair
+        // onto the same parked port does not restart it and the counter
+        // stays exhausted, and the post-pair retry never runs.
+        if ((pairingStage is WirelessAdbPairingService.Stage.Done && !wasDone) ||
+            (pairingStage is WirelessAdbPairingService.Stage.Parked && !wasParked)
+        ) {
+            patientRetries = 0
+        }
         if (pairingStage is WirelessAdbPairingService.Stage.Done && !wasDone) {
             val activity = ctx as? android.app.Activity ?: return@LaunchedEffect
             if (!activity.isInMultiWindowMode) return@LaunchedEffect

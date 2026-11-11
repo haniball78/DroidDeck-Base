@@ -1,5 +1,6 @@
 package com.droiddeck.launcher.core
 
+import android.app.Activity
 import android.app.ActivityOptions
 import android.os.Bundle
 import com.droiddeck.launcher.core.privileged.DiagnosticsLog
@@ -32,6 +33,29 @@ object SplitScreenWindowing {
     /** Launch the target into the primary (top, in portrait) half. */
     fun splitPrimaryOptions(): Bundle? =
         windowingOptions(WINDOWING_MODE_SPLIT_SCREEN_PRIMARY, "split-launch")
+
+    /**
+     * Options that launch the target into a new task adjacent to ours.
+     * A plain relaunch reuses the existing Settings task and ignores the
+     * windowing mode, so it can never split when Settings is already open;
+     * the adjacent-task id forces a new task. Null when the hidden API is
+     * absent (caller falls back to [splitPrimaryOptions]).
+     */
+    fun adjacentTaskOptions(activity: Activity): Bundle? = runCatching {
+        val options = ActivityOptions.makeBasic()
+        ActivityOptions::class.java
+            .getMethod("setLaunchAdjacentTaskId", Integer.TYPE)
+            .invoke(options, activity.taskId)
+        ActivityOptions::class.java
+            .getMethod("setLaunchWindowingMode", Integer.TYPE)
+            .invoke(options, WINDOWING_MODE_SPLIT_SCREEN_PRIMARY)
+        runCatching {
+            ActivityOptions::class.java
+                .getMethod("setSplitScreenCreateMode", Integer.TYPE)
+                .invoke(options, SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT)
+        }
+        options.toBundle()
+    }.getOrNull()
 
     private fun windowingOptions(mode: Int, event: String): Bundle? {
         val bundle = runCatching {
