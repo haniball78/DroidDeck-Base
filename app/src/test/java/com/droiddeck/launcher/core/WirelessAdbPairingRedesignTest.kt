@@ -12,6 +12,21 @@ class WirelessAdbPairingRedesignTest {
             ConnectionCardStateResolver.failureBoxMode(
                 ConnectionCardState.READY_TO_START, hasRecordedFailure = true,
                 isAuthFailure = true, autoRestartFailed = false,
+                patientRetryExhausted = false,
+            ),
+        )
+    }
+
+    @Test fun finishingWhenReadyAuthRestartFailedButPatientRetryRunning() {
+        // The restart budget is spent, but the patient retry is still
+        // waiting for the key to land: the red box stays hidden until
+        // nothing automatic is left to try.
+        assertEquals(
+            FailureBoxMode.FINISHING,
+            ConnectionCardStateResolver.failureBoxMode(
+                ConnectionCardState.READY_TO_START, hasRecordedFailure = true,
+                isAuthFailure = true, autoRestartFailed = true,
+                patientRetryExhausted = false,
             ),
         )
     }
@@ -22,6 +37,7 @@ class WirelessAdbPairingRedesignTest {
             ConnectionCardStateResolver.failureBoxMode(
                 ConnectionCardState.READY_TO_START, hasRecordedFailure = true,
                 isAuthFailure = true, autoRestartFailed = true,
+                patientRetryExhausted = true,
             ),
         )
     }
@@ -32,6 +48,7 @@ class WirelessAdbPairingRedesignTest {
             ConnectionCardStateResolver.failureBoxMode(
                 ConnectionCardState.AUTH_REJECTED, hasRecordedFailure = true,
                 isAuthFailure = true, autoRestartFailed = false,
+                patientRetryExhausted = false,
             ),
         )
     }
@@ -42,6 +59,7 @@ class WirelessAdbPairingRedesignTest {
             ConnectionCardStateResolver.failureBoxMode(
                 ConnectionCardState.READY_TO_START, hasRecordedFailure = true,
                 isAuthFailure = false, autoRestartFailed = false,
+                patientRetryExhausted = true,
             ),
         )
     }
@@ -52,6 +70,7 @@ class WirelessAdbPairingRedesignTest {
             ConnectionCardStateResolver.failureBoxMode(
                 ConnectionCardState.READY_TO_START, hasRecordedFailure = false,
                 isAuthFailure = false, autoRestartFailed = false,
+                patientRetryExhausted = false,
             ),
         )
     }
@@ -62,6 +81,7 @@ class WirelessAdbPairingRedesignTest {
             ConnectionCardStateResolver.failureBoxMode(
                 ConnectionCardState.ACTIVE, hasRecordedFailure = true,
                 isAuthFailure = true, autoRestartFailed = false,
+                patientRetryExhausted = false,
             ),
         )
     }

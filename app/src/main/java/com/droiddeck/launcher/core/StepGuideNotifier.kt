@@ -58,7 +58,7 @@ object StepGuideNotifier {
                 R.string.connection_card_action_wireless,
                 PendingIntent.getActivity(
                     context, 11,
-                    WirelessAdbFix.wirelessDebuggingIntent(),
+                    WirelessDebugNavigator.plainIntent(context),
                     PendingIntent.FLAG_IMMUTABLE,
                 ),
             )

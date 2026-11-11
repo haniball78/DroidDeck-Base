@@ -2,7 +2,6 @@ package com.droiddeck.launcher.core
 
 import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import com.droiddeck.launcher.R
@@ -712,29 +711,4 @@ object WirelessAdbFix {
         }
         return false
     }
-
-    /**
-     * The one intent every wireless-debugging entry point uses. CLEAR_TASK
-     * forces a fresh Settings task so the highlight key is honored: the key
-     * is only applied when the fragment is first created, and a warm
-     * Settings task would otherwise reopen on its old page and ignore it —
-     * the "some buttons land, some don't" inconsistency.
-     */
-    fun wirelessDebuggingIntent(): Intent =
-        Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            putExtra(":settings:fragment_args_key", "toggle_adb_wireless")
-        }
-
-    /**
-     * Opens Developer options in the adjacent window (split-screen),
-     * best-effort: the system may open it fullscreen instead, and the
-     * split ratio is the user's to drag — no API sets it on a phone.
-     * No CLEAR_TASK: a fresh task would break the adjacency.
-     */
-    fun wirelessDebuggingAdjacentIntent(): Intent =
-        Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT)
-            putExtra(":settings:fragment_args_key", "toggle_adb_wireless")
-        }
 }

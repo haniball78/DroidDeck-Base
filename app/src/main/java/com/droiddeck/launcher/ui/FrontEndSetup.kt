@@ -104,7 +104,6 @@ import com.droiddeck.launcher.core.ConnectionCardStateResolver
 import com.droiddeck.launcher.core.FailureBoxMode
 import com.droiddeck.launcher.core.ConnectionFailure
 import com.droiddeck.launcher.core.WirelessAdbFix
-import com.droiddeck.launcher.core.SplitScreenWindowing
 import com.droiddeck.launcher.core.WirelessAdbPairingService
 import com.droiddeck.launcher.core.privileged.DiagnosticsLog
 import com.droiddeck.launcher.core.privileged.PrivilegedMode
@@ -797,37 +796,20 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         }
     }
 
-    // After a successful pair, close Settings 4 s later — never relaunch
-    // our own app: closing Settings leaves only our app, so it takes the
-    // full screen by itself. finishActivity only closes the Settings
-    // activity started for a result by startUnifiedPairing; otherwise it
-    // is a no-op. Only on the transition into Done, so a stale Done stage
-    // never closes a split the user opened themselves. The effect is tied
-    // to this composition, so leaving the Overview tab cancels it.
+    // A new pair (or a new park) means a fresh retry budget: the
+    // patient-retry effect is keyed on (state, parkedPort), so a re-pair
+    // onto the same parked port does not restart it and the counter
+    // stays exhausted, and the post-pair retry never runs. The split is
+    // never closed here: Settings stays exactly as the user left it.
     var prevPairingStage by remember { mutableStateOf(pairingStage) }
     LaunchedEffect(pairingStage) {
         val wasDone = prevPairingStage is WirelessAdbPairingService.Stage.Done
         val wasParked = prevPairingStage is WirelessAdbPairingService.Stage.Parked
         prevPairingStage = pairingStage
-        // A new pair (or a new park) means a fresh retry budget: the
-        // patient-retry effect is keyed on (state, parkedPort), so a re-pair
-        // onto the same parked port does not restart it and the counter
-        // stays exhausted, and the post-pair retry never runs.
         if ((pairingStage is WirelessAdbPairingService.Stage.Done && !wasDone) ||
             (pairingStage is WirelessAdbPairingService.Stage.Parked && !wasParked)
         ) {
             patientRetries = 0
-        }
-        if (pairingStage is WirelessAdbPairingService.Stage.Done && !wasDone) {
-            val activity = ctx as? android.app.Activity ?: return@LaunchedEffect
-            if (!activity.isInMultiWindowMode) return@LaunchedEffect
-            delay(SplitScreenWindowing.CLOSE_SETTINGS_DELAY_MS)
-            if (!isActive || !activity.isInMultiWindowMode) return@LaunchedEffect
-            activity.finishActivity(SplitScreenWindowing.REQUEST_PAIRING_SETTINGS)
-            DiagnosticsLog.log(
-                "adbpair", "settings-close",
-                fields = mapOf("after_ms" to SplitScreenWindowing.CLOSE_SETTINGS_DELAY_MS.toString()),
-            )
         }
     }
 
@@ -914,10 +896,11 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             // never on an ACTIVE card (stale failures hide). An AUTH
             // failure the app is still healing reads as "finishing
             // setup", not a red box; the box returns only when the
-            // restart has failed or its budget is spent.
+            // restart budget is spent AND the patient retry is exhausted.
             val failureMode = ConnectionCardStateResolver.failureBoxMode(
                 state, lastFailure != null || oneTapFailed,
                 lastFailure?.category == ConnectionFailure.AUTH, autoRestartFailed,
+                WirelessAdbFix.patientRetryExhausted(patientRetries),
             )
             val showFailureBox = failureMode == FailureBoxMode.FAILURE
             // An AUTH failure means the key is rejected on this port:

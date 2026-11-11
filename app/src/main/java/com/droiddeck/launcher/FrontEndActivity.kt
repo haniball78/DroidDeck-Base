@@ -2,7 +2,6 @@ package com.droiddeck.launcher
 
 import androidx.compose.foundation.layout.fillMaxSize
 import android.Manifest
-import android.app.ActivityOptions
 import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -53,6 +52,7 @@ import com.droiddeck.launcher.core.PhantomProcessStatus
 import com.droiddeck.launcher.core.WirelessAdbFix
 import com.droiddeck.launcher.core.WifiDiscovery
 import com.droiddeck.launcher.core.WirelessAdbPairingService
+import com.droiddeck.launcher.core.WirelessDebugNavigator
 import com.droiddeck.launcher.ui.CoreRow
 import com.droiddeck.launcher.ui.startUnifiedPairing
 import com.droiddeck.launcher.ui.PerformancePage
@@ -2130,21 +2130,14 @@ class FrontEndActivity : ComponentActivity() {
 
     private fun openDeveloperOptions(displayId: Int?) {
         val highlight = if (PhantomProcessLimit.hasDeveloperToggle() &&
-            WirelessAdbPairingService.stage.value == WirelessAdbPairingService.Stage.Idle) null else "toggle_adb_wireless"
-        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            .apply { if (highlight != null) putExtra(":settings:fragment_args_key", highlight) }
-        try {
-            if (displayId == null) startActivity(intent)
-            else startActivity(intent, ActivityOptions.makeBasic().setLaunchDisplayId(displayId).toBundle())
-        } catch (error: Exception) {
-            if (displayId != null) {
-                runCatching { startActivity(intent) }
-                android.widget.Toast.makeText(this, R.string.main_settings_main_screen, android.widget.Toast.LENGTH_LONG).show()
-            } else {
-                startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                android.widget.Toast.makeText(this, R.string.main_open_dev_options, android.widget.Toast.LENGTH_LONG).show()
-            }
+            WirelessAdbPairingService.stage.value == WirelessAdbPairingService.Stage.Idle) null else WirelessDebugNavigator.WIRELESS_ROW_KEY
+        if (WirelessDebugNavigator.openPlain(this, highlight, displayId)) return
+        if (displayId != null) {
+            runCatching { WirelessDebugNavigator.openPlain(this, highlight) }
+            android.widget.Toast.makeText(this, R.string.main_settings_main_screen, android.widget.Toast.LENGTH_LONG).show()
+        } else {
+            startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            android.widget.Toast.makeText(this, R.string.main_open_dev_options, android.widget.Toast.LENGTH_LONG).show()
         }
     }
 

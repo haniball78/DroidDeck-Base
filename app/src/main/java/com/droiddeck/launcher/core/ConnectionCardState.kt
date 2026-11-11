@@ -154,18 +154,22 @@ object ConnectionCardStateResolver {
     /**
      * Which failure presentation the card shows. The silent auto-restart
      * only runs in READY_TO_START, so only there does an AUTH failure
-     * read as "finishing setup" while the restart budget is left; once
-     * the restart has failed or the budget is spent, the red box with
-     * the guided reset is the honest presentation.
+     * read as "finishing setup" while anything automatic is still left
+     * to try; the red box with the guided reset is the honest
+     * presentation only once the restart budget is spent AND the
+     * patient retry is exhausted.
      */
     fun failureBoxMode(
         state: ConnectionCardState,
         hasRecordedFailure: Boolean,
         isAuthFailure: Boolean,
         autoRestartFailed: Boolean,
+        patientRetryExhausted: Boolean,
     ): FailureBoxMode {
         if (!showFailureGuidance(state, hasRecordedFailure)) return FailureBoxMode.HIDDEN
-        if (state == ConnectionCardState.READY_TO_START && isAuthFailure && !autoRestartFailed) {
+        if (state == ConnectionCardState.READY_TO_START && isAuthFailure &&
+            (!autoRestartFailed || !patientRetryExhausted)
+        ) {
             return FailureBoxMode.FINISHING
         }
         return FailureBoxMode.FAILURE
