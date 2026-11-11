@@ -146,13 +146,34 @@ object WirelessDebugNavigator {
         }
         if (resolves(context, subSettings)) return subSettings to "subsettings"
         // (c) Highlighted Developer-options root — the safe fallback.
-        return developerOptionsIntent(highlightKey) to "dev-options"
+        return developerOptionsIntent(context, highlightKey) to "dev-options"
     }
 
-    private fun developerOptionsIntent(highlightKey: String?): Intent =
+    private fun developerOptionsIntent(context: Context, highlightKey: String?): Intent =
         Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
             if (highlightKey != null) putExtra(FRAGMENT_ARG_KEY, highlightKey)
+            pinToSettings(context, this)
         }
+
+    /**
+     * Pins the fallback to the Settings app: the implicit action resolves
+     * to two activities on One UI (Settings + the permission controller),
+     * which shows the system resolver. The activity is picked at runtime
+     * from PackageManager, never hardcoded — One UI may name it
+     * differently from AOSP. Unchanged when Settings does not resolve.
+     */
+    private fun pinToSettings(context: Context, intent: Intent) {
+        runCatching {
+            val matches = context.packageManager.queryIntentActivities(
+                intent,
+                PackageManager.MATCH_DEFAULT_ONLY,
+            )
+            val settings = matches.firstOrNull { it.activityInfo.packageName == SETTINGS_PACKAGE }
+            if (settings != null) {
+                intent.component = ComponentName(SETTINGS_PACKAGE, settings.activityInfo.name)
+            }
+        }
+    }
 
     private fun resolves(context: Context, intent: Intent): Boolean =
         runCatching {
