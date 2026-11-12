@@ -23,6 +23,7 @@ import android.view.Gravity
 import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -98,6 +99,8 @@ import com.droiddeck.launcher.session.GameEnvironmentStore
 import com.droiddeck.launcher.session.GameProfileFollowState
 import com.droiddeck.launcher.session.GameProfileInventoryCache
 import com.droiddeck.launcher.session.GameProfileRefreshState
+import com.droiddeck.launcher.session.ExitReason
+import com.droiddeck.launcher.session.SessionExit
 import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.session.SessionEvents
 import com.droiddeck.launcher.session.SessionArtifacts
@@ -166,7 +169,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var handCamera: com.droiddeck.launcher.handtracking.HandCamera? = null
     private var padMotion: com.droiddeck.launcher.input.PadMotion? = null
     private var resumed = false
-    private val deckPadListener: () -> Unit = { uiHandler.post { updatePadMotion(); openDeckRing("deck pad changed"); applyUnfoldedControls() } }
+    private val deckPadListener: () -> Unit = { uiHandler.post { updateTvController(); updatePadMotion(); openDeckRing("deck pad changed"); applyUnfoldedControls() } }
 
     private fun openDeckRing(why: String) {
         val deck = SessionState.deckPad
@@ -179,7 +182,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     }
 
     private fun updatePadMotion() {
-        if (resumed && !pipUi && SessionState.deckPad && !SteamControllerBle.connected) padMotion?.start()
+        if (resumed && !pipUi && (SessionState.deckPad || tvControllerActive) && !SteamControllerBle.connected) padMotion?.start()
         else padMotion?.stop()
     }
     private var steamController: SteamControllerBle? = null
@@ -386,6 +389,9 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var secondScreenPresentation: SecondScreenPresentation? = null
     private var tvScreen: TvHandoffScreen? = null
     private var tvOutputActive = false
+    private var tvControllerActive = false
+    private var tvEndButton: Button? = null
+    private var tvEndArmedAt = 0L
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
             notifyActivityDisplayStateChanged(displayId)
@@ -538,7 +544,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             bridge.setExcluded(vr::owns)
             joyConVr = vr
         }
-        SteamControllerBle.listener = { uiHandler.post { updatePadMotion(); refreshControls() } }
+        SteamControllerBle.listener = { uiHandler.post { updateTvController(); updatePadMotion(); refreshControls() } }
         steamController = SteamControllerBle(this).also { it.start() }
         padMotion = com.droiddeck.launcher.input.PadMotion(this) {
             @Suppress("DEPRECATION")
@@ -2909,7 +2915,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             ?: SessionPrefs.oscMode(this)
         val controls = onScreenControls ?: return
         if (pipUi || unfoldedPanel != null || pcKeyboardOpen ||
-            (SessionState.mode == SessionService.MODE_STEAM && !SessionPrefs.builtinPad(this))) {
+            (SessionState.mode == SessionService.MODE_STEAM && !SessionPrefs.builtinPad(this) && !tvControllerActive)) {
             onScreenButtonsVisible = false
             controls.releaseAll()
             controls.visibility = View.GONE
@@ -2931,7 +2937,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             applyTouchRouting()
         }
         controls.setButtonsOnly(buttonsOnly)
-        val show = when (forced) {
+        val show = if (tvControllerActive) true else when (forced) {
             SessionPrefs.OSC_ALWAYS -> true
             SessionPrefs.OSC_STEAM_QAM -> true
             SessionPrefs.OSC_NEVER -> false
@@ -3448,6 +3454,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (pausedFrameWanted) uiHandler.postDelayed({
             if (pausedFrameWanted && pausedFrame == null && resumed) capturePausedFrame()
         }, PAUSED_FRAME_REDRAW_MS)
+        updateTvController()
     }
 
     private fun restorePhoneOutput(screen: GlassesScreen) {
@@ -3588,6 +3595,14 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 restoreTvToPhone(screen)
                 runCatching { screen.dismiss() }
                 Log.w(TAG, "could not show the game on ${target.name}", e)
+                TvDiagnosticsLog.log(
+                    "tv", "handoff",
+                    fields = mapOf(
+                        "step" to "failed",
+                        "display" to target.displayId.toString(),
+                        "reason" to e.javaClass.simpleName,
+                    ),
+                )
                 return
             }
             TvDiagnosticsLog.log(
@@ -3615,6 +3630,72 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         surfaceView.visibility = View.VISIBLE
         applyOutputPacing()
         if (surfaceView.holder.surface?.isValid == true) surfaceCreated(surfaceView.holder)
+        TvDiagnosticsLog.log(
+            "tv", "handoff",
+            fields = mapOf(
+                "step" to "restored",
+                "display" to screen.display.displayId.toString(),
+            ),
+        )
+        updateTvController()
+    }
+
+    private fun updateTvController() {
+        val physical = PadBridge.anyControllerConnected() || SteamControllerBle.connected
+        val toggleOn = SessionPrefs.tvControllerMode(this)
+        val want = TvHandoff.shouldEngageController(tvOutputActive, SessionState.running, physical, toggleOn)
+        if (want == tvControllerActive) return
+        tvControllerActive = want
+        val reason = when {
+            !tvOutputActive -> "handoff-ended"
+            !SessionState.running -> "session-ended"
+            !toggleOn -> "toggle-off"
+            physical -> "physical-connected"
+            else -> "no-physical-controller"
+        }
+        TvDiagnosticsLog.log(
+            "tv", "controller",
+            fields = mapOf(
+                "step" to if (want) "on" else "off",
+                "reason" to reason,
+                "gyro" to if (want) "on" else "off",
+            ),
+        )
+        Log.i(TAG, "tv controller mode ${if (want) "on" else "off"} ($reason)")
+        ensureTvEndButton()
+        tvEndButton?.visibility = if (want) View.VISIBLE else View.GONE
+        if (!want) tvEndArmedAt = 0L
+        updateOnScreenControls()
+        updatePadMotion()
+    }
+
+    private fun ensureTvEndButton() {
+        if (tvEndButton != null || !::sessionRoot.isInitialized) return
+        val margin = (12 * resources.displayMetrics.density).toInt()
+        val button = Button(this).apply {
+            text = "End session"
+            setOnClickListener {
+                val now = android.os.SystemClock.uptimeMillis()
+                if (now - tvEndArmedAt > 3_000L) {
+                    tvEndArmedAt = now
+                    text = "Tap again to end"
+                    return@setOnClickListener
+                }
+                tvEndArmedAt = 0L
+                TvDiagnosticsLog.log("tv", "controller", fields = mapOf("step" to "end-pressed"))
+                SessionExit.request(this@SessionActivity, ExitReason.USER)
+            }
+        }
+        button.visibility = View.GONE
+        sessionRoot.addView(
+            button,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.END,
+            ).apply { setMargins(0, margin, margin, 0) },
+        )
+        tvEndButton = button
     }
 
     private fun onGlassesSteamVr(now: SteamVr.Status) {

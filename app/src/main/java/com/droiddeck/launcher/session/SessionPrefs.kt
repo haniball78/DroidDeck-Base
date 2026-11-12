@@ -77,6 +77,12 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("tvHandoffTest", on).apply()
     }
 
+    fun tvControllerMode(context: Context): Boolean = prefs(context).getBoolean("tvControllerMode", true)
+
+    fun setTvControllerMode(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("tvControllerMode", on).apply()
+    }
+
     fun gameStoresEnabled(context: Context): Boolean = prefs(context).getBoolean("gameStoresEnabled", true)
 
     fun setGameStoresEnabled(context: Context, on: Boolean) {

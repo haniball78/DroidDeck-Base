@@ -29,6 +29,7 @@ fun TvSettingsPage(onBack: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val host = rememberMenuHost()
     var tvHandoffTest by remember { mutableStateOf(SessionPrefs.tvHandoffTest(ctx)) }
+    var tvControllerMode by remember { mutableStateOf(SessionPrefs.tvControllerMode(ctx)) }
     var tvDiagnosticsEnabled by remember { mutableStateOf(TvDiagnosticsLog.isEnabled(ctx)) }
     var summary by remember { mutableStateOf(TvDiagnosticsLog.summary(ctx)) }
     var hasFile by remember { mutableStateOf(TvDiagnosticsLog.file(ctx) != null) }
@@ -51,9 +52,9 @@ fun TvSettingsPage(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "The TV diagnostics log below records each handoff step (shown, attached, " +
-                    "resized), so a failure can be read precisely. It is a separate file from " +
-                    "the main diagnostics log.",
+                    "The TV diagnostics log below records the whole TV session: each handoff step " +
+                    "(shown, attached, resized, restored, failed), the controller mode switching on " +
+                    "and off, and the End button. It is a separate file from the main diagnostics log.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -69,6 +70,19 @@ fun TvSettingsPage(onBack: () -> Unit) {
                 ToggleSwitch(checked = tvHandoffTest, onChange = { on ->
                     tvHandoffTest = on
                     SessionPrefs.setTvHandoffTest(ctx, on)
+                })
+            }
+        }
+
+        // ── TV controller (P2) ────────────────────────────────────
+        SettingsGroup("TV controller") {
+            SettingsRow(
+                label = "TV controller mode",
+                hint = "While on, the phone becomes the controller when the game is on the TV and no physical controller is connected: on-screen controls stay visible, gyro aiming runs, and a small End button appears on the phone (tap twice to end the session).",
+            ) {
+                ToggleSwitch(checked = tvControllerMode, onChange = { on ->
+                    tvControllerMode = on
+                    SessionPrefs.setTvControllerMode(ctx, on)
                 })
             }
         }

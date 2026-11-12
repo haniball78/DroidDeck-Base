@@ -1,7 +1,9 @@
 package com.droiddeck.launcher.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TvHandoffTest {
@@ -33,5 +35,25 @@ class TvHandoffTest {
 
     @Test fun selectModeReturnsNullWithout1080p() {
         assertNull(TvHandoff.selectMode(listOf(TvHandoff.TvMode(3840, 2160, 60f, 1))))
+    }
+
+    @Test fun controllerEngagesWhenTvLiveAndNoPhysicalPad() {
+        assertTrue(TvHandoff.shouldEngageController(tvActive = true, running = true, physicalConnected = false, toggleOn = true))
+    }
+
+    @Test fun controllerStaysOffWhenTvNotActive() {
+        assertFalse(TvHandoff.shouldEngageController(tvActive = false, running = true, physicalConnected = false, toggleOn = true))
+    }
+
+    @Test fun controllerStaysOffWhenSessionNotRunning() {
+        assertFalse(TvHandoff.shouldEngageController(tvActive = true, running = false, physicalConnected = false, toggleOn = true))
+    }
+
+    @Test fun controllerStaysOffWhenPhysicalPadConnected() {
+        assertFalse(TvHandoff.shouldEngageController(tvActive = true, running = true, physicalConnected = true, toggleOn = true))
+    }
+
+    @Test fun controllerStaysOffWhenToggleOff() {
+        assertFalse(TvHandoff.shouldEngageController(tvActive = true, running = true, physicalConnected = false, toggleOn = false))
     }
 }

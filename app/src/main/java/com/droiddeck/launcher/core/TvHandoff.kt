@@ -16,4 +16,7 @@ object TvHandoff {
     ): TvMode? =
         modes.filter { it.width == wantWidth && it.height == wantHeight }
             .minByOrNull { abs(it.refreshRate - wantHz) }
+
+    fun shouldEngageController(tvActive: Boolean, running: Boolean, physicalConnected: Boolean, toggleOn: Boolean): Boolean =
+        tvActive && running && toggleOn && !physicalConnected
 }
