@@ -415,8 +415,9 @@ internal object BootMovieTranscoder {
         }
     }
 
-    private class EglWindow(private val surface: Surface) {
-        private val display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+    internal class EglWindow(private val surface: Surface) {
+        internal val display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+        internal val displayHandle: Long get() = display.nativeHandle
         private val context: android.opengl.EGLContext
         private val window: android.opengl.EGLSurface
 

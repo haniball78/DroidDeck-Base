@@ -95,4 +95,6 @@ target_link_libraries(droiddeckwayland
         dl
         log
         android
+        EGL
+        GLESv2
 )

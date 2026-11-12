@@ -1784,6 +1784,10 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 try { android.system.Os.setenv("DROIDDECK_WAYLAND_HDR", "1", true) } catch (e: Exception) { Log.w(TAG, "DROIDDECK_WAYLAND_HDR", e) }
                 WaylandCompositor.nativeSetZeroCopy(true)
             }
+            if (SessionPrefs.tvSurfaceEncodeTest(this)) {
+                try { android.system.Os.setenv("DROIDDECK_WAYLAND_ZERO_COPY", "1", true) } catch (e: Exception) { Log.w(TAG, "DROIDDECK_WAYLAND_ZERO_COPY", e) }
+                WaylandCompositor.nativeSetZeroCopy(true)
+            }
             WaylandCompositor.nativeSetHdrRequest(
                 if (on) WaylandCompositor.HDR_MODE_ON else WaylandCompositor.HDR_MODE_OFF,
                 "$mode session settings" + (if (wanted && !on) " (refused: ${probe.reason})" else ""),

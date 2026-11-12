@@ -558,6 +558,23 @@ class SessionService : Service() {
                     )
                 }
             }
+            if (SessionPrefs.tvSurfaceEncodeTest(this)) {
+                val surfaceEncode = TvSurfaceEncode(File(filesDir, "venc/surface.h264"))
+                surfaceEncode.attach(this)
+                components.add(surfaceEncode)
+                val reason = surfaceEncode.begin()
+                if (reason == null) {
+                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
+                        this, "tv", "surface-encode",
+                        fields = mapOf("step" to "started", "file" to "venc/surface.h264"),
+                    )
+                } else {
+                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
+                        this, "tv", "surface-encode",
+                        fields = mapOf("step" to "start-failed", "reason" to reason),
+                    )
+                }
+            }
         }
 
         guest.add("BL_WIDTH=" + size.first)

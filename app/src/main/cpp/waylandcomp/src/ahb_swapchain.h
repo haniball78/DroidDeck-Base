@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <wayland-server.h>
+#include <android/hardware_buffer.h>
 
 struct dmabuf_buffer;
 struct surface;
@@ -19,6 +20,9 @@ int ahb_swapchain_advertised(void);
 uint32_t ahb_swapchain_ahb_format(const struct dmabuf_buffer *b);
 
 void ahb_swapchain_layer_released(void *token, int release_fd);
+
+int ahb_swapchain_tap_take(AHardwareBuffer **ahb, uint64_t *seq, int *fence_fd);
+uint64_t ahb_swapchain_tap_presented(void);
 
 struct dmabuf_buffer *droiddeck_dmabuf_from_resource(struct wl_resource *buffer);
 int droiddeck_dmabuf_fd(const struct dmabuf_buffer *b);

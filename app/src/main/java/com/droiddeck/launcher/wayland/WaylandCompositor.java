@@ -1,5 +1,6 @@
 package com.droiddeck.launcher.wayland;
 
+import android.hardware.HardwareBuffer;
 import android.view.Surface;
 
 public final class WaylandCompositor {
@@ -180,6 +181,13 @@ public final class WaylandCompositor {
     public static native int nativeZeroCopyFrames();
 
     public static native int nativeZeroCopyLastFrameAgeMs();
+
+    /** Borrows the latest presented game frame: out[0] = frame id, out[1] = acquire fence fd (or -1), out[2] = raw AHardwareBuffer pointer. */
+    public static native HardwareBuffer nativeBorrowGameFrame(long[] out);
+
+    public static native long nativeEncodePresented();
+
+    public static native boolean nativeEncodeAvailable();
 
     public static native void nativeSetUbwc(boolean on);
 

@@ -9,6 +9,10 @@
 #include <sys/resource.h>
 #include <android/log.h>
 #include <android/native_window_jni.h>
+#include <android/hardware_buffer_jni.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES2/gl2ext.h>
 #include "vk_present.h"
 #include "droiddeck_ext.h"
 #include "ahb_swapchain.h"
@@ -307,6 +311,60 @@ Java_com_droiddeck_launcher_wayland_WaylandCompositor_nativeZeroCopyLastFrameAge
 JNIEXPORT jint JNICALL
 Java_com_droiddeck_launcher_wayland_WaylandCompositor_nativeZeroCopyFrames(JNIEnv *env, jclass clazz) {
     return (jint)g_zero_copy_last;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_droiddeck_launcher_wayland_WaylandCompositor_nativeBorrowGameFrame(JNIEnv *env, jclass clazz, jlongArray out) {
+    AHardwareBuffer *ahb = NULL;
+    uint64_t seq = 0;
+    int fence = -1;
+    if (!ahb_swapchain_tap_take(&ahb, &seq, &fence)) return NULL;
+    if (!out || (*env)->GetArrayLength(env, out) < 3) {
+        AHardwareBuffer_release(ahb);
+        if (fence >= 0) close(fence);
+        return NULL;
+    }
+    jobject hb = AHardwareBuffer_toHardwareBuffer(env, ahb);
+    if (!hb) {
+        AHardwareBuffer_release(ahb);
+        if (fence >= 0) close(fence);
+        return NULL;
+    }
+    jlong vals[3] = {(jlong)seq, (jlong)fence, (jlong)(uintptr_t)ahb};
+    (*env)->SetLongArrayRegion(env, out, 0, 3, vals);
+    return hb;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_droiddeck_launcher_wayland_WaylandCompositor_nativeEncodePresented(JNIEnv *env, jclass clazz) {
+    return (jlong)ahb_swapchain_tap_presented();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_droiddeck_launcher_wayland_WaylandCompositor_nativeEncodeAvailable(JNIEnv *env, jclass clazz) {
+    return (jboolean)ahb_swapchain_advertised();
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeCreateEglImage(JNIEnv *env, jclass clazz, jlong displayHandle, jlong ahbPtr) {
+    EGLDisplay dpy = (EGLDisplay)(uintptr_t)displayHandle;
+    AHardwareBuffer *ahb = (AHardwareBuffer *)(uintptr_t)ahbPtr;
+    if (!dpy || !ahb) return 0;
+    EGLImageKHR image = eglCreateImageKHR(dpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, (EGLClientBuffer)ahb, NULL);
+    return (jlong)(uintptr_t)image;
+}
+
+JNIEXPORT void JNICALL
+Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeBindEglImageToTexture(JNIEnv *env, jclass clazz, jint texture, jlong imageHandle) {
+    if (!imageHandle) return;
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, (GLuint)texture);
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, (GLeglImageOES)(uintptr_t)imageHandle);
+}
+
+JNIEXPORT void JNICALL
+Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeDestroyEglImage(JNIEnv *env, jclass clazz, jlong displayHandle, jlong imageHandle) {
+    if (!displayHandle || !imageHandle) return;
+    eglDestroyImageKHR((EGLDisplay)(uintptr_t)displayHandle, (EGLImageKHR)(uintptr_t)imageHandle);
 }
 
 JNIEXPORT void JNICALL

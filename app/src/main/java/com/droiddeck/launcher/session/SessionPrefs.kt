@@ -89,6 +89,12 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("tvStreamLoopbackTest", on).apply()
     }
 
+    fun tvSurfaceEncodeTest(context: Context): Boolean = prefs(context).getBoolean("tvSurfaceEncodeTest", false)
+
+    fun setTvSurfaceEncodeTest(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("tvSurfaceEncodeTest", on).apply()
+    }
+
     fun gameStoresEnabled(context: Context): Boolean = prefs(context).getBoolean("gameStoresEnabled", true)
 
     fun setGameStoresEnabled(context: Context, on: Boolean) {

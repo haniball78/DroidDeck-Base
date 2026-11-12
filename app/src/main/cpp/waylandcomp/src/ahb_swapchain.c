@@ -201,10 +201,12 @@ int ahb_swapchain_present(struct dmabuf_buffer *b, struct surface *s, int scene_
         int r;
         do { r = poll(&p, 1, 100); } while (r < 0 && errno == EINTR);
     }
+    int tap_fd = acquire >= 0 ? dup(acquire) : -1;
     int r = sc_layer_present_ahb(ab->ahb, ab->w, ab->h, acquire, (void *)(uintptr_t)ab->id, scene_w, scene_h,
                                  s ? droiddeck_surface_color(s) : NULL, ab->format);
-    if (r < 0) return -1;
-    if (r == 1) return 0;
+    if (r < 0) { if (tap_fd >= 0) close(tap_fd); return -1; }
+    if (r == 1) { if (tap_fd >= 0) close(tap_fd); return 0; }
+    if (acquire < 0 || tap_fd >= 0) ahb_swapchain_tap_store(ab->ahb, tap_fd);
     if (!ab->on_layer) {
         ab->on_layer = 1;
         g_stat_zero_copy++;
@@ -244,6 +246,45 @@ void ahb_swapchain_surface_gone(struct surface *s) {
 unsigned ahb_swapchain_stats_take(void) {
     unsigned n = g_stat_zero_copy;
     g_stat_zero_copy = 0;
+    return n;
+}
+
+struct encode_tap { AHardwareBuffer *ahb; uint64_t seq; int fence_fd; };
+static struct encode_tap g_tap = {NULL, 0, -1};
+static pthread_mutex_t g_tap_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t g_tap_presented;
+
+static void ahb_swapchain_tap_store(AHardwareBuffer *ahb, int fence_fd) {
+    pthread_mutex_lock(&g_tap_lock);
+    if (g_tap.ahb) {
+        AHardwareBuffer_release(g_tap.ahb);
+        if (g_tap.fence_fd >= 0) close(g_tap.fence_fd);
+    }
+    AHardwareBuffer_acquire(ahb);
+    g_tap.ahb = ahb;
+    g_tap.seq = ++g_tap_presented;
+    g_tap.fence_fd = fence_fd;
+    pthread_mutex_unlock(&g_tap_lock);
+}
+
+int ahb_swapchain_tap_take(AHardwareBuffer **ahb, uint64_t *seq, int *fence_fd) {
+    pthread_mutex_lock(&g_tap_lock);
+    if (!g_tap.ahb) { pthread_mutex_unlock(&g_tap_lock); return 0; }
+    *ahb = g_tap.ahb;
+    *seq = g_tap.seq;
+    *fence_fd = g_tap.fence_fd;
+    g_tap.ahb = NULL;
+    g_tap.seq = 0;
+    g_tap.fence_fd = -1;
+    pthread_mutex_unlock(&g_tap_lock);
+    return 1;
+}
+
+uint64_t ahb_swapchain_tap_presented(void) {
+    uint64_t n;
+    pthread_mutex_lock(&g_tap_lock);
+    n = g_tap_presented;
+    pthread_mutex_unlock(&g_tap_lock);
     return n;
 }
 

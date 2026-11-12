@@ -31,6 +31,7 @@ fun TvSettingsPage(onBack: () -> Unit) {
     var tvHandoffTest by remember { mutableStateOf(SessionPrefs.tvHandoffTest(ctx)) }
     var tvControllerMode by remember { mutableStateOf(SessionPrefs.tvControllerMode(ctx)) }
     var tvStreamLoopbackTest by remember { mutableStateOf(SessionPrefs.tvStreamLoopbackTest(ctx)) }
+    var tvSurfaceEncodeTest by remember { mutableStateOf(SessionPrefs.tvSurfaceEncodeTest(ctx)) }
     var tvDiagnosticsEnabled by remember { mutableStateOf(TvDiagnosticsLog.isEnabled(ctx)) }
     var summary by remember { mutableStateOf(TvDiagnosticsLog.summary(ctx)) }
     var hasFile by remember { mutableStateOf(TvDiagnosticsLog.file(ctx) != null) }
@@ -97,6 +98,19 @@ fun TvSettingsPage(onBack: () -> Unit) {
                 ToggleSwitch(checked = tvStreamLoopbackTest, onChange = { on ->
                     tvStreamLoopbackTest = on
                     SessionPrefs.setTvStreamLoopbackTest(ctx, on)
+                })
+            }
+        }
+
+        // ── TV surface encode (P3 slice A2) ─────────────────────
+        SettingsGroup("TV surface encode") {
+            SettingsRow(
+                label = "TV surface encode test",
+                hint = "Test only: while on, a running session encodes the live game frames to filesDir/venc/surface.h264 (capped at 8 MB) and counts frames in the TV diagnostics log. No network, no receiver yet — it only proves whether live frames reach a hardware encoder.",
+            ) {
+                ToggleSwitch(checked = tvSurfaceEncodeTest, onChange = { on ->
+                    tvSurfaceEncodeTest = on
+                    SessionPrefs.setTvSurfaceEncodeTest(ctx, on)
                 })
             }
         }
