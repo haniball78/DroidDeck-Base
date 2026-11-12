@@ -544,6 +544,20 @@ class SessionService : Service() {
             encoder.attach(this)
             components.add(encoder)
             guest.add("BL_VENC_SOCKET=" + encoder.socket.absolutePath)
+            if (SessionPrefs.tvStreamLoopbackTest(this)) {
+                val tapFile = File(filesDir, "venc/loopback.h264")
+                if (encoder.startTap(tapFile.absolutePath)) {
+                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
+                        this, "tv", "stream-loopback",
+                        fields = mapOf("step" to "started", "file" to "venc/loopback.h264"),
+                    )
+                } else {
+                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
+                        this, "tv", "stream-loopback",
+                        fields = mapOf("step" to "start-failed"),
+                    )
+                }
+            }
         }
 
         guest.add("BL_WIDTH=" + size.first)

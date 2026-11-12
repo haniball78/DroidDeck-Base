@@ -12,7 +12,12 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <condition_variable>
 #include <cstring>
+#include <ctime>
+#include <fstream>
+#include <mutex>
+#include <queue>
 #include <string>
 #include <thread>
 #include <vector>
@@ -33,6 +38,78 @@ constexpr uint32_t kBufferFlagKeyFrame = 1;
 constexpr uint32_t kBufferFlagCodecConfig = 2;
 constexpr int kTouchWidth = 1920, kTouchHeight = 1080;  // InputSpace.kt
 constexpr int kRemoteTouchId = 31;  // the compositor's last touch slot (MAX_TOUCH_POINTS 32)
+
+// Stream-loopback tap (P3 slice A1): a second consumer of the encoded
+// bitstream. The guest waits on one VENC_DONE reply per frame, so the tap
+// never blocks the encode path or touches disk: frames are copied into a
+// bounded queue and a writer thread drains it to loopback.h264 (8 MB cap);
+// a full queue drops the frame and counts it.
+constexpr size_t kTapMaxQueue = 8;
+constexpr uint64_t kTapMaxBytes = 8ull * 1024 * 1024;
+
+struct TapState {
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::queue<std::vector<uint8_t>> queue;
+    std::thread writer;
+    std::atomic<bool> running{false};
+    std::string path;
+    std::atomic<uint64_t> frames{0};
+    std::atomic<uint64_t> bytes{0};
+    std::atomic<uint64_t> keyframes{0};
+    std::atomic<uint64_t> dropped{0};
+    std::atomic<int64_t> first_frame_ms{-1};
+    std::atomic<int64_t> start_ms{0};
+    std::atomic<int64_t> elapsed_ms{0};
+    std::atomic<uint64_t> written{0};
+};
+
+TapState g_tap;
+
+int64_t tap_now_ms() {
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+void tap_record(const uint8_t *data, size_t len, bool key) {
+    if (!g_tap.running.load(std::memory_order_relaxed)) return;
+    int64_t now = tap_now_ms();
+    int64_t expected = -1;
+    g_tap.first_frame_ms.compare_exchange_strong(expected, now - g_tap.start_ms.load());
+    g_tap.frames.fetch_add(1);
+    g_tap.bytes.fetch_add(len);
+    if (key) g_tap.keyframes.fetch_add(1);
+    {
+        std::lock_guard<std::mutex> lock(g_tap.mutex);
+        if (g_tap.queue.size() >= kTapMaxQueue) {
+            g_tap.dropped.fetch_add(1);
+            return;
+        }
+        g_tap.queue.emplace(data, data + len);
+    }
+    g_tap.cv.notify_one();
+}
+
+void tap_writer() {
+    std::ofstream out(g_tap.path, std::ios::binary | std::ios::trunc);
+    for (;;) {
+        std::vector<uint8_t> frame;
+        {
+            std::unique_lock<std::mutex> lock(g_tap.mutex);
+            g_tap.cv.wait(lock, [] { return !g_tap.queue.empty() || !g_tap.running.load(); });
+            if (g_tap.queue.empty()) break;
+            frame = std::move(g_tap.queue.front());
+            g_tap.queue.pop();
+        }
+        if (out && g_tap.written.load() < kTapMaxBytes) {
+            size_t room = (size_t)(kTapMaxBytes - g_tap.written.load());
+            size_t n = std::min(frame.size(), room);
+            out.write((const char *)frame.data(), (std::streamsize)n);
+            g_tap.written.fetch_add(n);
+        }
+    }
+}
 
 int32_t avc_profile(int32_t v4l2) {
     switch (v4l2) {
@@ -281,6 +358,7 @@ private:
                 *bytes = (uint32_t)total;
             }
             AMediaCodec_releaseOutputBuffer(codec_, (size_t)o, false);
+            if (fits) tap_record(out.data, total, *key);
             return fits;
         }
         return false;
@@ -343,4 +421,58 @@ Java_com_droiddeck_launcher_session_VideoEncodeBridge_nativeStop(JNIEnv *, jobje
         shutdown(fd, SHUT_RDWR);
         close(fd);
     }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_droiddeck_launcher_session_VideoEncodeBridge_nativeStartTap(JNIEnv *env, jobject, jstring jpath) {
+    if (g_tap.running.load()) return JNI_TRUE;
+    if (g_tap.writer.joinable()) return JNI_FALSE;
+    const char *path = env->GetStringUTFChars(jpath, nullptr);
+    if (!path) return JNI_FALSE;
+    std::string p(path);
+    env->ReleaseStringUTFChars(jpath, path);
+    g_tap.frames.store(0);
+    g_tap.bytes.store(0);
+    g_tap.keyframes.store(0);
+    g_tap.dropped.store(0);
+    g_tap.written.store(0);
+    g_tap.first_frame_ms.store(-1);
+    g_tap.elapsed_ms.store(0);
+    {
+        std::lock_guard<std::mutex> lock(g_tap.mutex);
+        std::queue<std::vector<uint8_t>> empty;
+        g_tap.queue.swap(empty);
+        g_tap.path = p;
+    }
+    g_tap.start_ms.store(tap_now_ms());
+    g_tap.running.store(true);
+    g_tap.writer = std::thread(tap_writer);
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_droiddeck_launcher_session_VideoEncodeBridge_nativeStopTap(JNIEnv *, jobject) {
+    if (!g_tap.running.load()) return;
+    g_tap.elapsed_ms.store(tap_now_ms() - g_tap.start_ms.load());
+    {
+        std::lock_guard<std::mutex> lock(g_tap.mutex);
+        g_tap.running.store(false);
+    }
+    g_tap.cv.notify_all();
+    if (g_tap.writer.joinable()) g_tap.writer.join();
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_droiddeck_launcher_session_VideoEncodeBridge_nativeTapStats(JNIEnv *env, jobject) {
+    jlong values[6] = {
+        (jlong)g_tap.frames.load(),
+        (jlong)g_tap.bytes.load(),
+        (jlong)g_tap.keyframes.load(),
+        (jlong)g_tap.dropped.load(),
+        (jlong)g_tap.first_frame_ms.load(),
+        (jlong)(g_tap.running.load() ? tap_now_ms() - g_tap.start_ms.load() : g_tap.elapsed_ms.load()),
+    };
+    jlongArray out = env->NewLongArray(6);
+    if (out) env->SetLongArrayRegion(out, 0, 6, values);
+    return out;
 }

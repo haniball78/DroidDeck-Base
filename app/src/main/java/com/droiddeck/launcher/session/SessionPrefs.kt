@@ -83,6 +83,12 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("tvControllerMode", on).apply()
     }
 
+    fun tvStreamLoopbackTest(context: Context): Boolean = prefs(context).getBoolean("tvStreamLoopbackTest", false)
+
+    fun setTvStreamLoopbackTest(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("tvStreamLoopbackTest", on).apply()
+    }
+
     fun gameStoresEnabled(context: Context): Boolean = prefs(context).getBoolean("gameStoresEnabled", true)
 
     fun setGameStoresEnabled(context: Context, on: Boolean) {

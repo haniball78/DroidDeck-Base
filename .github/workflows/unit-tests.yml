@@ -57,6 +57,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.WirelessDebugNavigatorTest" \
             --tests "com.droiddeck.launcher.core.TvHandoffTest" \
             --tests "com.droiddeck.launcher.core.privileged.TvDiagnosticsLogTest" \
+            --tests "com.droiddeck.launcher.session.TvStreamLoopbackTest" \
             --tests "com.droiddeck.launcher.core.privileged.GovernorTierCommandsTest" \
             --tests "com.droiddeck.launcher.core.privileged.BatchCVerifyTest" \
             --tests "com.droiddeck.launcher.core.privileged.FixedPerformanceGetterTest" \

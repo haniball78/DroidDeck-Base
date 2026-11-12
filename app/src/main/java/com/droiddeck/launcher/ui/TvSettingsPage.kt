@@ -30,6 +30,7 @@ fun TvSettingsPage(onBack: () -> Unit) {
     val host = rememberMenuHost()
     var tvHandoffTest by remember { mutableStateOf(SessionPrefs.tvHandoffTest(ctx)) }
     var tvControllerMode by remember { mutableStateOf(SessionPrefs.tvControllerMode(ctx)) }
+    var tvStreamLoopbackTest by remember { mutableStateOf(SessionPrefs.tvStreamLoopbackTest(ctx)) }
     var tvDiagnosticsEnabled by remember { mutableStateOf(TvDiagnosticsLog.isEnabled(ctx)) }
     var summary by remember { mutableStateOf(TvDiagnosticsLog.summary(ctx)) }
     var hasFile by remember { mutableStateOf(TvDiagnosticsLog.file(ctx) != null) }
@@ -83,6 +84,19 @@ fun TvSettingsPage(onBack: () -> Unit) {
                 ToggleSwitch(checked = tvControllerMode, onChange = { on ->
                     tvControllerMode = on
                     SessionPrefs.setTvControllerMode(ctx, on)
+                })
+            }
+        }
+
+        // ── TV stream loopback (P3 slice A1) ─────────────────────
+        SettingsGroup("TV stream loopback") {
+            SettingsRow(
+                label = "TV stream loopback test",
+                hint = "Test only: while on, a running session taps the encoded video bitstream into filesDir/venc/loopback.h264 (capped at 8 MB) and counts frames in the TV diagnostics log. No network, no receiver yet — it only proves whether frames reach an encoder at all.",
+            ) {
+                ToggleSwitch(checked = tvStreamLoopbackTest, onChange = { on ->
+                    tvStreamLoopbackTest = on
+                    SessionPrefs.setTvStreamLoopbackTest(ctx, on)
                 })
             }
         }
