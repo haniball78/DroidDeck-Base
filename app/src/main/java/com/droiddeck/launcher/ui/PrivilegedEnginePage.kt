@@ -66,7 +66,6 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
     val status by PrivilegedBridge.statusFlow.collectAsState()
     var refreshing by remember { mutableStateOf(false) }
     var autoGrant by remember { mutableStateOf(WirelessAdbFix.isAutoGrantSecureEnabled(ctx)) }
-    var tvHandoffTest by remember { mutableStateOf(SessionPrefs.tvHandoffTest(ctx)) }
 
     // Same three checks the Overview connection card polls, same 1.5 s
     // rhythm: without them the banner below would still say Active
@@ -163,15 +162,6 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
                     ToggleSwitch(checked = autoGrant, onChange = { on ->
                         autoGrant = on
                         WirelessAdbFix.setAutoGrantSecureEnabled(ctx, on)
-                    })
-                }
-                SettingsRow(
-                    label = "TV handoff test",
-                    hint = "Test only: while on, a running game moves to a connected TV at 1080p when the TV is plugged in. Turn off to move it back to the phone.",
-                ) {
-                    ToggleSwitch(checked = tvHandoffTest, onChange = { on ->
-                        tvHandoffTest = on
-                        SessionPrefs.setTvHandoffTest(ctx, on)
                     })
                 }
             }

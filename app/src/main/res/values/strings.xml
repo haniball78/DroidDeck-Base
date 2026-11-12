@@ -788,6 +788,8 @@
     <string name="setup_adv_open_monitor">Open Monitor</string>
     <string name="setup_adv_privileged_settings">Privileged Engine Settings</string>
     <string name="setup_adv_privileged_settings_hint">Configure embedded ADB daemon, wireless debugging, and Shizuku bridge</string>
+    <string name="tv_settings">TV settings</string>
+    <string name="tv_settings_hint">TV handoff test and TV diagnostics log</string>
     <string name="setup_adv_configure">Configure</string>
     <string name="setup_tab_controller">Controller</string>
     <string name="setup_tab_session">Session</string>

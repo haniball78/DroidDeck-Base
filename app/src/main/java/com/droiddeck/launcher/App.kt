@@ -36,6 +36,7 @@ class App : Application() {
         GpuClockPin.clearLeftover(this)
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.attach(this)
         com.droiddeck.launcher.core.privileged.PerformanceLog.attach(this)
+        com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.attach(this)
         com.droiddeck.launcher.core.privileged.PrivilegedBridge.ensureSessionToken(this)
         com.droiddeck.launcher.core.privileged.RecoveryCoordinator.attemptAsync(this)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.warmup(this)

@@ -422,6 +422,7 @@ class SessionService : Service() {
         SessionEvents.transition(SessionPhase.STARTING_GUEST, "service.started", mapOf("mode" to SessionState.mode))
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.attach(this)
         com.droiddeck.launcher.core.privileged.PerformanceLog.attach(this)
+        com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.attach(this)
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             this, "session", "started", fields = mapOf("mode" to SessionState.mode),
         )

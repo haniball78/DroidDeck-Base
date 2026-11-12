@@ -43,6 +43,7 @@ import com.droiddeck.launcher.core.FileUtils
 import com.droiddeck.launcher.core.TextureFiltering
 import com.droiddeck.launcher.core.TvHandoff
 import com.droiddeck.launcher.core.privileged.DiagnosticsLog
+import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
 import com.droiddeck.launcher.files.InAppFilePicker
 import com.droiddeck.launcher.frontend.Library
 import com.droiddeck.launcher.agent.AgentGuest
@@ -3416,7 +3417,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (tvOutputActive) {
             val screen = tvScreen
             if (screen != null) {
-                DiagnosticsLog.log(
+                TvDiagnosticsLog.log(
                     "tv", "handoff",
                     fields = mapOf(
                         "step" to "attached",
@@ -3432,7 +3433,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 if (current != null && tvOutputActive && SessionState.running) {
                     SessionState.outputSize = current.outputSize
                     WaylandCompositor.nativeResizeOutput(current.outputSize.first, current.outputSize.second)
-                    DiagnosticsLog.log(
+                    TvDiagnosticsLog.log(
                         "tv", "handoff",
                         fields = mapOf(
                             "step" to "resized",
@@ -3589,7 +3590,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 Log.w(TAG, "could not show the game on ${target.name}", e)
                 return
             }
-            DiagnosticsLog.log(
+            TvDiagnosticsLog.log(
                 "tv", "handoff",
                 fields = mapOf(
                     "step" to "shown",

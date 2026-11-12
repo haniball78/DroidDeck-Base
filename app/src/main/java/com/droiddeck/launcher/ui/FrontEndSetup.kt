@@ -2040,6 +2040,12 @@ private fun AdvancedSetupTab(
                 stringResource(R.string.setup_adv_configure),
                 onClick = { onSelect("privileged") },
             )
+            ActionRow(
+                stringResource(R.string.tv_settings),
+                stringResource(R.string.tv_settings_hint),
+                stringResource(R.string.setup_adv_configure),
+                onClick = { onSelect("tv") },
+            )
         }
     }
 

@@ -754,6 +754,8 @@
     <string name="setup_adv_open_monitor">فتح اللوحة</string>
     <string name="setup_adv_privileged_settings">إعدادات المحرك المتميز</string>
     <string name="setup_adv_privileged_settings_hint">ضبط ديمون ADB الداخلي وتصحيح الأخطاء اللاسلكي وجسر Shizuku</string>
+    <string name="tv_settings">إعدادات التلفاز</string>
+    <string name="tv_settings_hint">اختبار نقل اللعبة إلى التلفاز وسجل تشخيص التلفاز</string>
     <string name="setup_adv_configure">ضبط</string>
     <string name="setup_tab_controller">وحدة التحكم</string>
     <string name="setup_tab_session">الجلسة</string>
