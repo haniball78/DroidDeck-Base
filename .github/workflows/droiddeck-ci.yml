@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'app/**'
+      - 'tv/**'
       - 'tools/**'
       - 'gradle/**'
       - 'build.gradle'
@@ -246,5 +247,13 @@ jobs:
         with:
           name: droiddeck-updated-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload DroidDeck TV Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: droiddeck-tv-debug-apk
+          path: tv/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14

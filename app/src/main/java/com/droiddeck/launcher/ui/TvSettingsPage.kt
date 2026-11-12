@@ -32,6 +32,7 @@ fun TvSettingsPage(onBack: () -> Unit) {
     var tvControllerMode by remember { mutableStateOf(SessionPrefs.tvControllerMode(ctx)) }
     var tvStreamLoopbackTest by remember { mutableStateOf(SessionPrefs.tvStreamLoopbackTest(ctx)) }
     var tvSurfaceEncodeTest by remember { mutableStateOf(SessionPrefs.tvSurfaceEncodeTest(ctx)) }
+    var tvStreamTest by remember { mutableStateOf(SessionPrefs.tvStreamTest(ctx)) }
     var tvDiagnosticsEnabled by remember { mutableStateOf(TvDiagnosticsLog.isEnabled(ctx)) }
     var summary by remember { mutableStateOf(TvDiagnosticsLog.summary(ctx)) }
     var hasFile by remember { mutableStateOf(TvDiagnosticsLog.file(ctx) != null) }
@@ -111,6 +112,19 @@ fun TvSettingsPage(onBack: () -> Unit) {
                 ToggleSwitch(checked = tvSurfaceEncodeTest, onChange = { on ->
                     tvSurfaceEncodeTest = on
                     SessionPrefs.setTvSurfaceEncodeTest(ctx, on)
+                })
+            }
+        }
+
+        // ── TV stream (P3 slice A3) ─────────────────────────────
+        SettingsGroup("TV stream") {
+            SettingsRow(
+                label = "TV stream test",
+                hint = "Test only: while on, a running session serves the encoded game frames over raw TCP on the Wi-Fi network (advertised as _droiddeck-tv._tcp) for the DroidDeck TV receiver app. It reads filesDir/venc/surface.h264, so turn the surface encode test on too — without it the stream carries zero frames.",
+            ) {
+                ToggleSwitch(checked = tvStreamTest, onChange = { on ->
+                    tvStreamTest = on
+                    SessionPrefs.setTvStreamTest(ctx, on)
                 })
             }
         }

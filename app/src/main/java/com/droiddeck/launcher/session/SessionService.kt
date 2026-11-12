@@ -575,6 +575,23 @@ class SessionService : Service() {
                     )
                 }
             }
+            if (SessionPrefs.tvStreamTest(this)) {
+                val streamServer = TvStreamServer(File(filesDir, "venc/surface.h264"))
+                streamServer.attach(this)
+                components.add(streamServer)
+                val reason = streamServer.begin()
+                if (reason == null) {
+                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
+                        this, "tv", "stream",
+                        fields = mapOf("step" to "started", "file" to "venc/surface.h264"),
+                    )
+                } else {
+                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
+                        this, "tv", "stream",
+                        fields = mapOf("step" to "start-failed", "reason" to reason),
+                    )
+                }
+            }
         }
 
         guest.add("BL_WIDTH=" + size.first)
