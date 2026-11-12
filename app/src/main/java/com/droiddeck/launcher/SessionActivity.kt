@@ -41,6 +41,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.droiddeck.launcher.core.FileUtils
 import com.droiddeck.launcher.core.TextureFiltering
+import com.droiddeck.launcher.core.TvHandoff
+import com.droiddeck.launcher.core.privileged.DiagnosticsLog
 import com.droiddeck.launcher.files.InAppFilePicker
 import com.droiddeck.launcher.frontend.Library
 import com.droiddeck.launcher.agent.AgentGuest
@@ -115,6 +117,7 @@ import com.droiddeck.launcher.ui.LoadingOverlay
 import com.droiddeck.launcher.ui.SessionDrawer
 import com.droiddeck.launcher.ui.SessionPausedOverlay
 import com.droiddeck.launcher.ui.SecondScreenPresentation
+import com.droiddeck.launcher.ui.TvHandoffScreen
 import com.droiddeck.launcher.ui.DroidDeckTheme
 import com.droiddeck.launcher.wayland.CompositorHost
 import com.droiddeck.launcher.wayland.WaylandCompositor
@@ -380,16 +383,20 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var sessionActivityDisplayId = Display.DEFAULT_DISPLAY
     private lateinit var displayManager: DisplayManager
     private var secondScreenPresentation: SecondScreenPresentation? = null
+    private var tvScreen: TvHandoffScreen? = null
+    private var tvOutputActive = false
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
             notifyActivityDisplayStateChanged(displayId)
             refreshSecondScreenDisplays()
+            updateTvScreen()
         }
         override fun onDisplayRemoved(displayId: Int) {
             if (refreshActivityDisplayId() && started) {
                 SessionService.setActivityDisplay(this@SessionActivity, sessionActivityDisplayId)
             }
             refreshSecondScreenDisplays()
+            updateTvScreen()
         }
         override fun onDisplayChanged(displayId: Int) {
             notifyActivityDisplayStateChanged(displayId)
@@ -1899,6 +1906,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     }
 
     private fun refreshHz(): Float {
+        tvScreen?.hz?.takeIf { it > 1f }?.let { return it }
         glassesScreen?.hz?.takeIf { it > 1f }?.let { return it }
         val display = if (Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay
         val wanted = window.attributes.preferredDisplayModeId
@@ -2497,7 +2505,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (!::displayManager.isInitialized) return
         val primaryId = shownOnDisplayId
         val candidates = SecondScreenDisplays.available(displayManager, primaryId)
-            .filter { glassesScreen == null || it.id != glasses.displayId }
+            .filter { (glassesScreen == null || it.id != glasses.displayId) && (tvScreen == null || it.id != tvScreen?.display?.displayId) }
         val oldIds = secondScreenDisplays.map { it.id }.toSet()
         secondScreenDisplays = candidates
         val newIds = candidates.map { it.id }.toSet()
@@ -3157,6 +3165,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         refreshControls()
         if (::pip.isInitialized) pip.resumed()
         if (CompositorHost.isStarted) applyFrameGen()
+        updateTvScreen()
         SessionPrefs.sessionPrefs(this).registerOnSharedPreferenceChangeListener(cardboardPrefListener)
     }
 
@@ -3392,16 +3401,49 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         glassesScreen?.trackingRecovery?.update(trackingRecovery, glasses.sbs)
     }
 
-    private fun outputHolder(): SurfaceHolder = glassesScreen?.holder ?: surfaceView.holder
+    private fun outputHolder(): SurfaceHolder = tvScreen?.holder ?: glassesScreen?.holder ?: surfaceView.holder
 
     private fun onOutputAttached(holder: SurfaceHolder) {
         if (holder !== outputHolder()) return
         glassesOutputActive = glassesScreen?.holder === holder
+        tvOutputActive = tvScreen?.holder === holder
         // Keep the phone's layout for touch/controller coordinates, but remove
         // its SurfaceView so it cannot retain the last game frame under the hint.
-        surfaceView.visibility = if (glassesOutputActive) View.INVISIBLE else View.VISIBLE
+        surfaceView.visibility = if (glassesOutputActive || tvOutputActive) View.INVISIBLE else View.VISIBLE
         Log.i(TAG, "compositor output attached: " +
-            if (glassesOutputActive) "glasses display ${glassesScreen?.display?.displayId}" else "phone")
+            if (tvOutputActive) "TV display ${tvScreen?.display?.displayId}"
+            else if (glassesOutputActive) "glasses display ${glassesScreen?.display?.displayId}" else "phone")
+        if (tvOutputActive) {
+            val screen = tvScreen
+            if (screen != null) {
+                DiagnosticsLog.log(
+                    "tv", "handoff",
+                    fields = mapOf(
+                        "step" to "attached",
+                        "display" to screen.display.displayId.toString(),
+                        "size" to "${screen.outputSize.first}x${screen.outputSize.second}",
+                    ),
+                )
+            }
+            // Let the switch settle and frames flow before resizing, so a
+            // failure is attributable to the resize step, not the switch.
+            uiHandler.postDelayed({
+                val current = tvScreen
+                if (current != null && tvOutputActive && SessionState.running) {
+                    SessionState.outputSize = current.outputSize
+                    WaylandCompositor.nativeResizeOutput(current.outputSize.first, current.outputSize.second)
+                    DiagnosticsLog.log(
+                        "tv", "handoff",
+                        fields = mapOf(
+                            "step" to "resized",
+                            "display" to current.display.displayId.toString(),
+                            "size" to "${current.outputSize.first}x${current.outputSize.second}",
+                        ),
+                    )
+                    Log.i(TAG, "tv handoff: resized output to ${current.outputSize.first}x${current.outputSize.second}")
+                }
+            }, TV_HANDOFF_RESIZE_DELAY_MS)
+        }
         if (pausedFrameWanted) uiHandler.postDelayed({
             if (pausedFrameWanted && pausedFrame == null && resumed) capturePausedFrame()
         }, PAUSED_FRAME_REDRAW_MS)
@@ -3503,6 +3545,75 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         applyOutputPacing()
         refreshSecondScreenDisplays()
         applyCardboard(cardboard)
+    }
+
+    private fun updateTvScreen() {
+        if (!::surfaceView.isInitialized || !::displayManager.isInitialized) return
+        val want = SessionPrefs.tvHandoffTest(this) && started && !ended && !isInPictureInPictureMode &&
+            !runtimeRemovalBlocked && SessionState.running && glassesScreen == null
+        val target = if (want) {
+            val candidates = SecondScreenDisplays.available(displayManager, shownOnDisplayId)
+            val targetId = TvHandoff.selectTargetDisplay(candidates.map { it.id }, glasses.displayId, shownOnDisplayId)
+            targetId?.let { runCatching { displayManager.getDisplay(it) }.getOrNull() }?.takeIf { it.isValid }
+        } else null
+        val current = tvScreen
+        if (!want && current == null) return
+        if (current != null && current.display.displayId == target?.displayId) {
+            applyOutputPacing()
+            return
+        }
+        if (current != null) {
+            restoreTvToPhone(current)
+            runCatching { current.dismiss() }
+        }
+        if (target != null) {
+            val screen = TvHandoffScreen(this, target, 60, this)
+            // show() can create the surface synchronously. Select its holder
+            // first, otherwise surfaceCreated() rejects the TV callback.
+            tvScreen = screen
+            applyOutputPacing()
+            surfaceW = 0
+            surfaceH = 0
+            screen.setOnDismissListener {
+                if (tvScreen === screen) {
+                    restoreTvToPhone(screen)
+                    refreshSecondScreenDisplays()
+                    applyCardboard(cardboard)
+                }
+            }
+            try {
+                screen.show()
+            } catch (e: Exception) {
+                restoreTvToPhone(screen)
+                runCatching { screen.dismiss() }
+                Log.w(TAG, "could not show the game on ${target.name}", e)
+                return
+            }
+            DiagnosticsLog.log(
+                "tv", "handoff",
+                fields = mapOf(
+                    "step" to "shown",
+                    "display" to target.displayId.toString(),
+                    "size" to "${screen.outputSize.first}x${screen.outputSize.second}",
+                ),
+            )
+            Log.i(TAG, "requested game output on TV (display ${target.displayId})")
+        }
+        applyOutputPacing()
+        refreshSecondScreenDisplays()
+        applyCardboard(cardboard)
+    }
+
+    private fun restoreTvToPhone(screen: TvHandoffScreen) {
+        if (tvScreen !== screen) return
+        tvScreen = null
+        tvOutputActive = false
+        surfaceW = 0
+        surfaceH = 0
+        CompositorHost.detach(screen.holder.surface)
+        surfaceView.visibility = View.VISIBLE
+        applyOutputPacing()
+        if (surfaceView.holder.surface?.isValid == true) surfaceCreated(surfaceView.holder)
     }
 
     private fun onGlassesSteamVr(now: SteamVr.Status) {
@@ -3685,6 +3796,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         private const val LEAVE_TIMEOUT_MS = 1_500L
         private const val PAUSED_FRAME_MAX_EDGE = 1920f
         private const val PAUSED_FRAME_REDRAW_MS = 150L
+        private const val TV_HANDOFF_RESIZE_DELAY_MS = 2_000L
         private const val TAG = "SessionActivity"
         private var startedScreens = 0
         private const val FEX_MISSING = "droiddeck-fex: x86 Linux programs need"

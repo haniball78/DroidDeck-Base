@@ -55,6 +55,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.WirelessAdbPatientRetryTest" \
             --tests "com.droiddeck.launcher.core.WirelessAdbAutoGrantTest" \
             --tests "com.droiddeck.launcher.core.WirelessDebugNavigatorTest" \
+            --tests "com.droiddeck.launcher.core.TvHandoffTest" \
             --tests "com.droiddeck.launcher.core.privileged.GovernorTierCommandsTest" \
             --tests "com.droiddeck.launcher.core.privileged.BatchCVerifyTest" \
             --tests "com.droiddeck.launcher.core.privileged.FixedPerformanceGetterTest" \
