@@ -25,6 +25,8 @@ class VideoEncodeBridge(val socket: File) : SessionPart() {
     fun startTap(path: String): Boolean {
         if (tapActive) return true
         File(path).parentFile?.mkdirs()
+        // The tap starts before components.start(), so the library is not loaded yet.
+        runCatching { System.loadLibrary("ddvenc") }
         val ok = runCatching { nativeStartTap(path) }.getOrDefault(false)
         tapActive = ok
         return ok
