@@ -11,6 +11,8 @@
 #include <android/native_window_jni.h>
 #include <android/hardware_buffer_jni.h>
 #include <EGL/egl.h>
+// eglext.h only declares eglCreateImageKHR / eglDestroyImageKHR when EGL_EGLEXT_PROTOTYPES is defined.
+#define EGL_EGLEXT_PROTOTYPES
 #include <EGL/eglext.h>
 // gl2ext.h only declares glEGLImageTargetTexture2DOES when GL_GLEXT_PROTOTYPES is defined.
 #define GL_GLEXT_PROTOTYPES
@@ -353,7 +355,7 @@ Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeCreateEglImage(JNIEnv 
     EGLDisplay dpy = (EGLDisplay)(uintptr_t)displayHandle;
     AHardwareBuffer *ahb = (AHardwareBuffer *)(uintptr_t)ahbPtr;
     if (!dpy || !ahb) return 0;
-    EGLImageKHR image = eglCreateImage(dpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, (EGLClientBuffer)ahb, NULL);
+    EGLImageKHR image = eglCreateImageKHR(dpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, (EGLClientBuffer)ahb, NULL);
     return (jlong)(uintptr_t)image;
 }
 
@@ -367,7 +369,7 @@ Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeBindEglImageToTexture(
 JNIEXPORT void JNICALL
 Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeDestroyEglImage(JNIEnv *env, jclass clazz, jlong displayHandle, jlong imageHandle) {
     if (!displayHandle || !imageHandle) return;
-    eglDestroyImage((EGLDisplay)(uintptr_t)displayHandle, (EGLImageKHR)(uintptr_t)imageHandle);
+    eglDestroyImageKHR((EGLDisplay)(uintptr_t)displayHandle, (EGLImageKHR)(uintptr_t)imageHandle);
 }
 
 JNIEXPORT void JNICALL
