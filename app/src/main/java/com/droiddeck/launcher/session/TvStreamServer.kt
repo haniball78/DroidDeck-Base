@@ -62,8 +62,8 @@ class TvStreamServer(private val sourceFile: File) : SessionPart() {
         }
         serverSocket = server
         multicastLock = runCatching {
+            // MulticastLock has no setReferenceCounted (unlike WifiLock/WakeLock); acquire/release are balanced.
             wifi?.createMulticastLock("droiddeck-tv")?.apply {
-                isReferenceCounted = false
                 acquire()
             }
         }.getOrNull()

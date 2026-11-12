@@ -183,6 +183,8 @@ int ahb_swapchain_has_ahb(const struct dmabuf_buffer *b) {
     return b && *droiddeck_dmabuf_ahb_slot((struct dmabuf_buffer *)b) != NULL;
 }
 
+static void ahb_swapchain_tap_store(AHardwareBuffer *ahb, int fence_fd);
+
 int ahb_swapchain_present(struct dmabuf_buffer *b, struct surface *s, int scene_w, int scene_h) {
     struct ahb_buf *ab = b ? *droiddeck_dmabuf_ahb_slot(b) : NULL;
     if (!ab) return -1;
