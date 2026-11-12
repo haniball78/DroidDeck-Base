@@ -50,7 +50,11 @@ class TvDiagnosticsLogTest {
         assertTrue(text.contains("\"event\":\"handoff\""))
         assertTrue(text.contains("\"step\":\"attached\""))
         assertEquals(1L, TvDiagnosticsLog.summary(context)?.lines)
-        assertNull(DiagnosticsLog.file(context))
+        // Separation is about content, not about the main file existing:
+        // other tests in this run may already have written to the main
+        // diagnostics log. The handoff event itself must never be there.
+        val mainText = DiagnosticsLog.file(context)?.readText()
+        assertTrue(mainText == null || !mainText.contains("\"category\":\"tv\""))
     }
 
     @Test
