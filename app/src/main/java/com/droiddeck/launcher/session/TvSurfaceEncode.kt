@@ -14,8 +14,8 @@ import android.opengl.GLES20
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
-import android.system.Os
 import android.util.Log
 import com.droiddeck.launcher.core.SessionPart
 import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
@@ -167,7 +167,8 @@ class TvSurfaceEncode(private val outFile: File) : SessionPart() {
                     )
                 }.getOrNull()
                 if (sync == null || sync === EGL15.EGL_NO_SYNC) {
-                    runCatching { Os.close(fenceFd) }
+                    // eglCreateSync failed, so EGL never took the fd; adopt and close it.
+                    runCatching { ParcelFileDescriptor.adoptFd(fenceFd).close() }
                     return false
                 }
                 val waited = runCatching {
