@@ -58,7 +58,9 @@ class TvStreamServerTest {
     @Test
     fun `annex b scanner splits three and four byte start codes`() {
         val scanner = AnnexBScanner()
-        val sps = byteArrayOf(0, 0, 0, 1, 0x67, 0x42, 0x00)
+        // SPS payload must not end with 0x00: with the next 3-byte start code it forms a 4-byte
+        // start code, and Annex B attributes that byte to the start code, not the NAL.
+        val sps = byteArrayOf(0, 0, 0, 1, 0x67, 0x42, 0x01)
         val pps = byteArrayOf(0, 0, 1, 0x68, 0x01)
         val idr = byteArrayOf(0, 0, 0, 1, 0x65, 0x11, 0x22)
         val units = scanner.feed(sps + pps + idr + byteArrayOf(0, 0, 1, 0x41))
@@ -71,7 +73,7 @@ class TvStreamServerTest {
     @Test
     fun `annex b scanner holds a partial unit across feeds`() {
         val scanner = AnnexBScanner()
-        val first = scanner.feed(byteArrayOf(0, 0, 0, 1, 0x67, 0x42, 0x00, 0, 0, 1, 0x68))
+        val first = scanner.feed(byteArrayOf(0, 0, 0, 1, 0x67, 0x42, 0x01, 0, 0, 1, 0x68))
         assertEquals(1, first.size)
         val second = scanner.feed(byteArrayOf(0x01, 0x02, 0, 0, 0, 1, 0x65))
         assertEquals(1, second.size)
