@@ -54,7 +54,7 @@ internal fun ramReportFields(
 }
 
 object SessionRamReport {
-    fun log(context: Context?, before: RamSnapshot, after: RamSnapshot, suspendedCount: Int, restored: RamSnapshot?) {
+    internal fun log(context: Context?, before: RamSnapshot, after: RamSnapshot, suspendedCount: Int, restored: RamSnapshot?) {
         val fields = ramReportFields(before, after, suspendedCount, restored)
         DiagnosticsLog.log(context, "session.performance", "session-ram-report", fields = fields)
         PerformanceLog.log(context, "session.performance", "session-ram-report", fields = fields)
