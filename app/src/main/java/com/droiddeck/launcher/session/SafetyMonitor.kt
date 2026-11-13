@@ -170,7 +170,7 @@ class SafetyMonitor(
             force = action != SafetyAction.NONE,
             nowMs = now,
         )
-        if (now - lastRamSnapshotMs >= com.droiddeck.launcher.core.privileged.SessionRamSnapshot.RAM_SNAPSHOT_INTERVAL_MS) {
+        if (now - lastRamSnapshotMs >= com.droiddeck.launcher.core.privileged.RAM_SNAPSHOT_INTERVAL_MS) {
             lastRamSnapshotMs = now
             runCatching { com.droiddeck.launcher.core.privileged.SessionRamSnapshot.sample() }
         }
