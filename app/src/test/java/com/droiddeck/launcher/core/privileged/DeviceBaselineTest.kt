@@ -91,6 +91,17 @@ class DeviceBaselineTest {
     }
 
     @Test
+    fun validityExemptsKadbMinusOneFixedPerformance() {
+        val base = DeviceBaseline.definitions("com.example").map { def ->
+            BaselineEntry(def.key, def.readCommand, "x", null)
+        }
+        val kadbMinusOne = base.map {
+            if (it.key == "power.fixed_performance") it.copy(value = null, unreadableReason = "read command failed with exit -1") else it
+        }
+        assertTrue(BaselineValidity.isValid(kadbMinusOne))
+    }
+
+    @Test
     fun unsetSettingIsRecordedAsUnsetNotAsFailure() {
         val def = BaselineDefinition("settings.global.background_process_limit", "settings get global background_process_limit", DeviceBaseline::parseSetting)
         val entry = DeviceBaseline.entryFor(def, 0, "null")

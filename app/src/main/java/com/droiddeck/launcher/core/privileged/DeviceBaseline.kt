@@ -26,9 +26,10 @@ data class BaselineEntry(
 // child-process entry has no public getter, and fixed-performance is
 // exempt only when its getter is proven unsupported (exit 255 on
 // this ROM), because its original is handled separately by the
-// GameMode skip logic. Any other unreadable required entry makes
-// the whole capture invalid, so it must never be presented as a
-// baseline and must be retried.
+// GameMode skip logic. A capture through wireless ADB reports the same
+// failed getter as exit -1, so -1 is the same proof. Any other
+// unreadable required entry makes the whole capture invalid, so it must
+// never be presented as a baseline and must be retried.
 internal object BaselineValidity {
     fun isValid(entries: List<BaselineEntry>): Boolean {
         if (entries.isEmpty()) return false
@@ -36,7 +37,8 @@ internal object BaselineValidity {
             if (entry.key == "activity.child_process_restrictions") continue
             if (entry.value != null) continue
             if (entry.key == "power.fixed_performance" &&
-                entry.unreadableReason?.contains("exit 255") == true
+                (entry.unreadableReason?.contains("exit 255") == true ||
+                    entry.unreadableReason?.contains("exit -1") == true)
             ) continue
             if (entry.unreadableReason == "setting unset") continue
             return false
