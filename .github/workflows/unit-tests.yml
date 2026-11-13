@@ -76,6 +76,7 @@ jobs:
             --tests "com.droiddeck.launcher.session.SafetyPolicyTest" \
             --tests "com.droiddeck.launcher.core.privileged.PerformanceLogTest" \
             --tests "com.droiddeck.launcher.core.privileged.SessionRamReportTest" \
+            --tests "com.droiddeck.launcher.core.privileged.SessionRamSnapshotTest" \
             --tests "com.droiddeck.launcher.core.privileged.DeviceBaselineTest" \
             --tests "com.droiddeck.launcher.core.privileged.DeviceBaselineOnceTest" \
             -PndkVersion=29.0.14206865 \

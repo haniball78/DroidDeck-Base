@@ -57,6 +57,7 @@ class SafetyMonitor(
     @Volatile private var countdownCancelled = false
     private var monitorThread: Thread? = null
     private var lastHeartbeatMs = 0L
+    private var lastRamSnapshotMs = 0L
     private var thermalUnknownLogged = false
     private var deescalated = false
     private var deescalatedAtMs = 0L
@@ -74,6 +75,7 @@ class SafetyMonitor(
         if (running) return
         running = true
         lastHeartbeatMs = clock.nowMs()
+        lastRamSnapshotMs = clock.nowMs()
         monitorThread = Thread({
             while (running) {
                 try {
@@ -168,6 +170,10 @@ class SafetyMonitor(
             force = action != SafetyAction.NONE,
             nowMs = now,
         )
+        if (now - lastRamSnapshotMs >= com.droiddeck.launcher.core.privileged.SessionRamSnapshot.RAM_SNAPSHOT_INTERVAL_MS) {
+            lastRamSnapshotMs = now
+            runCatching { com.droiddeck.launcher.core.privileged.SessionRamSnapshot.sample() }
+        }
         when (action) {
             SafetyAction.NONE -> Unit
             SafetyAction.WARN_BATTERY_15 -> {
