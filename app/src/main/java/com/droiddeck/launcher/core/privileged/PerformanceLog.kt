@@ -37,6 +37,7 @@ internal fun performanceFields(
     tweaksActive: Boolean,
     aggressiveActive: Boolean,
     ramFreeMb: Long,
+    cpuLoad: String = "unknown",
     cpuTempC: Float? = null,
     gpuTempC: Float? = null,
 ): Map<String, String> {
@@ -67,6 +68,7 @@ internal fun performanceFields(
         "tweaks_active" to tweaksActive.toString(),
         "aggressive_active" to aggressiveActive.toString(),
         "ram_free_mb" to ramFreeMb.toString(),
+        "cpu_load" to cpuLoad,
     )
 }
 
@@ -162,6 +164,7 @@ object PerformanceLog {
                 tweaksActive = tweaksActive,
                 aggressiveActive = GameModeEngine.isAggressiveActive(),
                 ramFreeMb = ramFreeMb,
+                cpuLoad = readCpuLoad(),
                 // CPU/GPU temps reuse the same thermal-zone sources
                 // already used for the guest hwmon sensors
                 // (LinuxRuntime.cpuTempSource/gpuTempSource), never a

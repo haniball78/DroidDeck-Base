@@ -181,6 +181,10 @@ class SessionService : Service() {
         updateSuspendPolicy()
     }
     @Volatile private var sessionGen = 0
+    @Volatile private var ramReportBefore: com.droiddeck.launcher.core.privileged.RamSnapshot? = null
+    @Volatile private var ramReportAfter: com.droiddeck.launcher.core.privileged.RamSnapshot? = null
+    @Volatile private var ramReportSuspended: Int = 0
+    @Volatile private var ramReportGen: Int = -1
     private var safetyMonitor: SafetyMonitor? = null
     @Volatile private var deadManRunning = false
     private var deadManThread: Thread? = null
@@ -503,6 +507,8 @@ class SessionService : Service() {
 
         Log.i(TAG, GpuClockPin.start(this))
         Log.i(TAG, GameThreadHints.start(this))
+        ramReportBefore = com.droiddeck.launcher.core.privileged.readRamSnapshot(this)
+        ramReportGen = gen
         if (SessionPrefs.advancedMasterEnabled(this)) {
             val recoveryPending = com.droiddeck.launcher.core.privileged.RecoveryCoordinator.recoveryPending(this)
             val recovered = if (recoveryPending) com.droiddeck.launcher.core.privileged.Tweaks.rollback(this) else true
@@ -525,6 +531,8 @@ class SessionService : Service() {
         } else {
             Log.i(TAG, "advanced performance engines: SKIPPED (master switch off)")
         }
+        ramReportAfter = com.droiddeck.launcher.core.privileged.readRamSnapshot(this)
+        ramReportSuspended = com.droiddeck.launcher.core.privileged.AppFreezerEngine.getSuspendedCount()
 
         val size = SessionState.outputSize
         val guest = ArrayList<String>()
@@ -2280,6 +2288,17 @@ class SessionService : Service() {
         }
     }
 
+    private fun logRamReport(stoppedGen: Int) {
+        val before = ramReportBefore
+        val after = ramReportAfter
+        if (before == null || after == null || ramReportGen != stoppedGen) return
+        ramReportBefore = null
+        ramReportAfter = null
+        ramReportGen = -1
+        val restored = com.droiddeck.launcher.core.privileged.readRamSnapshot(this)
+        com.droiddeck.launcher.core.privileged.SessionRamReport.log(this, before, after, ramReportSuspended, restored)
+    }
+
     private fun restoreInTeardown(stoppedGen: Int): Boolean {
         SessionExit.beginRestore()
         val deadlineMs = 15000L
@@ -2310,6 +2329,7 @@ class SessionService : Service() {
             SessionEvents.record("session.restore_failed", mapOf("gen" to stoppedGen))
             Log.w(TAG, "teardown restore failed, session not finished, journal kept for retry")
         }
+        logRamReport(stoppedGen)
         return ok
     }
 
