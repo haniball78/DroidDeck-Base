@@ -188,6 +188,12 @@ object WirelessAdbFix {
      * of retrying for 7 minutes. */
     fun isRevokedIdentity(verified: Boolean, attempts: Int): Boolean = verified && attempts >= 1
 
+    /** One automatic pairing recovery per parked port, and only for a revoked
+     * (previously verified) identity: an AUTH park on an unverified identity
+     * is a landing, not a death, and must keep patient-retrying. */
+    fun shouldAutoRecoverIdentity(parked: Int?, recoveredPorts: Set<Int>, verified: Boolean, attempts: Int): Boolean =
+        parked != null && parked !in recoveredPorts && isRevokedIdentity(verified, attempts)
+
     /** True when the app process itself holds WRITE_SECURE_SETTINGS. */
     fun hasSecureSettingsGrant(context: Context): Boolean =
         context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) ==

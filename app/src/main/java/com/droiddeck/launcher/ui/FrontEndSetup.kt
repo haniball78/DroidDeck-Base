@@ -629,6 +629,8 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
     var autoRestartFailed by remember { mutableStateOf(false) }
     var patientRetries by remember { mutableStateOf(0) }
     var showResetConfirm by remember { mutableStateOf(false) }
+    var autoRecoveredPorts by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var autoRecoveryPending by remember { mutableStateOf(false) }
 
     fun logAction(name: String) {
         DiagnosticsLog.log(
@@ -712,6 +714,39 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         }
     }
 
+    // Automatic pairing recovery for an AUTH park on a verified identity:
+    // the identity died with the port change, so the app mints a fresh one
+    // itself (the existing reset path) and opens the pairing screen, instead
+    // of parking for 7 minutes and asking the user to reset. The pairing
+    // code still comes from adbd and the user types it once: there is no API
+    // to read it, so this is not a fully silent recovery. One recovery per
+    // parked port; a failed re-pair parks again and never re-fires.
+    fun startAutoRecovery(parked: Int) {
+        logAction("pairing-auto-recovery")
+        scope.launch {
+            val oldIdentity = WirelessAdbFix.identityFingerprint(ctx)
+            val newIdentity = withContext(Dispatchers.IO) { WirelessAdbFix.resetPairingCompletely(ctx) }
+            DiagnosticsLog.log(
+                ctx, "adb.pair", "pairing-auto-recovery",
+                fields = buildMap {
+                    put("reason", "auth-failed-after-port-change")
+                    put("port", parked.toString())
+                    put("stage", "pairing-started")
+                    oldIdentity?.let { put("old_identity", it) }
+                    newIdentity?.let { put("identity", it) }
+                },
+            )
+            paired.value = false
+            oneTapFailed = false
+            PrivilegedBridge.clearDaemonFailure()
+            PrivilegedBridge.clearAuthFailedPort()
+            PrivilegedBridge.clearAuthRejected()
+            autoRecoveryPending = true
+            Toast.makeText(ctx, ctx.getString(R.string.pairing_reset_toast), Toast.LENGTH_SHORT).show()
+            requestPairing()
+        }
+    }
+
     // READY auto-attempt: fire once per connect port, only when the port
     // differs from the last AUTH-failed one. A failure on a port parks
     // that port (no refire on it), and a port change after a wireless
@@ -736,6 +771,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         if (state != ConnectionCardState.READY_TO_START) {
             autoRestartedPorts = emptySet()
             autoRestartFailed = false
+            autoRecoveredPorts = emptySet()
         } else {
             val parked = parkedPort
             if (!starting && !autoRestarting && parked != null) {
@@ -775,9 +811,14 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             if (!isActive) break
             if (starting || autoRestarting) continue
             // A verified identity failing repeatedly is a revoke, not a
-            // landing: offer the user-confirmed reset instead of retrying
-            // for 7 minutes. The dialog is the existing reset confirm;
-            // nothing is minted until the user taps it.
+            // landing: recover once per parked port (fresh identity +
+            // pairing screen), and only offer the user-confirmed reset
+            // dialog when that recovery already ran for this port.
+            if (parked != null && WirelessAdbFix.shouldAutoRecoverIdentity(parked, autoRecoveredPorts, WirelessAdbFix.isIdentityVerified(ctx), patientRetries)) {
+                autoRecoveredPorts = autoRecoveredPorts + parked
+                startAutoRecovery(parked)
+                break
+            }
             if (WirelessAdbFix.isRevokedIdentity(WirelessAdbFix.isIdentityVerified(ctx), patientRetries)) {
                 showResetConfirm = true
                 break
@@ -824,6 +865,26 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             (pairingStage is WirelessAdbPairingService.Stage.Parked && !wasParked)
         ) {
             patientRetries = 0
+        }
+        if (autoRecoveryPending) {
+            when (pairingStage) {
+                is WirelessAdbPairingService.Stage.Done -> {
+                    autoRecoveryPending = false
+                    DiagnosticsLog.log(
+                        ctx, "adb.pair", "pairing-auto-recovery",
+                        fields = mapOf("reason" to "auth-failed-after-port-change", "stage" to "succeeded"),
+                    )
+                }
+                is WirelessAdbPairingService.Stage.Failed,
+                is WirelessAdbPairingService.Stage.Parked -> {
+                    autoRecoveryPending = false
+                    DiagnosticsLog.log(
+                        ctx, "adb.pair", "pairing-auto-recovery",
+                        fields = mapOf("reason" to "auth-failed-after-port-change", "stage" to "failed"),
+                    )
+                }
+                else -> {}
+            }
         }
     }
 
