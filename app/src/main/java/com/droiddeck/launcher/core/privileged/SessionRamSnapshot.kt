@@ -4,7 +4,7 @@ import android.content.Context
 
 internal const val RAM_SNAPSHOT_INTERVAL_MS = 60_000L
 internal const val RAM_SNAPSHOT_TOP_COUNT = 10
-private const val PS_COMMAND = "ps -A -o USER,CMD,RSS"
+internal const val PS_COMMAND = "ps -A -o USER,CMD,RSS"
 
 internal data class PsProcess(val name: String, val rssMb: Long, val system: Boolean)
 
@@ -50,6 +50,38 @@ internal fun parsePsSnapshot(output: String): PsSnapshot {
         .take(RAM_SNAPSHOT_TOP_COUNT)
         .map { PsProcess(name = it.first, rssMb = it.second / 1024, system = it.third) }
     return PsSnapshot(processes = top, totalCount = parsed.size, totalRssMb = totalRssMb)
+}
+
+// Maps each target package to the RSS (MB) of its running processes, so
+// the kill step knows which targets are running and how much RAM the kill
+// frees. A process name is the package name for the main process, or
+// "package:..." for a remote process, and on-device ps truncates the name
+// to its last 15 characters, so a target matches when it equals the name
+// or ends with it; a false match only kills a non-running package (a
+// no-op) and suspends a target that was going to be suspended anyway.
+internal fun runningTargetRss(output: String, targets: List<String>): Map<String, Long> {
+    val result = mutableMapOf<String, Long>()
+    for (rawLine in output.lineSequence()) {
+        val line = rawLine.trim()
+        if (line.isEmpty()) continue
+        val rssStart = line.lastIndexOf(' ')
+        if (rssStart < 0) continue
+        val rssKb = line.substring(rssStart + 1).trim().toLongOrNull() ?: continue
+        if (rssKb < 0) continue
+        val head = line.substring(0, rssStart).trim()
+        val nameStart = head.indexOf(' ')
+        if (nameStart < 0) continue
+        val name = head.substring(nameStart + 1).trim()
+        if (name.isEmpty()) continue
+        val candidate = name.substringBefore(' ').substringBefore(':').trim()
+        if (candidate.isEmpty()) continue
+        for (target in targets) {
+            if (target == candidate || target.endsWith(candidate)) {
+                result[target] = (result[target] ?: 0L) + rssKb / 1024
+            }
+        }
+    }
+    return result
 }
 
 internal fun ramSnapshotFields(snapshot: PsSnapshot): Map<String, String> {

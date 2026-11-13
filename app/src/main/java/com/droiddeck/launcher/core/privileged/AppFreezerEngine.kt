@@ -1,6 +1,7 @@
 package com.droiddeck.launcher.core.privileged
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import com.droiddeck.launcher.session.SessionPrefs
 import java.io.File
@@ -39,6 +40,42 @@ internal fun filterSuspendTargets(
     packages: List<String>,
     protected: Set<String>,
 ): List<String> = packages.distinct().filter { it !in protected && AppFreezerPackageJournal.packagePattern.matches(it) }
+
+// A system app is safe to close when it is a known-safe background
+// service (allowlist) or a user-facing app (launcher icon). Background
+// services and critical system services both lack a launcher icon, so
+// there is no reliable dynamic signal for them and the list is the
+// safety mechanism; the protected set still wins over both.
+internal fun isSafeSystemTarget(packageName: String, launcherPackages: Set<String>): Boolean =
+    packageName in AppFreezerEngine.SAFE_SYSTEM_ALLOWLIST || packageName in launcherPackages
+
+// System close targets: the curated bloatware list, the safe-service
+// allowlist, and every user-facing system app, restricted to what is
+// actually installed. The protected filter is applied separately by
+// filterSuspendTargets.
+internal fun systemCloseTargets(
+    installedSystem: Set<String>,
+    launcherPackages: Set<String>,
+): List<String> = (AppFreezerEngine.KNOWN_BLOATWARE + AppFreezerEngine.SAFE_SYSTEM_ALLOWLIST + launcherPackages)
+    .filter { it in installedSystem }
+    .distinct()
+
+// Builds the suspend portion of the apply script. A running target is
+// killed and then suspended in the same loop iteration, with the two
+// commands adjacent in one script, so the app cannot restart itself
+// (sticky service, alarm, FCM) before its suspend lands. A non-running
+// target has no RAM to free and no restart race, so it is suspended
+// only, in the existing chunks of 50.
+internal fun killSuspendScript(running: List<String>, nonRunning: List<String>): String {
+    return buildString {
+        for (pkg in running) {
+            append("am kill $pkg 2>/dev/null; cmd package suspend --user 0 $pkg 2>/dev/null; ")
+        }
+        nonRunning.chunked(50).forEach { chunk ->
+            append("cmd package suspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
+        }
+    }
+}
 
 object AppFreezerEngine {
     private const val TAG = "AppFreezerEngine"
@@ -85,7 +122,6 @@ object AppFreezerEngine {
         "com.samsung.android.bixbyvision.framework",
         "com.samsung.android.forest",         // Samsung Digital Wellbeing (constant usage stats polling)
         "com.samsung.android.spayfw",         // Samsung Pay framework
-        "com.samsung.android.game.gos",       // Game Optimizing Service (unnecessary background polling)
         "com.facebook.services",
         "com.facebook.system",
         "com.facebook.appmanager",
@@ -96,10 +132,66 @@ object AppFreezerEngine {
     )
 
     /**
+     * Known-safe background system services that may be closed during a
+     * session. A background system service has no launcher icon, so there
+     * is no reliable dynamic signal separating a safe one from a critical
+     * one; only the packages listed here are closed among background
+     * system apps. User-facing system apps are selected dynamically by
+     * launcher icon instead and do not need to be listed, though the
+     * user-facing ones found by research are listed here too for audit.
+     * com.google.android.feedback is listed but inert: it is also in
+     * BASE_PROTECTED_PACKAGES, and the protected set wins.
+     */
+    val SAFE_SYSTEM_ALLOWLIST = setOf(
+        "com.facebook.services",
+        "com.facebook.appmanager",
+        "com.facebook.system",
+        "com.google.android.syncadapters.calendar",
+        "com.osp.app.signin",
+        "com.samsung.android.intellivoiceservice",
+        "com.qualcomm.location",
+        "com.samsung.android.bixby.agent",
+        "com.samsung.android.bixby.wakeup",
+        "com.samsung.android.gru",
+        "com.samsung.android.da.daagent",
+        "com.samsung.android.dbsc",
+        "com.samsung.android.beaconmanager",
+        "com.sec.spp.push",
+        "com.sec.bcservice",
+        "com.mygalaxy.service",
+        "com.samsung.oda.service",
+        "com.samsung.android.sm.devicesecurity",
+        "com.samsung.android.scloud",
+        "com.samsung.android.app.omcagent",
+        "com.samsung.android.app.parentalcare",
+        "com.samsung.android.app.camera.sticker.facearavatar.preload",
+        "com.samsung.android.dkey",
+        "com.samsung.android.fmm",
+        "com.samsung.android.mapsagent",
+        "com.samsung.android.visionintelligence",
+        "com.samsung.android.messaging",
+        "com.samsung.android.app.sketchbook",
+        "com.samsung.android.app.interpreter",
+        "com.google.android.as.oss",
+        "com.google.android.feedback",
+        "com.google.android.gms.location.history",
+        "com.google.android.federatedcompute",
+        "com.google.android.ondevicepersonalization.services",
+        "com.google.mainline.telemetry",
+        "com.google.android.apps.carrier.carrierwifi",
+        "com.google.audio.hearing.visualization.accessibility.scribe",
+        "com.android.apps.tag",
+        "com.android.bookmarkprovider",
+        "com.google.android.apps.bard",
+        "com.google.android.apps.tachyon",
+        "com.google.android.googlequicksearchbox",
+    )
+
+    /**
      * Essential packages that must NEVER be suspended under any circumstance.
      * Prevents any possibility of breaking phone calls, emergency alerts, audio, or keyboards.
      */
-    private val BASE_PROTECTED_PACKAGES = setOf(
+    internal val BASE_PROTECTED_PACKAGES = setOf(
         "android",
         "com.android.systemui",
         "com.android.server.telecom",
@@ -132,12 +224,20 @@ object AppFreezerEngine {
         "com.sec.android.app.launcher",
         "moe.shizuku.privileged.api",
         "com.termux",
+        "com.tailscale.ipn",       // Remote link to the phone; suspending it severs the connection
         "com.droiddeck.launcher",
         "com.valvesoftware.steamlink",
+        // Gaming helpers: the optimizer and the in-game toolbar manage the
+        // game's own performance and tools, so they must keep running
+        // during play instead of being killed or suspended.
+        "com.samsung.android.game.gos",
+        "com.samsung.android.game.gametools",
     )
 
     @Volatile private var cachedBloatware: List<String>? = null
     @Volatile private var cachedUserApps: List<String>? = null
+    @Volatile private var cachedLauncherPackages: Set<String>? = null
+    @Volatile private var cachedSystemTargets: List<String>? = null
     @Volatile private var cachedProtectedPackages: Set<String> = BASE_PROTECTED_PACKAGES
 
     @Volatile private var suspendedPackages = mutableListOf<String>()
@@ -160,10 +260,14 @@ object AppFreezerEngine {
             try {
                 val resolvedBloat = queryBloatware(appContext)
                 val resolvedUser = queryUserApps(appContext)
+                val resolvedLauncher = queryLauncherPackages(appContext)
+                val resolvedSystem = querySystemCloseTargets(appContext, resolvedLauncher)
                 val dynamicProtected = queryDynamicProtected(appContext)
 
                 if (resolvedBloat.isNotEmpty()) cachedBloatware = resolvedBloat
                 if (resolvedUser.isNotEmpty()) cachedUserApps = resolvedUser
+                if (resolvedLauncher.isNotEmpty()) cachedLauncherPackages = resolvedLauncher
+                if (resolvedSystem.isNotEmpty()) cachedSystemTargets = resolvedSystem
                 if (dynamicProtected.isNotEmpty()) cachedProtectedPackages = BASE_PROTECTED_PACKAGES + dynamicProtected
                 Log.d(TAG, "warmup complete: bloat=${cachedBloatware?.size ?: 0}, user=${cachedUserApps?.size ?: 0}, protected=${cachedProtectedPackages.size}")
             } catch (t: Throwable) {
@@ -206,9 +310,10 @@ object AppFreezerEngine {
         val protectedSet = mergeProtectedPackages(cachedProtectedPackages, dynamicProtected, pkgName)
 
         if (SessionPrefs.freezeBloatware(context)) {
-            val bloat = cachedBloatware ?: queryBloatware(context).also { if (it.isNotEmpty()) cachedBloatware = it }
-            packagesToSuspend.addAll(bloat)
-            results.add("bloat=${bloat.size}")
+            val launcher = cachedLauncherPackages ?: queryLauncherPackages(context).also { if (it.isNotEmpty()) cachedLauncherPackages = it }
+            val system = cachedSystemTargets ?: querySystemCloseTargets(context, launcher).also { if (it.isNotEmpty()) cachedSystemTargets = it }
+            packagesToSuspend.addAll(system)
+            results.add("bloat=${system.size}")
         }
 
         if (SessionPrefs.freezeUserApps(context)) {
@@ -244,14 +349,24 @@ object AppFreezerEngine {
             deleteLegacyMarker(context)
         }
 
+        // Detect which targets are actually running, so they can be killed
+        // (freeing RAM) immediately before their suspend. A failed ps
+        // read falls back to suspend-only for every target.
+        val runningRss = detectRunningTargets(context, uniqueTargets)
+        val orderedRunning = uniqueTargets.filter { it in runningRss }
+        val nonRunning = uniqueTargets.filter { it !in runningRss }
+        val freedMbEst = runningRss.values.sum()
+        if (orderedRunning.isNotEmpty()) {
+            results.add("killed=${orderedRunning.size}")
+            results.add("freed_mb_est=$freedMbEst")
+        }
+
         val batchScript = buildString {
             if (SessionPrefs.deepSystemDoze(context)) {
                 append("cmd deviceidle force-idle deep 2>/dev/null; ")
             }
             if (uniqueTargets.isNotEmpty()) {
-                uniqueTargets.chunked(50).forEach { chunk ->
-                    append("cmd package suspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
-                }
+                append(killSuspendScript(orderedRunning, nonRunning))
             }
         }
 
@@ -315,7 +430,12 @@ object AppFreezerEngine {
         Log.i(TAG, summary)
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             context, "device.change", "app-freezer-applied",
-            fields = mapOf("suspended" to uniqueTargets.size.toString(), "doze" to SessionPrefs.deepSystemDoze(context).toString()),
+            fields = mapOf(
+                "suspended" to uniqueTargets.size.toString(),
+                "killed" to orderedRunning.size.toString(),
+                "freed_mb_est" to freedMbEst.toString(),
+                "doze" to SessionPrefs.deepSystemDoze(context).toString(),
+            ),
         )
         return summary
     }
@@ -450,6 +570,34 @@ object AppFreezerEngine {
             .filter { it.isNotEmpty() && it !in BASE_PROTECTED_PACKAGES && it != context.packageName }
     }
 
+    private fun queryLauncherPackages(context: Context): Set<String> {
+        val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        return runCatching {
+            context.packageManager.queryIntentActivities(launch, 0)
+                .mapNotNull { it.activityInfo?.packageName }
+                .toSet()
+        }.getOrDefault(emptySet())
+    }
+
+    private fun querySystemCloseTargets(context: Context, launcherPackages: Set<String>): List<String> {
+        val installedSystem = exec(context, "pm list packages -s").lines()
+            .map { it.removePrefix("package:").trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+        return systemCloseTargets(installedSystem, launcherPackages)
+    }
+
+    // Which targets are running, with their RSS in MB. Any failure (daemon
+    // down, ps timeout, empty output) returns empty, so the caller falls
+    // back to suspend-only instead of failing the session start.
+    private fun detectRunningTargets(context: Context, targets: List<String>): Map<String, Long> {
+        if (targets.isEmpty()) return emptyMap()
+        return runCatching {
+            val result = execChecked(context, PS_COMMAND, 2000)
+            if (result.exitCode == 0 && result.output.isNotBlank()) runningTargetRss(result.output, targets) else emptyMap()
+        }.getOrDefault(emptyMap())
+    }
+
     private fun queryDynamicProtected(context: Context): Set<String> {
         val set = mutableSetOf<String>()
         // Dynamic input method
@@ -490,10 +638,10 @@ object AppFreezerEngine {
         }
     }
 
-    private fun execChecked(context: Context, cmd: String): PrivilegedResult {
+    private fun execChecked(context: Context, cmd: String, timeoutMs: Int = PrivilegedBridge.DEFAULT_TIMEOUT_MS): PrivilegedResult {
         return try {
             PrivilegedBridge.ensureSessionToken(context)
-            PrivilegedBridge.executeChecked(cmd, PrivilegedBridge.DEFAULT_TIMEOUT_MS)
+            PrivilegedBridge.executeChecked(cmd, timeoutMs)
         } catch (t: Throwable) {
             Log.w(TAG, "execChecked error: $cmd", t)
             PrivilegedResult(-1, "", PrivilegedMode.NONE)

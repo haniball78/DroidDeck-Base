@@ -66,6 +66,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.privileged.FixedPerformanceGetterTest" \
             --tests "com.droiddeck.launcher.core.privileged.PrivilegedBridgeProbeTest" \
             --tests "com.droiddeck.launcher.core.privileged.AppFreezerPackageSplitTest" \
+            --tests "com.droiddeck.launcher.core.privileged.AppFreezerKillSuspendTest" \
             --tests "com.droiddeck.launcher.core.privileged.HogRestrictionTest" \
             --tests "com.droiddeck.launcher.core.privileged.LiveHogWatcherTest" \
             --tests "com.droiddeck.launcher.core.privileged.GameModeBoostTest" \
