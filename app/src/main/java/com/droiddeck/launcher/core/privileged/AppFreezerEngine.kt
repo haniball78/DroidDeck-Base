@@ -61,15 +61,22 @@ internal fun systemCloseTargets(
     .distinct()
 
 // Builds the suspend portion of the apply script. A running target is
-// killed and then suspended in the same loop iteration, with the two
+// force-stopped and then suspended in the same loop iteration, with the
 // commands adjacent in one script, so the app cannot restart itself
-// (sticky service, alarm, FCM) before its suspend lands. A non-running
-// target has no RAM to free and no restart race, so it is suspended
-// only, in the existing chunks of 50.
-internal fun killSuspendScript(running: List<String>, nonRunning: List<String>): String {
+// (sticky service, alarm, FCM) before its suspend lands. `am kill` is
+// not used: it only kills background processes and silently skips apps
+// with a foreground service, while a raw PID kill is refused by the
+// shell. A sticky target is also disabled between the two, because it
+// restarts even after a force-stop; only the sticky set is disabled,
+// because disabling hides the launcher icon. A non-running target has
+// no RAM to free and no restart race, so it is suspended only, in the
+// existing chunks of 50.
+internal fun killSuspendScript(running: List<String>, nonRunning: List<String>, sticky: Set<String> = AppFreezerEngine.STICKY_PACKAGES): String {
     return buildString {
         for (pkg in running) {
-            append("am kill $pkg 2>/dev/null; cmd package suspend --user 0 $pkg 2>/dev/null; ")
+            append("am force-stop $pkg 2>/dev/null; ")
+            if (pkg in sticky) append("pm disable-user --user 0 $pkg 2>/dev/null; ")
+            append("cmd package suspend --user 0 $pkg 2>/dev/null; ")
         }
         nonRunning.chunked(50).forEach { chunk ->
             append("cmd package suspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
@@ -77,9 +84,36 @@ internal fun killSuspendScript(running: List<String>, nonRunning: List<String>):
     }
 }
 
+// Wake receiver per package, proven on device 2026-11-13: Firebase for
+// WhatsApp and Facebook, Fbns for Instagram.
+internal fun wakeReceiverFor(packageName: String): String =
+    if (packageName == "com.instagram.android") "com.instagram.push.FbnsInitBroadcastReceiver"
+    else "com.google.firebase.iid.FirebaseInstanceIdReceiver"
+
+// Broadcasts an explicit wake to every force-stopped package, then,
+// after a short wait, opens any messaging app that is still stopped:
+// the broadcast wake proved unreliable for WhatsApp, while other apps
+// without a Firebase receiver (BitTorrent) must wake on user open
+// instead of having their UI popped. The echo lines let the caller log
+// which apps needed the fallback.
+internal fun wakeBroadcastScript(forceStopped: List<String>, fallback: Set<String> = AppFreezerEngine.WAKE_FALLBACK_PACKAGES): String {
+    return buildString {
+        for (pkg in forceStopped) {
+            append("am broadcast -a com.droiddeck.WAKE_TEST -n $pkg/${wakeReceiverFor(pkg)} -f 32 2>/dev/null; ")
+        }
+        append("sleep 5; ")
+        val needsFallback = forceStopped.filter { it in fallback }
+        if (needsFallback.isNotEmpty()) {
+            append("for p in ${needsFallback.joinToString(" ")}; do dumpsys package \$p 2>/dev/null | grep -q \"stopped=true\" && { echo \"wake-fallback:\$p\"; monkey -p \$p -c android.intent.category.LAUNCHER 1 2>/dev/null; }; done; ")
+        }
+        append("true; ")
+    }
+}
+
 object AppFreezerEngine {
     private const val TAG = "AppFreezerEngine"
     private const val MARKER_FILE = "suspended-packages.txt"
+    private const val WAKE_TIMEOUT_MS = 12_000
 
     internal fun packagesVerifyCmd(targets: List<String>): String {
         return "for p in ${targets.joinToString(" ")}; do dumpsys package \$p 2>/dev/null | grep -q \"suspended=true\" && echo \$p; done | wc -l"
@@ -104,10 +138,13 @@ object AppFreezerEngine {
         return targets.chunked(chunkSize).map { packagesVerifyNamesCmd(it) }
     }
 
-    internal fun packagesRestoreCmd(targets: List<String>): String {
+    internal fun packagesRestoreCmd(targets: List<String>, disabled: List<String> = emptyList()): String {
         return buildString {
             targets.chunked(50).forEach { chunk ->
                 append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
+            }
+            disabled.forEach { pkg ->
+                append("pm enable $pkg 2>/dev/null; ")
             }
         }
     }
@@ -188,6 +225,28 @@ object AppFreezerEngine {
     )
 
     /**
+     * Apps that restart after a plain force-stop (proven on device
+     * 2026-11-13): only these are disabled, because disabling hides
+     * the launcher icon for the whole session.
+     */
+    val STICKY_PACKAGES = setOf(
+        "com.facebook.aura",
+        "com.facebook.katana",
+        "com.android.vending",
+    )
+
+    /**
+     * Messaging apps that get the open fallback when the broadcast wake
+     * leaves them stopped: the broadcast proved unreliable for WhatsApp,
+     * and messages must resume. Other apps wake on user open instead of
+     * having their UI popped.
+     */
+    val WAKE_FALLBACK_PACKAGES = setOf(
+        "com.whatsapp",
+        "com.facebook.orca",
+    )
+
+    /**
      * Essential packages that must NEVER be suspended under any circumstance.
      * Prevents any possibility of breaking phone calls, emergency alerts, audio, or keyboards.
      */
@@ -204,10 +263,11 @@ object AppFreezerEngine {
         "com.android.providers.telephony",
         "com.android.bluetooth",
         "com.android.nfc",
-        // Google Play Core (essential for licensing, SSL certificates, WebView)
+        // Google Play Core (essential for licensing, SSL certificates, WebView).
+        // The Play Store app itself is not protected: it restarts after a
+        // force-stop, so it is a sticky target instead.
         "com.google.android.gms",
         "com.google.android.gsf",
-        "com.android.vending",
         "com.google.android.feedback",
         // Media & Audio HAL
         "android.media",
@@ -245,6 +305,8 @@ object AppFreezerEngine {
     @Volatile private var cachedProtectedPackages: Set<String> = BASE_PROTECTED_PACKAGES
 
     @Volatile private var suspendedPackages = mutableListOf<String>()
+    @Volatile private var forceStoppedPackages = mutableListOf<String>()
+    @Volatile private var disabledPackages = mutableListOf<String>()
     @Volatile private var dozeForced = false
     @Volatile private var applied = false
 
@@ -359,6 +421,7 @@ object AppFreezerEngine {
         val runningRss = detectRunningTargets(context, uniqueTargets)
         val orderedRunning = uniqueTargets.filter { it in runningRss }
         val nonRunning = uniqueTargets.filter { it !in runningRss }
+        val disabled = orderedRunning.filter { it in STICKY_PACKAGES }
         val freedMbEst = runningRss.values.sum()
         if (orderedRunning.isNotEmpty()) {
             results.add("killed=${orderedRunning.size}")
@@ -391,11 +454,7 @@ object AppFreezerEngine {
                 )
             }
             if (uniqueTargets.isNotEmpty()) {
-                val restoreScript = buildString {
-                    uniqueTargets.chunked(50).forEach { chunk ->
-                        append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
-                    }
-                }
+                val restoreScript = packagesRestoreCmd(uniqueTargets, disabled)
                 items.add(
                     JournalItem(
                         key = "app-freezer-packages",
@@ -413,6 +472,10 @@ object AppFreezerEngine {
             }
             suspendedPackages.clear()
             suspendedPackages.addAll(uniqueTargets)
+            forceStoppedPackages.clear()
+            forceStoppedPackages.addAll(orderedRunning)
+            disabledPackages.clear()
+            disabledPackages.addAll(disabled)
             results.add("suspended=${uniqueTargets.size}")
         }
 
@@ -437,6 +500,7 @@ object AppFreezerEngine {
             fields = mapOf(
                 "suspended" to uniqueTargets.size.toString(),
                 "killed" to orderedRunning.size.toString(),
+                "disabled" to disabled.size.toString(),
                 "freed_mb_est" to freedMbEst.toString(),
                 "doze" to SessionPrefs.deepSystemDoze(context).toString(),
             ),
@@ -476,9 +540,18 @@ object AppFreezerEngine {
             return false
         }
 
+        // Re-enable sticky apps and wake the force-stopped apps. The
+        // journal already records the re-enable, but a split retry drops
+        // it, so it is repeated here. Best effort: a wake failure leaves
+        // the app unsuspended and enabled, so it still starts when the
+        // user opens it.
+        wakeForceStopped(context)
+
         applied = false
         dozeForced = false
         suspendedPackages.clear()
+        forceStoppedPackages.clear()
+        disabledPackages.clear()
         Log.i(TAG, "app freezer: OFF (all apps restored cleanly)")
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             context, "device.change", "app-freezer-restored",
@@ -541,6 +614,8 @@ object AppFreezerEngine {
         applied = false
         dozeForced = false
         suspendedPackages.clear()
+        forceStoppedPackages.clear()
+        disabledPackages.clear()
     }
 
     fun getSuspendedList(): List<String> = suspendedPackages.toList()
@@ -630,6 +705,37 @@ object AppFreezerEngine {
 
     fun deleteLegacyMarker(context: Context) {
         try { File(context.filesDir, MARKER_FILE).delete() } catch (_: Exception) {}
+    }
+
+    // Wakes the apps force-stopped at apply time: re-enables the sticky
+    // set first (a disabled app cannot receive a broadcast), then
+    // broadcasts the wake, then opens any messaging app still stopped.
+    // Best effort and bounded by WAKE_TIMEOUT_MS; it never fails the
+    // restore, because an unwoken app is unsuspended and enabled and
+    // starts normally when the user opens it.
+    private fun wakeForceStopped(context: Context) {
+        val stopped = forceStoppedPackages.toList()
+        if (stopped.isEmpty()) return
+        val script = buildString {
+            disabledPackages.toList().forEach { pkg ->
+                append("pm enable $pkg 2>/dev/null; ")
+            }
+            append(wakeBroadcastScript(stopped))
+        }
+        val result = execChecked(context, script, WAKE_TIMEOUT_MS)
+        val fallback = result.output.lineSequence()
+            .map { it.trim() }
+            .filter { it.startsWith("wake-fallback:") }
+            .map { it.removePrefix("wake-fallback:") }
+            .toList()
+        Log.i(TAG, "app freezer: wake done, woken=${stopped.size}, fallback=$fallback")
+        DiagnosticsLog.log(
+            context, "device.change", "app-freezer-wake",
+            fields = mapOf(
+                "woken" to stopped.size.toString(),
+                "fallback" to fallback.joinToString(","),
+            ),
+        )
     }
 
     private fun exec(context: Context, cmd: String): String {

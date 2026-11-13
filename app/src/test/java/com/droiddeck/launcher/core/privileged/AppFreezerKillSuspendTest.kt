@@ -13,14 +13,99 @@ class AppFreezerKillSuspendTest {
             running = listOf("com.example.a", "com.example.b"),
             nonRunning = listOf("com.example.c"),
         )
-        val killA = script.indexOf("am kill com.example.a")
+        val forceStopA = script.indexOf("am force-stop com.example.a")
         val suspendA = script.indexOf("cmd package suspend --user 0 com.example.a")
-        val killB = script.indexOf("am kill com.example.b")
-        assertTrue(killA >= 0)
-        assertTrue(suspendA > killA)
-        assertTrue(suspendA < killB)
-        assertTrue(!script.contains("am kill com.example.c"))
+        val forceStopB = script.indexOf("am force-stop com.example.b")
+        assertTrue(forceStopA >= 0)
+        assertTrue(suspendA > forceStopA)
+        assertTrue(suspendA < forceStopB)
+        assertTrue(!script.contains("am kill"))
+        assertTrue(!script.contains("am force-stop com.example.c"))
         assertTrue(script.contains("cmd package suspend --user 0 com.example.c"))
+    }
+
+    @Test
+    fun stickyAppsDisabledBetweenForceStopAndSuspend() {
+        val script = killSuspendScript(
+            running = listOf("com.facebook.aura", "com.example.a"),
+            nonRunning = emptyList(),
+            sticky = setOf("com.facebook.aura"),
+        )
+        val forceStop = script.indexOf("am force-stop com.facebook.aura")
+        val disable = script.indexOf("pm disable-user --user 0 com.facebook.aura")
+        val suspend = script.indexOf("cmd package suspend --user 0 com.facebook.aura")
+        assertTrue(forceStop >= 0)
+        assertTrue(disable > forceStop)
+        assertTrue(suspend > disable)
+        assertTrue(!script.contains("pm disable-user --user 0 com.example.a"))
+    }
+
+    @Test
+    fun stickySetIsOnlyTheThreeProvenApps() {
+        assertEquals(
+            setOf("com.facebook.aura", "com.facebook.katana", "com.android.vending"),
+            AppFreezerEngine.STICKY_PACKAGES,
+        )
+        assertFalse(AppFreezerEngine.STICKY_PACKAGES.contains("com.google.android.gms"))
+        assertFalse(AppFreezerEngine.STICKY_PACKAGES.contains("com.termux.api"))
+    }
+
+    @Test
+    fun playStoreIsAStickyTargetNotProtected() {
+        assertFalse(AppFreezerEngine.BASE_PROTECTED_PACKAGES.contains("com.android.vending"))
+        assertTrue(AppFreezerEngine.BASE_PROTECTED_PACKAGES.contains("com.google.android.gms"))
+        assertTrue(AppFreezerEngine.BASE_PROTECTED_PACKAGES.contains("com.google.android.gsf"))
+        assertEquals(
+            listOf("com.android.vending"),
+            filterSuspendTargets(
+                listOf("com.android.vending", "com.google.android.gms"),
+                AppFreezerEngine.BASE_PROTECTED_PACKAGES,
+            ),
+        )
+    }
+
+    @Test
+    fun wakeReceiverForInstagramUsesFbns() {
+        assertEquals("com.instagram.push.FbnsInitBroadcastReceiver", wakeReceiverFor("com.instagram.android"))
+        assertEquals("com.google.firebase.iid.FirebaseInstanceIdReceiver", wakeReceiverFor("com.whatsapp"))
+        assertEquals("com.google.firebase.iid.FirebaseInstanceIdReceiver", wakeReceiverFor("com.facebook.aura"))
+    }
+
+    @Test
+    fun wakeBroadcastWakesOnlyForceStoppedAndFallsBackOnlyForMessaging() {
+        val script = wakeBroadcastScript(
+            forceStopped = listOf("com.whatsapp", "com.instagram.android", "com.example.a"),
+            fallback = setOf("com.whatsapp"),
+        )
+        assertTrue(script.contains("am broadcast -a com.droiddeck.WAKE_TEST -n com.whatsapp/com.google.firebase.iid.FirebaseInstanceIdReceiver -f 32"))
+        assertTrue(script.contains("am broadcast -a com.droiddeck.WAKE_TEST -n com.instagram.android/com.instagram.push.FbnsInitBroadcastReceiver -f 32"))
+        assertTrue(script.contains("am broadcast -a com.droiddeck.WAKE_TEST -n com.example.a/com.google.firebase.iid.FirebaseInstanceIdReceiver -f 32"))
+        assertTrue(script.contains("sleep 5"))
+        assertTrue(script.contains("for p in com.whatsapp; do"))
+        assertTrue(script.contains("monkey -p \$p"))
+        assertTrue(!script.contains("for p in com.instagram.android"))
+        assertTrue(!script.contains("for p in com.example.a"))
+    }
+
+    @Test
+    fun wakeBroadcastWithNoFallbackAppsHasNoMonkey() {
+        val script = wakeBroadcastScript(
+            forceStopped = listOf("com.example.a"),
+            fallback = setOf("com.whatsapp"),
+        )
+        assertTrue(script.contains("am broadcast"))
+        assertTrue(!script.contains("monkey"))
+    }
+
+    @Test
+    fun restoreCmdReEnablesDisabledSticky() {
+        val cmd = AppFreezerEngine.packagesRestoreCmd(
+            listOf("com.example.a"),
+            disabled = listOf("com.facebook.aura"),
+        )
+        assertTrue(cmd.contains("cmd package unsuspend --user 0 com.example.a"))
+        assertTrue(cmd.contains("pm enable com.facebook.aura"))
+        assertTrue(cmd.indexOf("pm enable com.facebook.aura") > cmd.indexOf("cmd package unsuspend"))
     }
 
     @Test
