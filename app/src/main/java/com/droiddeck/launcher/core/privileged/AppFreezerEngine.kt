@@ -232,6 +232,10 @@ object AppFreezerEngine {
         // during play instead of being killed or suspended.
         "com.samsung.android.game.gos",
         "com.samsung.android.game.gametools",
+        // Alarm and Settings: a suspended Clock cannot ring, and a
+        // suspended Settings blocks opening the pairing page mid-session.
+        "com.sec.android.app.clockpackage",
+        "com.android.settings",
     )
 
     @Volatile private var cachedBloatware: List<String>? = null

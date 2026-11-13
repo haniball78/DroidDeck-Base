@@ -97,6 +97,8 @@ class AppFreezerKillSuspendTest {
             "com.tailscale.ipn",
             "com.termux",
             "com.droiddeck.launcher",
+            "com.sec.android.app.clockpackage",
+            "com.android.settings",
         )) {
             assertTrue(pkg, protected.contains(pkg))
         }
@@ -111,6 +113,8 @@ class AppFreezerKillSuspendTest {
                     "com.tailscale.ipn",
                     "com.termux",
                     "com.droiddeck.launcher",
+                    "com.sec.android.app.clockpackage",
+                    "com.android.settings",
                     "com.facebook.aura",
                 ),
                 protected,
