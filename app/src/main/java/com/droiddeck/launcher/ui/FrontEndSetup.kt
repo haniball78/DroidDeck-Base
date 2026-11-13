@@ -764,6 +764,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
         patientRetries = 0
         val parked = parkedPort
         val startedAt = android.os.SystemClock.elapsedRealtime()
+        var portChanged = false
         while (isActive && WirelessAdbFix.shouldPatientRetry(
             state == ConnectionCardState.READY_TO_START,
             parked != null,
@@ -781,6 +782,19 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
                 showResetConfirm = true
                 break
             }
+            val freshPort = withContext(Dispatchers.IO) { WirelessAdbFix.localConnectPort(ctx) }
+            val changedPort = WirelessAdbFix.firstChangedPort(parked, listOf(freshPort))
+            if (changedPort != null) {
+                portChanged = true
+                DiagnosticsLog.log(
+                    "adbpair", "patient-port-changed",
+                    fields = mapOf(
+                        "parked" to (parked?.toString() ?: ""),
+                        "port" to changedPort.toString(),
+                    ),
+                )
+                break
+            }
             patientRetries++
             DiagnosticsLog.log(
                 "adbpair", "patient-retry-attempt",
@@ -791,7 +805,7 @@ private fun ConnectionCard(onSelect: (String) -> Unit) {
             )
             startOneTap(auto = true, patient = true)
         }
-        if (isActive && parked != null && state == ConnectionCardState.READY_TO_START) {
+        if (isActive && parked != null && state == ConnectionCardState.READY_TO_START && !portChanged) {
             autoRestartFailed = true
         }
     }

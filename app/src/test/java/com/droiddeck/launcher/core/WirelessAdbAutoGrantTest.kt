@@ -26,4 +26,14 @@ class WirelessAdbAutoGrantTest {
         WirelessAdbFix.setAutoGrantSecureEnabled(context, true)
         assertEquals(true, WirelessAdbFix.isAutoGrantSecureEnabled(context))
     }
+
+    @Test
+    fun `grant commands carry no masking`() {
+        val commands = WirelessAdbFix.grantCommands("com.example")
+        assertEquals(3, commands.size)
+        assertTrue(commands.none { it.contains("|| true") })
+        assertEquals("pm grant com.example android.permission.WRITE_SECURE_SETTINGS", commands[0])
+        assertEquals("pm grant com.example android.permission.DUMP", commands[1])
+        assertEquals("pm grant com.example android.permission.PACKAGE_USAGE_STATS", commands[2])
+    }
 }

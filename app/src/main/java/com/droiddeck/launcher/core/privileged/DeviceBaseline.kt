@@ -38,6 +38,7 @@ internal object BaselineValidity {
             if (entry.key == "power.fixed_performance" &&
                 entry.unreadableReason?.contains("exit 255") == true
             ) continue
+            if (entry.unreadableReason == "setting unset") continue
             return false
         }
         return true
@@ -60,7 +61,7 @@ internal object DeviceBaseline {
         BaselineDefinition("deviceidle.deep_state", "cmd deviceidle get deep", { output -> parseRaw(output) }),
         BaselineDefinition("game.modes.$pkg", "cmd game list-modes $pkg", { output -> parseRaw(output) }),
         BaselineDefinition("power.fixed_performance", "cmd power get-fixed-performance-mode-enabled", { output -> parseSetting(output) }),
-        BaselineDefinition("packages.suspended", "cmd package list packages -s --user 0", { output -> parseRaw(output) }),
+        BaselineDefinition("packages.system", "cmd package list packages -s --user 0", { output -> parseRaw(output) }),
         BaselineDefinition("permission.$pkg.WRITE_SECURE_SETTINGS", "dumpsys package $pkg", { out -> parseGranted(out, "android.permission.WRITE_SECURE_SETTINGS") }),
         BaselineDefinition("permission.$pkg.DUMP", "dumpsys package $pkg", { out -> parseGranted(out, "android.permission.DUMP") }),
         BaselineDefinition("permission.$pkg.PACKAGE_USAGE_STATS", "dumpsys package $pkg", { out -> parseGranted(out, "android.permission.PACKAGE_USAGE_STATS") }),
@@ -89,10 +90,14 @@ internal object DeviceBaseline {
 
     fun parseGranted(output: String, permission: String): String? {
         if (output.isBlank()) return null
+        if (output.contains("$permission: granted=true")) return "granted"
+        if (output.contains("$permission: granted=false")) return "not granted"
         val grantedSection = output.substringAfter("grantedPermissions:", "")
-        if (grantedSection.isEmpty()) return null
-        val section = grantedSection.substringBefore("installPermissions:")
-        return if (section.contains(permission)) "granted" else "not granted"
+        if (grantedSection.isNotEmpty()) {
+            val section = grantedSection.substringBefore("installPermissions:")
+            return if (section.contains(permission)) "granted" else "not granted"
+        }
+        return "not granted"
     }
 
     fun entryFor(definition: BaselineDefinition, exitCode: Int, output: String?): BaselineEntry {
@@ -104,7 +109,14 @@ internal object DeviceBaseline {
         }
         val parsed = runCatching { definition.parse(output) }.getOrNull()
         return if (parsed == null) {
-            BaselineEntry(definition.key, definition.readCommand, null, "read returned no usable value")
+            val reason = if (output.trim() == "null" &&
+                (definition.readCommand.startsWith("settings ") || definition.readCommand.startsWith("device_config "))
+            ) {
+                "setting unset"
+            } else {
+                "read returned no usable value"
+            }
+            BaselineEntry(definition.key, definition.readCommand, null, reason)
         } else {
             BaselineEntry(definition.key, definition.readCommand, parsed, null)
         }

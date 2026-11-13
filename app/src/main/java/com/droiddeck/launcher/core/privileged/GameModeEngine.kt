@@ -206,6 +206,15 @@ internal fun decideEngineApply(
 
 object GameModeEngine {
     private const val TAG = "GameModeEngine"
+    private const val UNSUPPORTED_PREFS = "game-mode-fixed-performance"
+    private const val KEY_UNSUPPORTED = "unsupported"
+
+    fun isFixedPerformanceUnsupported(context: Context): Boolean =
+        context.getSharedPreferences(UNSUPPORTED_PREFS, Context.MODE_PRIVATE).getBoolean(KEY_UNSUPPORTED, false)
+
+    fun markFixedPerformanceUnsupported(context: Context) {
+        context.getSharedPreferences(UNSUPPORTED_PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_UNSUPPORTED, true).apply()
+    }
     private const val MARKER_FILE = "gamemode-marker.txt"
 
     // Cores 2, 3, 4, 5, 6 (5x Cortex-A720 Performance cores, excluding Little cores 0-1 and hot Prime core 7)
@@ -267,18 +276,23 @@ object GameModeEngine {
         }
         if (aggressive) {
             if (!Tweaks.hasKey(context, "fixed-performance")) {
-                val read = execChecked(context, "cmd power get-fixed-performance-mode-enabled")
-                val (decision, original) = FixedPerformanceGetterDecision.decide(read.exitCode, read.output)
-                when (decision) {
-                    FixedPerformanceGetter.SUPPORTED -> items.add(FixedPerformanceState.item(original!!, sessionGen))
-                    FixedPerformanceGetter.UNSUPPORTED -> {
-                        fixedPerformanceSupported = false
-                        Log.w(TAG, "game mode: fixed-performance getter unsupported on this ROM, skipping fixed-performance")
-                    }
-                    FixedPerformanceGetter.UNREADABLE -> {
-                        Log.w(TAG, "apply aborted: fixed-performance original unreadable")
-                        aggressiveActive = false
-                        return "game mode: aborted (fixed-performance original unreadable)"
+                if (isFixedPerformanceUnsupported(context)) {
+                    fixedPerformanceSupported = false
+                } else {
+                    val read = execChecked(context, "cmd power get-fixed-performance-mode-enabled")
+                    val (decision, original) = FixedPerformanceGetterDecision.decide(read.exitCode, read.output)
+                    when (decision) {
+                        FixedPerformanceGetter.SUPPORTED -> items.add(FixedPerformanceState.item(original!!, sessionGen))
+                        FixedPerformanceGetter.UNSUPPORTED -> {
+                            fixedPerformanceSupported = false
+                            markFixedPerformanceUnsupported(context)
+                            Log.w(TAG, "game mode: fixed-performance getter unsupported on this ROM, skipping fixed-performance")
+                        }
+                        FixedPerformanceGetter.UNREADABLE -> {
+                            Log.w(TAG, "apply aborted: fixed-performance original unreadable")
+                            aggressiveActive = false
+                            return "game mode: aborted (fixed-performance original unreadable)"
+                        }
                     }
                 }
             }

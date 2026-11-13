@@ -57,6 +57,18 @@ class LiveHogWatcherTest {
     }
 
     @Test
+    fun mediumTierCatchesBelowThresholdUserApps() {
+        assertEquals(150L, liveHogMediumThresholds(LiveHogClass.USER).ramMb)
+        assertEquals(5.0, liveHogMediumThresholds(LiveHogClass.USER).cpuPct, 0.0)
+        assertTrue(isLiveHogMedium(LiveHogSample("com.a", 150L, null), LiveHogClass.USER))
+        assertFalse(isLiveHogMedium(LiveHogSample("com.a", 149L, null), LiveHogClass.USER))
+        assertTrue(isLiveHogMedium(LiveHogSample("com.a", 10L, 5.0), LiveHogClass.USER))
+        assertFalse(isLiveHogMedium(LiveHogSample("com.a", 10L, 4.9), LiveHogClass.USER))
+        assertFalse(isLiveHogMedium(LiveHogSample("com.a", 10L, null), LiveHogClass.USER))
+        assertFalse(isLiveHogMedium(LiveHogSample("com.a", 500L, 50.0), LiveHogClass.SYSTEM_TRACKING))
+    }
+
+    @Test
     fun sampleParsesStatFieldsAndTotal() {
         val output = """
             P 1234 256000 1234 (com.example.social) S 1000 1000 1000 0 -1 4194304 50 0 0 0 500 200 0 0 20 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0

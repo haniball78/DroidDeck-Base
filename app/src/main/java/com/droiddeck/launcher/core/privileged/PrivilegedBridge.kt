@@ -271,7 +271,7 @@ object PrivilegedBridge {
             else -> PrivilegedResult(-1, "No privileged backend active.", PrivilegedMode.NONE)
         }
         DiagnosticsLog.log(
-            "privileged.exec", if (result.exitCode == 0) "succeeded" else "failed",
+            "privileged.exec", probeExecEvent(command, result.exitCode),
             fields = mapOf(
                 "kind" to classifyCommand(command),
                 "exit" to result.exitCode.toString(),
@@ -280,6 +280,15 @@ object PrivilegedBridge {
         )
         return result
     }
+
+    internal fun probeExecEvent(command: String, exitCode: Int): String = when {
+        exitCode == 0 -> "succeeded"
+        exitCode == 255 && isCapabilityProbe(command) -> "unsupported"
+        else -> "failed"
+    }
+
+    private fun isCapabilityProbe(command: String): Boolean =
+        command.startsWith("cmd power get-")
 
     private fun classifyCommand(command: String): String = when {
         command.startsWith("dumpsys deviceidle whitelist") -> "deviceidle-whitelist"
@@ -411,7 +420,7 @@ object PrivilegedBridge {
             // The real boost is GameMode taskset; this legacy path keeps
             // only fixed-performance for aggressive mode.
             if (!aggressive) return true
-            execute("cmd power set-fixed-performance-mode-enabled true 2>/dev/null || true").exitCode == 0
+            execute("cmd power set-fixed-performance-mode-enabled true").exitCode == 0
         }
     }
 

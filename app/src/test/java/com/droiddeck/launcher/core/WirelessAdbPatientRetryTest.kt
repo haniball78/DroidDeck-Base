@@ -2,6 +2,7 @@ package com.droiddeck.launcher.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,5 +38,11 @@ class WirelessAdbPatientRetryTest {
         assertFalse(WirelessAdbFix.isRevokedIdentity(true, 0))
         assertTrue(WirelessAdbFix.isRevokedIdentity(true, 1))
         assertTrue(WirelessAdbFix.isRevokedIdentity(true, 14))
+    }
+
+    @Test fun portChangeAbandonsParkedPort() {
+        assertEquals(40785, WirelessAdbFix.firstChangedPort(41409, listOf(40785)))
+        assertNull(WirelessAdbFix.firstChangedPort(41409, listOf(41409)))
+        assertNull(WirelessAdbFix.firstChangedPort(41409, listOf(null)))
     }
 }

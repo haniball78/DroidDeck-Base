@@ -157,6 +157,12 @@ object WirelessAdbFix {
         pairingPrefs(context.applicationContext).edit().putBoolean("autoGrantSecure", enabled).apply()
     }
 
+    fun grantCommands(packageName: String): List<String> = listOf(
+        "pm grant $packageName android.permission.WRITE_SECURE_SETTINGS",
+        "pm grant $packageName android.permission.DUMP",
+        "pm grant $packageName android.permission.PACKAGE_USAGE_STATS",
+    )
+
     /** Whether the current identity was ever verified (a live daemon start succeeded).
      * Set on a verified start, cleared on forget. A previously-verified key
      * failing AUTH is a revoke, not a landing. */
@@ -526,14 +532,16 @@ object WirelessAdbFix {
             // itself WRITE_SECURE_SETTINGS from its own shell at every
             // daemon start, no computer involved. The Engine page toggle
             // turns it off; turning it off also revokes the grant.
+            val grants = grantCommands(context.packageName)
             val grantSecureResult = if (isAutoGrantSecureEnabled(context)) {
-                adb.shell("pm grant ${context.packageName} android.permission.WRITE_SECURE_SETTINGS 2>/dev/null || true").exitCode.toString()
+                adb.shell(grants[0]).exitCode.toString()
             } else {
                 "skipped"
             }
             steps.append("grant-secure:").append(grantSecureResult).append(",")
-            steps.append("grant-dump:").append(adb.shell("pm grant ${context.packageName} android.permission.DUMP 2>/dev/null || true").exitCode).append(",")
-            steps.append("grant-usage:").append(adb.shell("pm grant ${context.packageName} android.permission.PACKAGE_USAGE_STATS 2>/dev/null || true").exitCode).append(",")
+            steps.append("grant-dump:").append(adb.shell(grants[1]).exitCode).append(",")
+            steps.append("grant-usage:").append(adb.shell(grants[2]).exitCode).append(",")
+            steps.append("grant-verified:").append(hasSecureSettingsGrant(context)).append(",")
             steps.append("whitelist:").append(adb.shell("dumpsys deviceidle whitelist +${context.packageName} 2>/dev/null || true").exitCode).append(",")
             steps.append("appops:").append(adb.shell("cmd appops set ${context.packageName} RUN_IN_BACKGROUND allow 2>/dev/null || true").exitCode).append(",")
             steps.append("starter:").append(adb.shell(starterCmd).exitCode)

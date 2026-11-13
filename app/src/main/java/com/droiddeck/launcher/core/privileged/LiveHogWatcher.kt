@@ -64,6 +64,18 @@ internal fun isLiveHog(sample: LiveHogSample, kind: LiveHogClass): Boolean {
     return cpu >= t.cpuPct
 }
 
+internal fun liveHogMediumThresholds(kind: LiveHogClass): LiveHogThresholds = when (kind) {
+    LiveHogClass.USER -> LiveHogThresholds(150L, 5.0)
+    else -> LiveHogThresholds(Long.MAX_VALUE, Double.MAX_VALUE)
+}
+
+internal fun isLiveHogMedium(sample: LiveHogSample, kind: LiveHogClass): Boolean {
+    val t = liveHogMediumThresholds(kind)
+    if (sample.rssMb >= t.ramMb) return true
+    val cpu = sample.cpuPct ?: return false
+    return cpu >= t.cpuPct
+}
+
 // Sampling schedule: 30 s ticks for the first 3 minutes of a session, then
 // 90 s. Hogs show up early, right after the session-start restriction, so
 // the fast phase catches one after 1 minute of hogging instead of 3.
@@ -231,6 +243,7 @@ object LiveHogWatcher {
         val pkg: String,
         val kind: LiveHogClass,
         var hits: Int = 0,
+        var mediumHits: Int = 0,
         var stage: LiveHogStage = LiveHogStage.NONE,
         var lastKillMs: Long = 0L,
         var killCount: Int = 0,
@@ -420,6 +433,7 @@ object LiveHogWatcher {
         val seen = mutableSetOf<String>()
         val candidateSamples = mutableMapOf<String, LiveHogSample>()
         var hogCount = 0
+        var mediumCount = 0
         for ((pkg, sample) in samples) {
             seen.add(pkg)
             val kind = classifyLiveHog(pkg, userApps, systemApps, protected, ownPackage)
@@ -429,16 +443,35 @@ object LiveHogWatcher {
             }
             candidateSamples[pkg] = sample
             val state = states.getOrPut(pkg) { LiveHogState(pkg, kind) }
-            if (!isLiveHog(sample, kind)) {
+            val action: LiveHogAction
+            val tier: String
+            val logHits: Int
+            if (isLiveHog(sample, kind)) {
+                hogCount += 1
+                state.hits += 1
+                state.mediumHits = 0
+                action = liveHogActionFor(
+                    state.hits, state.stage, now, state.lastKillMs, state.killCount,
+                    aggressive, kind == LiveHogClass.SYSTEM_TRACKING,
+                )
+                tier = "hog"
+                logHits = state.hits
+            } else if (isLiveHogMedium(sample, kind)) {
                 state.hits = 0
+                state.mediumHits += 1
+                mediumCount += 1
+                action = if (state.mediumHits >= LiveHogWatcher.CONFIRM_TICKS && state.stage == LiveHogStage.NONE) {
+                    LiveHogAction.RESTRICT
+                } else {
+                    LiveHogAction.NONE
+                }
+                tier = "medium"
+                logHits = state.mediumHits
+            } else {
+                state.hits = 0
+                state.mediumHits = 0
                 continue
             }
-            hogCount += 1
-            state.hits += 1
-            val action = liveHogActionFor(
-                state.hits, state.stage, now, state.lastKillMs, state.killCount,
-                aggressive, kind == LiveHogClass.SYSTEM_TRACKING,
-            )
             when (action) {
                 LiveHogAction.NONE -> {}
                 LiveHogAction.RESTRICT -> {
@@ -451,12 +484,14 @@ object LiveHogWatcher {
                                 "package" to pkg,
                                 "rssMb" to sample.rssMb.toString(),
                                 "cpuPct" to (sample.cpuPct?.toString() ?: "unknown"),
-                                "hits" to state.hits.toString(),
+                                "hits" to logHits.toString(),
                                 "phase" to phase,
+                                "tier" to tier,
                             ),
                         )
                     } else {
                         state.hits = 0
+                        state.mediumHits = 0
                     }
                 }
                 LiveHogAction.KILL -> {
@@ -508,6 +543,7 @@ object LiveHogWatcher {
                 "procs" to snapshot.entries.size.toString(),
                 "candidates" to candidateSamples.size.toString(),
                 "hogs" to hogCount.toString(),
+                "medium" to mediumCount.toString(),
                 "top" to liveHogTopSummary(candidateSamples, states.mapValues { it.value.hits }),
                 "aggressive" to aggressive.toString(),
             ),

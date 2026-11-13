@@ -53,7 +53,7 @@ class DeviceBaselineTest {
         assertTrue(keys.any { it.contains("phantom") })
         assertTrue(keys.any { it.contains("whitelist") })
         assertTrue(keys.any { it.contains("RUN_IN_BACKGROUND") })
-        assertTrue(keys.any { it.contains("suspended") })
+        assertTrue(keys.any { it.contains("system") })
         assertTrue(keys.any { it.contains("force_idle") })
         assertTrue(keys.any { it.contains("game.modes") })
     }
@@ -88,6 +88,42 @@ class DeviceBaselineTest {
             if (it.key == "power.fixed_performance") it.copy(value = null, unreadableReason = "read returned no usable value") else it
         }
         assertFalse(BaselineValidity.isValid(fixedOtherFailure))
+    }
+
+    @Test
+    fun unsetSettingIsRecordedAsUnsetNotAsFailure() {
+        val def = BaselineDefinition("settings.global.background_process_limit", "settings get global background_process_limit", DeviceBaseline::parseSetting)
+        val entry = DeviceBaseline.entryFor(def, 0, "null")
+        assertNull(entry.value)
+        assertEquals("setting unset", entry.unreadableReason)
+    }
+
+    @Test
+    fun validityExemptsOnlyUnsetSettings() {
+        val all = DeviceBaseline.definitions("com.example").map { def ->
+            BaselineEntry(def.key, def.readCommand, "x", null)
+        }
+        val unsetOnly = all.map {
+            if (it.key == "settings.global.background_process_limit") it.copy(value = null, unreadableReason = "setting unset") else it
+        }
+        assertTrue(BaselineValidity.isValid(unsetOnly))
+        val unsetPlusFailed = unsetOnly.map {
+            if (it.key == "settings.global.sem_enhanced_cpu_responsiveness") it.copy(value = null, unreadableReason = "read command failed with exit 1") else it
+        }
+        assertFalse(BaselineValidity.isValid(unsetPlusFailed))
+    }
+
+    @Test
+    fun grantsParseAndroid16Format() {
+        val dump = "requested permissions:\n" +
+            "  android.permission.PACKAGE_USAGE_STATS\n" +
+            "  android.permission.WRITE_SECURE_SETTINGS\n" +
+            "runtime permissions:\n" +
+            "  android.permission.PACKAGE_USAGE_STATS: granted=true\n"
+        assertEquals("granted", DeviceBaseline.parseGranted(dump, "android.permission.PACKAGE_USAGE_STATS"))
+        assertEquals("not granted", DeviceBaseline.parseGranted(dump, "android.permission.WRITE_SECURE_SETTINGS"))
+        assertEquals("not granted", DeviceBaseline.parseGranted(dump, "android.permission.DUMP"))
+        assertNull(DeviceBaseline.parseGranted("", "android.permission.DUMP"))
     }
 
     @Test

@@ -1,12 +1,27 @@
 package com.droiddeck.launcher.core.privileged
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class FixedPerformanceGetterTest {
+    private val context: Context = ApplicationProvider.getApplicationContext()
+
+    @Test
+    fun unsupportedMarkerRoundTrips() {
+        context.getSharedPreferences("game-mode-fixed-performance", Context.MODE_PRIVATE)
+            .edit().remove("unsupported").apply()
+        assertFalse(GameModeEngine.isFixedPerformanceUnsupported(context))
+        GameModeEngine.markFixedPerformanceUnsupported(context)
+        assertTrue(GameModeEngine.isFixedPerformanceUnsupported(context))
+    }
 
     @Test
     fun supportedTrueAndFalseKeepOriginal() {
