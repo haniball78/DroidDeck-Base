@@ -60,29 +60,40 @@ internal fun systemCloseTargets(
     .filter { it in installedSystem }
     .distinct()
 
-// Builds the suspend portion of the apply script. A running target is
-// force-stopped and then suspended in the same loop iteration, with the
-// commands adjacent in one script, so the app cannot restart itself
-// (sticky service, alarm, FCM) before its suspend lands. `am kill` is
-// not used: it only kills background processes and silently skips apps
-// with a foreground service, while a raw PID kill is refused by the
-// shell. A sticky target is also disabled between the two, because it
-// restarts even after a force-stop; only the sticky set is disabled,
-// because disabling hides the launcher icon. A non-running target has
-// no RAM to free and no restart race, so it is suspended only, in the
-// existing chunks of 50.
-internal fun killSuspendScript(running: List<String>, nonRunning: List<String>, sticky: Set<String> = AppFreezerEngine.STICKY_PACKAGES): String {
-    return buildString {
-        for (pkg in running) {
-            append("am force-stop $pkg 2>/dev/null; ")
-            if (pkg in sticky) append("pm disable-user --user 0 $pkg 2>/dev/null; ")
-            append("cmd package suspend --user 0 $pkg 2>/dev/null; ")
-        }
-        nonRunning.chunked(50).forEach { chunk ->
-            append("cmd package suspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
-        }
+// The privileged server drops any EXEC line longer than 8192 chars
+// (DroidDeckPrivilegedServer.MAX_LINE_LENGTH) without replying, so a
+// single script for ~200 targets never executes. The apply batch is
+// therefore split into small scripts, each far under the limit: the
+// running targets in groups of 10, the non-running in the existing
+// chunks of 50. A running target is force-stopped and then suspended
+// in the same loop iteration, with the commands adjacent in one
+// script, so the app cannot restart itself (sticky service, alarm,
+// FCM) before its suspend lands. `am kill` is not used: it only kills
+// background processes and silently skips apps with a foreground
+// service, while a raw PID kill is refused by the shell. A sticky
+// target is also disabled between the two, because it restarts even
+// after a force-stop; only the sticky set is disabled, because
+// disabling hides the launcher icon. A non-running target has no RAM
+// to free and no restart race, so it is suspended only.
+internal fun killSuspendScripts(running: List<String>, nonRunning: List<String>, sticky: Set<String> = AppFreezerEngine.STICKY_PACKAGES): List<String> {
+    val scripts = mutableListOf<String>()
+    running.chunked(10).forEach { chunk ->
+        scripts.add(buildString {
+            for (pkg in chunk) {
+                append("am force-stop $pkg 2>/dev/null; ")
+                if (pkg in sticky) append("pm disable-user --user 0 $pkg 2>/dev/null; ")
+                append("cmd package suspend --user 0 $pkg 2>/dev/null; ")
+            }
+        })
     }
+    nonRunning.chunked(50).forEach { chunk ->
+        scripts.add("cmd package suspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
+    }
+    return scripts
 }
+
+internal fun killSuspendScript(running: List<String>, nonRunning: List<String>, sticky: Set<String> = AppFreezerEngine.STICKY_PACKAGES): String =
+    killSuspendScripts(running, nonRunning, sticky).joinToString("")
 
 // Wake receiver per package, proven on device 2026-11-13: Firebase for
 // WhatsApp and Facebook, Fbns for Instagram.
@@ -476,12 +487,12 @@ object AppFreezerEngine {
             results.add("freed_mb_est=$freedMbEst")
         }
 
-        val batchScript = buildString {
+        val batchScripts = buildList {
             if (SessionPrefs.deepSystemDoze(context)) {
-                append("cmd deviceidle force-idle deep 2>/dev/null; ")
+                add("cmd deviceidle force-idle deep 2>/dev/null; ")
             }
             if (uniqueTargets.isNotEmpty()) {
-                append(killSuspendScript(orderedRunning, nonRunning))
+                addAll(killSuspendScripts(orderedRunning, nonRunning))
             }
         }
 
@@ -533,23 +544,30 @@ object AppFreezerEngine {
 
         PrivilegedBridge.ensureBackgroundProtection(context)
 
-        // 4. Single-roundtrip privileged execution, retried once: a
-        // failed batch must not be reported as a freeze.
+        // 4. Chunked privileged execution, each chunk retried once: a
+        // failed batch must not be reported as a freeze. If an early
+        // chunk already froze apps, the journal is kept so restore
+        // unsuspends them; only a first-chunk failure removes it.
         var batchExit = 0
-        if (batchScript.isNotEmpty()) {
-            batchExit = runBatchWithRetry(batchScript, execute = { cmd -> execChecked(context, cmd) }).exitCode
+        var appliedChunks = 0
+        for (script in batchScripts) {
+            batchExit = runBatchWithRetry(script, execute = { cmd -> execChecked(context, cmd) }).exitCode
+            if (batchExit != 0) break
+            appliedChunks++
         }
         if (batchExit != 0) {
-            Tweaks.removeKey(context, "app-freezer-doze")
-            Tweaks.removeKey(context, "app-freezer-packages")
-            suspendedPackages.clear()
-            forceStoppedPackages.clear()
-            disabledPackages.clear()
-            dozeForced = false
-            Log.w(TAG, "app freezer: batch failed, exit=$batchExit")
+            if (appliedChunks == 0) {
+                Tweaks.removeKey(context, "app-freezer-doze")
+                Tweaks.removeKey(context, "app-freezer-packages")
+                suspendedPackages.clear()
+                forceStoppedPackages.clear()
+                disabledPackages.clear()
+                dozeForced = false
+            }
+            Log.w(TAG, "app freezer: batch failed, exit=$batchExit, appliedChunks=$appliedChunks")
             com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                 context, "device.change", "app-freezer-failed",
-                fields = mapOf("exit" to batchExit.toString()),
+                fields = mapOf("exit" to batchExit.toString(), "applied_chunks" to appliedChunks.toString()),
             )
             return "freezer: aborted (batch failed, exit=$batchExit)"
         }

@@ -225,6 +225,24 @@ class AppFreezerKillSuspendTest {
     }
 
     @Test
+    fun chunkedBatchFitsServerLineLimit() {
+        // DroidDeckPrivilegedServer drops EXEC lines longer than 8192
+        // chars without replying (exit -1); a 205-target batch must
+        // split so every chunk fits. java.util.Base64 matches the
+        // NO_WRAP encoding the bridge sends.
+        val running = (1..23).map { "com.example.app$it" }
+        val nonRunning = (24..205).map { "com.example.app$it" }
+        val scripts = killSuspendScripts(running, nonRunning)
+        assertTrue(scripts.isNotEmpty())
+        for (script in scripts) {
+            val encoded = java.util.Base64.getEncoder()
+                .encodeToString(script.toByteArray(Charsets.UTF_8))
+            assertTrue("EXEC:${encoded}".length <= 8192)
+        }
+        assertEquals(killSuspendScript(running, nonRunning), scripts.joinToString(""))
+    }
+
+    @Test
     fun batchRetryDoesNotRetryOnSuccess() {
         var calls = 0
         val result = runBatchWithRetry("echo hi", sleepMs = 0, execute = { _ ->
