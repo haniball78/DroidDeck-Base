@@ -227,10 +227,10 @@ class AppFreezerKillSuspendTest {
     @Test
     fun batchRetryDoesNotRetryOnSuccess() {
         var calls = 0
-        val result = runBatchWithRetry("echo hi", sleepMs = 0) { _ ->
+        val result = runBatchWithRetry("echo hi", sleepMs = 0, execute = { _ ->
             calls++
             PrivilegedResult(0, "ok", PrivilegedMode.NONE)
-        }
+        })
         assertEquals(1, calls)
         assertEquals(0, result.exitCode)
     }
@@ -238,10 +238,10 @@ class AppFreezerKillSuspendTest {
     @Test
     fun batchRetryRunsOnceOnFailureThenReturnsLastResult() {
         var calls = 0
-        val result = runBatchWithRetry("echo hi", sleepMs = 0) { _ ->
+        val result = runBatchWithRetry("echo hi", sleepMs = 0, execute = { _ ->
             calls++
             PrivilegedResult(-1, "", PrivilegedMode.NONE)
-        }
+        })
         assertEquals(2, calls)
         assertEquals(-1, result.exitCode)
     }
@@ -249,11 +249,11 @@ class AppFreezerKillSuspendTest {
     @Test
     fun batchRetrySucceedsOnSecondAttempt() {
         var calls = 0
-        val result = runBatchWithRetry("echo hi", sleepMs = 0) { _ ->
+        val result = runBatchWithRetry("echo hi", sleepMs = 0, execute = { _ ->
             calls++
             if (calls == 1) PrivilegedResult(-1, "", PrivilegedMode.NONE)
             else PrivilegedResult(0, "ok", PrivilegedMode.NONE)
-        }
+        })
         assertEquals(2, calls)
         assertEquals(0, result.exitCode)
     }

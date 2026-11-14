@@ -537,7 +537,7 @@ object AppFreezerEngine {
         // failed batch must not be reported as a freeze.
         var batchExit = 0
         if (batchScript.isNotEmpty()) {
-            batchExit = runBatchWithRetry(batchScript) { cmd -> execChecked(context, cmd) }.exitCode
+            batchExit = runBatchWithRetry(batchScript, execute = { cmd -> execChecked(context, cmd) }).exitCode
         }
         if (batchExit != 0) {
             Tweaks.removeKey(context, "app-freezer-doze")
