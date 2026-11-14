@@ -61,7 +61,9 @@ fun PairingCodePanel(
     var manuallyPaired by remember { mutableStateOf(false) }
 
     LaunchedEffect(stage) {
-        if (WirelessAdbFix.shouldShowManualPort(stage, showManualPort)) showManualPort = true
+        val autoPort = (stage as? WirelessAdbPairingService.Stage.CodeNeeded)?.pairingPort
+        if (autoPort != null) showManualPort = false
+        else if (WirelessAdbFix.shouldShowManualPort(stage, showManualPort)) showManualPort = true
     }
     var halfLogged by remember { mutableStateOf(false) }
     LaunchedEffect(stage) {

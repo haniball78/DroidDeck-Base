@@ -110,6 +110,43 @@ internal fun wakeBroadcastScript(forceStopped: List<String>, fallback: Set<Strin
     }
 }
 
+// The privileged bridge can drop one localhost roundtrip (exit -1 in 2ms
+// on device 2026-11-13), so a failed batch is retried once before it is
+// reported as a failure. The executor is injected for unit tests.
+internal fun runBatchWithRetry(
+    script: String,
+    execute: (String) -> PrivilegedResult,
+    sleepMs: Long = 250,
+): PrivilegedResult {
+    val first = execute(script)
+    if (first.exitCode == 0) return first
+    Thread.sleep(sleepMs)
+    return execute(script)
+}
+
+internal data class AppliedVerification(
+    val killed: Int,
+    val suspended: Int,
+    val survivors: List<String>,
+)
+
+// Measured freeze outcome from the post-apply re-read: killed counts the
+// running targets that are actually gone, survivors names the running
+// targets still alive (bounded, so the applied event stays small).
+internal fun appliedVerification(
+    orderedRunning: List<String>,
+    stillRunning: List<String>,
+    suspendedCount: Int,
+    maxSurvivors: Int = 5,
+): AppliedVerification {
+    val still = orderedRunning.filter { it in stillRunning.toSet() }
+    return AppliedVerification(
+        killed = orderedRunning.size - still.size,
+        suspended = suspendedCount,
+        survivors = still.take(maxSurvivors),
+    )
+}
+
 object AppFreezerEngine {
     private const val TAG = "AppFreezerEngine"
     private const val MARKER_FILE = "suspended-packages.txt"
@@ -222,6 +259,17 @@ object AppFreezerEngine {
         "com.google.android.apps.bard",
         "com.google.android.apps.tachyon",
         "com.google.android.googlequicksearchbox",
+        // Device-proven safe to close (escape check 2026-11-13): force-stop
+        // + suspend freed their RAM with no effect on the session.
+        "com.android.intentresolver",
+        "com.samsung.android.service.aircommand",
+        "com.google.android.tts",
+        "com.samsung.android.samsungpass",
+        "com.samsung.android.samsungpassautofill",
+        "com.microsoft.appmanager",
+        "com.google.android.setupwizard",
+        "com.samsung.android.privacydashboard",
+        "com.google.android.partnersetup",
     )
 
     /**
@@ -233,6 +281,7 @@ object AppFreezerEngine {
         "com.facebook.aura",
         "com.facebook.katana",
         "com.android.vending",
+        "com.samsung.android.smartsuggestions",
     )
 
     /**
@@ -424,7 +473,6 @@ object AppFreezerEngine {
         val disabled = orderedRunning.filter { it in STICKY_PACKAGES }
         val freedMbEst = runningRss.values.sum()
         if (orderedRunning.isNotEmpty()) {
-            results.add("killed=${orderedRunning.size}")
             results.add("freed_mb_est=$freedMbEst")
         }
 
@@ -476,7 +524,6 @@ object AppFreezerEngine {
             forceStoppedPackages.addAll(orderedRunning)
             disabledPackages.clear()
             disabledPackages.addAll(disabled)
-            results.add("suspended=${uniqueTargets.size}")
         }
 
         if (SessionPrefs.deepSystemDoze(context)) {
@@ -486,23 +533,57 @@ object AppFreezerEngine {
 
         PrivilegedBridge.ensureBackgroundProtection(context)
 
-        // 4. Single-roundtrip privileged execution
+        // 4. Single-roundtrip privileged execution, retried once: a
+        // failed batch must not be reported as a freeze.
+        var batchExit = 0
         if (batchScript.isNotEmpty()) {
-            val r = exec(context, batchScript)
-            Log.d(TAG, "apply batch executed: $r")
+            batchExit = runBatchWithRetry(batchScript) { cmd -> execChecked(context, cmd) }.exitCode
+        }
+        if (batchExit != 0) {
+            Tweaks.removeKey(context, "app-freezer-doze")
+            Tweaks.removeKey(context, "app-freezer-packages")
+            suspendedPackages.clear()
+            forceStoppedPackages.clear()
+            disabledPackages.clear()
+            dozeForced = false
+            Log.w(TAG, "app freezer: batch failed, exit=$batchExit")
+            com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                context, "device.change", "app-freezer-failed",
+                fields = mapOf("exit" to batchExit.toString()),
+            )
+            return "freezer: aborted (batch failed, exit=$batchExit)"
         }
 
+        // Verify what actually happened, so the applied event reports
+        // measured counts and names the survivors instead of the
+        // planned targets.
+        val stillRunning = detectRunningTargets(context, orderedRunning)
+        var suspendedCount: Int? = null
+        if (uniqueTargets.isNotEmpty()) {
+            val outputs = ArrayList<String>()
+            var verifyFailed = false
+            for (cmd in packagesVerifyChunkCmds(uniqueTargets)) {
+                val read = execChecked(context, cmd)
+                if (read.exitCode != 0) { verifyFailed = true; break }
+                outputs.add(read.output)
+            }
+            if (!verifyFailed) suspendedCount = PackagesVerifyChunks.sumCounts(outputs)
+        }
+        val verified = appliedVerification(orderedRunning, stillRunning.keys.toList(), suspendedCount ?: uniqueTargets.size)
+        if (orderedRunning.isNotEmpty()) results.add("killed=${verified.killed}")
+        if (uniqueTargets.isNotEmpty()) results.add("suspended=${verified.suspended}")
         applied = true
         val summary = "app freezer: ON [gen=$sessionGen, ${results.joinToString(", ")}]"
         Log.i(TAG, summary)
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             context, "device.change", "app-freezer-applied",
             fields = mapOf(
-                "suspended" to uniqueTargets.size.toString(),
-                "killed" to orderedRunning.size.toString(),
+                "suspended" to verified.suspended.toString(),
+                "killed" to verified.killed.toString(),
                 "disabled" to disabled.size.toString(),
                 "freed_mb_est" to freedMbEst.toString(),
                 "doze" to SessionPrefs.deepSystemDoze(context).toString(),
+                "survivors" to verified.survivors.joinToString(","),
             ),
         )
         return summary

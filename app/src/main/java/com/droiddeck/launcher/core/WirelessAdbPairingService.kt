@@ -39,6 +39,8 @@ class WirelessAdbPairingService : Service() {
     private var discovery: NsdManager.DiscoveryListener? = null
     private var pairingHost: String? = null
     private var pairingPort: Int? = null
+    private var pairingServiceName: String? = null
+    private var latestServiceName: String? = null
     @Volatile private var working = false
     private val timeout = Runnable { finish(Stage.Failed(getString(R.string.adbpair_timed_out))) }
     private var repeakScheduled = false
@@ -110,6 +112,8 @@ class WirelessAdbPairingService : Service() {
     private fun begin() {
         pairingHost = null
         pairingPort = null
+        pairingServiceName = null
+        latestServiceName = null
         working = false
         codePosted = false
         lastCodePostMs = 0L
@@ -128,9 +132,22 @@ class WirelessAdbPairingService : Service() {
             override fun onDiscoveryStarted(serviceType: String) = Unit
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 if (serviceInfo.serviceType?.contains(PAIRING_TYPE) != true) return
+                latestServiceName = serviceInfo.serviceName
                 runCatching { manager.resolveService(serviceInfo, resolveListener()) }
             }
-            override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
+            override fun onServiceLost(serviceInfo: NsdServiceInfo) {
+                if (serviceInfo.serviceName != pairingServiceName) return
+                main.post {
+                    if (serviceInfo.serviceName != pairingServiceName) return@post
+                    pairingHost = null
+                    pairingPort = null
+                    pairingServiceName = null
+                    val stage = current.value
+                    if (stage is Stage.CodeNeeded && stage.pairingPort == serviceInfo.port) {
+                        publish(Stage.CodeNeeded(error = stage.error, pairingPort = null))
+                    }
+                }
+            }
             override fun onDiscoveryStopped(serviceType: String) = Unit
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                 main.post { finish(Stage.Failed(getString(R.string.adbpair_discovery_failed_code, errorCode))) }
@@ -145,13 +162,22 @@ class WirelessAdbPairingService : Service() {
     private fun resolveListener() = object : NsdManager.ResolveListener {
         override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = Unit
         override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
+            if (serviceInfo.serviceName != latestServiceName) return
             val address = serviceInfo.host ?: return
             if (!WirelessAdbFix.isLocalAddress(address)) return
             main.post {
                 if (working || current.value == Stage.Done) return@post
                 pairingHost = address.hostAddress
                 pairingPort = serviceInfo.port
-                if (current.value !is Stage.CodeNeeded) show(Stage.CodeNeeded(pairingPort = serviceInfo.port))
+                pairingServiceName = serviceInfo.serviceName
+                val stage = current.value
+                if (stage is Stage.CodeNeeded) {
+                    if (stage.pairingPort != serviceInfo.port) {
+                        show(Stage.CodeNeeded(error = stage.error, pairingPort = serviceInfo.port))
+                    }
+                } else {
+                    show(Stage.CodeNeeded(pairingPort = serviceInfo.port))
+                }
             }
         }
     }
@@ -173,13 +199,15 @@ class WirelessAdbPairingService : Service() {
         Thread({
             // The settle wait compares against the port from before the
             // pair, so it must be read before pairing starts.
-            val prePairPort = WirelessAdbFix.localConnectPort(this)
+            val prePairPort = runCatching { WirelessAdbFix.localConnectPort(this) }.getOrNull()
             val paired = runCatching { kotlinx.coroutines.runBlocking { WirelessAdbFix.pair(this@WirelessAdbPairingService, WirelessAdbFix.LOOPBACK, port, code) } }
             if (paired.isFailure) {
                 main.post {
                     working = false
                     pairingPort = null
-                    show(Stage.CodeNeeded(getString(R.string.adbpair_code_rejected), pairingPort = port))
+                    pairingServiceName = null
+                    show(Stage.CodeNeeded(getString(R.string.adbpair_code_rejected), pairingPort = null))
+                    startDiscovery()
                 }
                 return@Thread
             }
@@ -193,11 +221,13 @@ class WirelessAdbPairingService : Service() {
             // key (propagation delay). No usable port means park, not a
             // failed pair: the pair succeeded, and the card retries on
             // its own when the port changes.
-            val connectPort = kotlinx.coroutines.runBlocking {
-                WirelessAdbFix.waitForUsableConnectPort(this@WirelessAdbPairingService, prePairPort)
-            }
+            val connectPort = runCatching {
+                kotlinx.coroutines.runBlocking {
+                    WirelessAdbFix.waitForUsableConnectPort(this@WirelessAdbPairingService, prePairPort)
+                }
+            }.getOrNull()
             if (connectPort == null) {
-                WirelessAdbFix.parkAuthFailure(this, prePairPort ?: WirelessAdbFix.localConnectPort(this))
+                WirelessAdbFix.parkAuthFailure(this, prePairPort ?: runCatching { WirelessAdbFix.localConnectPort(this) }.getOrNull())
                 main.post {
                     working = false
                     finish(Stage.Parked)

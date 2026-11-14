@@ -41,9 +41,9 @@ class AppFreezerKillSuspendTest {
     }
 
     @Test
-    fun stickySetIsOnlyTheThreeProvenApps() {
+    fun stickySetIsOnlyTheFourProvenApps() {
         assertEquals(
-            setOf("com.facebook.aura", "com.facebook.katana", "com.android.vending"),
+            setOf("com.facebook.aura", "com.facebook.katana", "com.android.vending", "com.samsung.android.smartsuggestions"),
             AppFreezerEngine.STICKY_PACKAGES,
         )
         assertFalse(AppFreezerEngine.STICKY_PACKAGES.contains("com.google.android.gms"))
@@ -110,10 +110,11 @@ class AppFreezerKillSuspendTest {
 
     @Test
     fun allowlistMembership() {
-        assertEquals(42, AppFreezerEngine.SAFE_SYSTEM_ALLOWLIST.size)
+        assertEquals(51, AppFreezerEngine.SAFE_SYSTEM_ALLOWLIST.size)
         assertTrue(isSafeSystemTarget("com.facebook.services", emptySet()))
         assertTrue(isSafeSystemTarget("com.samsung.android.bixby.agent", emptySet()))
         assertTrue(isSafeSystemTarget("com.google.android.as.oss", emptySet()))
+        assertTrue(isSafeSystemTarget("com.android.intentresolver", emptySet()))
         assertFalse(isSafeSystemTarget("com.example.unknown", emptySet()))
         assertFalse(isSafeSystemTarget("com.android.systemui", emptySet()))
     }
@@ -221,5 +222,76 @@ class AppFreezerKillSuspendTest {
         assertTrue(targets.contains("com.example.newapp"))
         assertFalse(targets.contains("com.samsung.android.bixby.agent"))
         assertFalse(targets.contains("com.android.systemui"))
+    }
+
+    @Test
+    fun batchRetryDoesNotRetryOnSuccess() {
+        var calls = 0
+        val result = runBatchWithRetry("echo hi", sleepMs = 0) { _ ->
+            calls++
+            PrivilegedResult(0, "ok", PrivilegedMode.NONE)
+        }
+        assertEquals(1, calls)
+        assertEquals(0, result.exitCode)
+    }
+
+    @Test
+    fun batchRetryRunsOnceOnFailureThenReturnsLastResult() {
+        var calls = 0
+        val result = runBatchWithRetry("echo hi", sleepMs = 0) { _ ->
+            calls++
+            PrivilegedResult(-1, "", PrivilegedMode.NONE)
+        }
+        assertEquals(2, calls)
+        assertEquals(-1, result.exitCode)
+    }
+
+    @Test
+    fun batchRetrySucceedsOnSecondAttempt() {
+        var calls = 0
+        val result = runBatchWithRetry("echo hi", sleepMs = 0) { _ ->
+            calls++
+            if (calls == 1) PrivilegedResult(-1, "", PrivilegedMode.NONE)
+            else PrivilegedResult(0, "ok", PrivilegedMode.NONE)
+        }
+        assertEquals(2, calls)
+        assertEquals(0, result.exitCode)
+    }
+
+    @Test
+    fun appliedVerificationCountsKilledAndNamesSurvivors() {
+        val verified = appliedVerification(
+            orderedRunning = listOf("com.a", "com.b", "com.c"),
+            stillRunning = listOf("com.b"),
+            suspendedCount = 10,
+        )
+        assertEquals(2, verified.killed)
+        assertEquals(10, verified.suspended)
+        assertEquals(listOf("com.b"), verified.survivors)
+    }
+
+    @Test
+    fun appliedVerificationBoundsSurvivorsToFive() {
+        val running = (1..8).map { "com.app$it" }
+        val verified = appliedVerification(
+            orderedRunning = running,
+            stillRunning = running,
+            suspendedCount = 0,
+        )
+        assertEquals(0, verified.killed)
+        assertEquals(5, verified.survivors.size)
+        assertEquals(running.take(5), verified.survivors)
+    }
+
+    @Test
+    fun appliedVerificationAllKilledHasNoSurvivors() {
+        val verified = appliedVerification(
+            orderedRunning = listOf("com.a", "com.b"),
+            stillRunning = emptyList(),
+            suspendedCount = 2,
+        )
+        assertEquals(2, verified.killed)
+        assertEquals(2, verified.suspended)
+        assertTrue(verified.survivors.isEmpty())
     }
 }
