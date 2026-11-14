@@ -53,6 +53,37 @@ class AppFreezerPackageSplitTest {
     }
 
     @Test
+    fun parseEnabledNamesExtractsPmEnableTargets() {
+        val restore = AppFreezerEngine.packagesRestoreCmd(
+            listOf("com.example.a", "com.example.b"),
+            listOf("com.android.vending", "com.facebook.aura"),
+        )
+        assertEquals(
+            listOf("com.android.vending", "com.facebook.aura"),
+            AppFreezerPackageJournal.parseEnabledNames(restore),
+        )
+        assertEquals(
+            emptyList<String>(),
+            AppFreezerPackageJournal.parseEnabledNames(
+                AppFreezerEngine.packagesRestoreCmd(listOf("com.example.a")),
+            ),
+        )
+    }
+
+    @Test
+    fun filterSuspendTargetsExcludesWebApks() {
+        val targets = filterSuspendTargets(
+            listOf(
+                "com.example.a",
+                "org.chromium.webapk.ae52a25cb8056f7df_v2",
+                "com.facebook.katana",
+            ),
+            emptySet(),
+        )
+        assertEquals(listOf("com.example.a", "com.facebook.katana"), targets)
+    }
+
+    @Test
     fun splitItemKeepsOnlyRemainingPackages() {
         val original = packagesItem(listOf("com.example.a", "com.example.b", "com.example.c"))
         val split = AppFreezerPackageJournal.splitItem(original, listOf("com.example.b"))

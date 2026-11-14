@@ -36,10 +36,12 @@ internal fun mergeProtectedPackages(
 
 // A non-package line from pm output ("No", seen on device 2026-11-06) makes
 // cmd package suspend/unsuspend throw, which fails the first rollback attempt.
+// Chrome WebAPKs are web shortcuts, not real apps: freezing one breaks
+// its launcher entry and the user must re-install it.
 internal fun filterSuspendTargets(
     packages: List<String>,
     protected: Set<String>,
-): List<String> = packages.distinct().filter { it !in protected && AppFreezerPackageJournal.packagePattern.matches(it) }
+): List<String> = packages.distinct().filter { it !in protected && AppFreezerPackageJournal.packagePattern.matches(it) && !it.startsWith("org.chromium.webapk.") }
 
 // A system app is safe to close when it is a known-safe background
 // service (allowlist) or a user-facing app (launcher icon). Background
@@ -764,7 +766,10 @@ object AppFreezerEngine {
         return exec(context, "pm list packages -3").lines()
             .filter { it.startsWith("package:") }
             .map { it.removePrefix("package:").trim() }
-            .filter { it.isNotEmpty() && it !in BASE_PROTECTED_PACKAGES && it != context.packageName }
+            // Chrome WebAPKs are web shortcuts, not real apps: freezing
+            // one breaks its launcher entry (it depends on Chrome) and
+            // the user must re-install it, so they are never targets.
+            .filter { it.isNotEmpty() && it !in BASE_PROTECTED_PACKAGES && it != context.packageName && !it.startsWith("org.chromium.webapk.") }
     }
 
     private fun queryLauncherPackages(context: Context): Set<String> {
@@ -833,12 +838,13 @@ object AppFreezerEngine {
     // starts normally when the user opens it.
     private fun wakeForceStopped(context: Context) {
         val stopped = forceStoppedPackages.toList()
-        if (stopped.isEmpty()) return
+        val disabled = disabledPackages.toList()
+        if (stopped.isEmpty() && disabled.isEmpty()) return
         val script = buildString {
-            disabledPackages.toList().forEach { pkg ->
+            disabled.forEach { pkg ->
                 append("pm enable $pkg 2>/dev/null; ")
             }
-            append(wakeBroadcastScript(stopped))
+            if (stopped.isNotEmpty()) append(wakeBroadcastScript(stopped))
         }
         val result = execChecked(context, script, WAKE_TIMEOUT_MS)
         val fallback = result.output.lineSequence()

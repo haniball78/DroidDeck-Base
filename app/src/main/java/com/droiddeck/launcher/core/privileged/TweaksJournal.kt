@@ -277,6 +277,7 @@ internal object JournalRollback {
 
 internal object AppFreezerPackageJournal {
     internal val packagePattern = Regex("^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$")
+    private val pmEnablePattern = Regex("pm enable ([A-Za-z0-9_.]+)")
 
     fun parseSuspendedNames(output: String): List<String> {
         val names = ArrayList<String>()
@@ -285,6 +286,10 @@ internal object AppFreezerPackageJournal {
             if (packagePattern.matches(name) && !names.contains(name)) names.add(name)
         }
         return names
+    }
+
+    fun parseEnabledNames(restoreCmd: String): List<String> {
+        return pmEnablePattern.findAll(restoreCmd).map { it.groupValues[1] }.distinct().toList()
     }
 
     fun splitItem(item: JournalItem, remaining: List<String>): JournalItem {
@@ -571,6 +576,13 @@ object Tweaks {
                 return false
             }
             if (still.isEmpty()) {
+                // The bulk restore failed, so the one-by-one unsuspend
+                // ran instead — but it never re-enables the sticky apps
+                // the bulk script disables (pm disable-user). Re-enable
+                // them here, or they stay hidden after the session.
+                for (pkg in AppFreezerPackageJournal.parseEnabledNames(failedItem.restoreCmd)) {
+                    execChecked(context, "pm enable $pkg 2>/dev/null")
+                }
                 DiagnosticsLog.log(
                     context, "safety.restore", "restored",
                     fields = mapOf("key" to "app-freezer-packages", "verify" to "verified"),
