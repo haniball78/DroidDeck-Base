@@ -90,6 +90,10 @@ object RecoveryCoordinator {
                 }
             }
             if (!Tweaks.recoveryNeeded(appContext)) {
+                if (!verifyLegacyFreezerCleared(appContext)) {
+                    Log.w(TAG, "recovery pending: legacy freezer packages still suspended, marker kept")
+                    return false
+                }
                 GameModeEngine.deleteLegacyMarker(appContext)
                 AppFreezerEngine.deleteLegacyMarker(appContext)
                 return true
@@ -98,6 +102,10 @@ object RecoveryCoordinator {
                 runCatching {
                     PrivilegedBridge.ensureSessionToken(appContext)
                     PrivilegedBridge.executeChecked("settings delete global droiddeck_deadman_expired")
+                }
+                if (!verifyLegacyFreezerCleared(appContext)) {
+                    Log.w(TAG, "recovery pending: legacy freezer packages still suspended after rollback, marker kept")
+                    return false
                 }
                 GameModeEngine.deleteLegacyMarker(appContext)
                 AppFreezerEngine.deleteLegacyMarker(appContext)
@@ -112,5 +120,26 @@ object RecoveryCoordinator {
         }
         Log.w(TAG, "recovery pending after ${RecoveryRetry.delaysMs.size} attempts, journal kept")
         return false
+    }
+
+    internal fun freezerMarkerCleared(packages: List<String>, verifySuspendedCount: (List<String>) -> Int?): Boolean {
+        if (packages.isEmpty()) return true
+        return verifySuspendedCount(packages) == 0
+    }
+
+    private fun verifyLegacyFreezerCleared(appContext: Context): Boolean {
+        val packages = AppFreezerEngine.legacyPackages(appContext) ?: return true
+        return freezerMarkerCleared(packages) { targets ->
+            runCatching {
+                PrivilegedBridge.ensureSessionToken(appContext)
+                val outputs = ArrayList<String>()
+                for (cmd in AppFreezerEngine.packagesVerifyChunkCmds(targets)) {
+                    val read = PrivilegedBridge.executeChecked(cmd)
+                    if (read.exitCode != 0) return@runCatching null
+                    outputs.add(read.output)
+                }
+                PackagesVerifyChunks.sumCounts(outputs)
+            }.getOrDefault(null)
+        }
     }
 }

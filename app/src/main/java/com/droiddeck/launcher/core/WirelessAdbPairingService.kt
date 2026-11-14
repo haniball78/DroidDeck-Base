@@ -16,8 +16,29 @@ import android.os.IBinder
 import android.os.Looper
 import com.droiddeck.launcher.FrontEndActivity
 import com.droiddeck.launcher.R
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+
+/**
+ * One incrementing id per pair attempt. A doPair thread captures the id at
+ * start and bails silently once a newer attempt, cancel, restart, or timeout
+ * has moved the id on, so a stale thread can never post a stage or mutate
+ * shared state for an episode that is already over.
+ */
+internal class PairEpisodeGuard {
+    private val episode = AtomicInteger(0)
+
+    fun startEpisode(): Int = episode.incrementAndGet()
+
+    fun invalidate() {
+        episode.incrementAndGet()
+    }
+
+    fun current(): Int = episode.get()
+
+    fun isCurrent(id: Int): Boolean = episode.get() == id
+}
 
 class WirelessAdbPairingService : Service() {
     override fun attachBaseContext(newBase: android.content.Context) =
@@ -52,9 +73,11 @@ class WirelessAdbPairingService : Service() {
         if (pendingCode == null) return@Runnable
         pendingCode = null
         working = false
+        pairEpisodes.invalidate()
         show(Stage.CodeNeeded(getString(R.string.adbpair_timed_out), pairingPort = null))
     }
     @Volatile private var working = false
+    private val pairEpisodes = PairEpisodeGuard()
     private val timeout = Runnable { finish(Stage.Failed(getString(R.string.adbpair_timed_out))) }
     private var repeakScheduled = false
     private var codePosted = false
@@ -123,6 +146,7 @@ class WirelessAdbPairingService : Service() {
     }
 
     private fun begin() {
+        pairEpisodes.invalidate()
         pairingHost = null
         pairingPort = null
         pairingServiceName = null
@@ -219,6 +243,7 @@ class WirelessAdbPairingService : Service() {
         // round, which is the currently advertised dialog.
         pendingCode = code
         working = true
+        pairEpisodes.startEpisode()
         pairingHost = null
         pairingPort = null
         pairingServiceName = null
@@ -231,12 +256,16 @@ class WirelessAdbPairingService : Service() {
 
     private fun doPair(port: Int, code: String) {
         Thread({
+            val episode = pairEpisodes.current()
+            if (!pairEpisodes.isCurrent(episode)) return@Thread
             // The settle wait compares against the port from before the
             // pair, so it must be read before pairing starts.
             val prePairPort = runCatching { WirelessAdbFix.localConnectPort(this) }.getOrNull()
             val paired = runCatching { kotlinx.coroutines.runBlocking { WirelessAdbFix.pair(this@WirelessAdbPairingService, WirelessAdbFix.LOOPBACK, port, code) } }
             if (paired.isFailure) {
+                if (!pairEpisodes.isCurrent(episode)) return@Thread
                 main.post {
+                    if (!pairEpisodes.isCurrent(episode)) return@post
                     working = false
                     pairingPort = null
                     pairingServiceName = null
@@ -245,7 +274,9 @@ class WirelessAdbPairingService : Service() {
                 }
                 return@Thread
             }
+            if (!pairEpisodes.isCurrent(episode)) return@Thread
             main.post {
+                if (!pairEpisodes.isCurrent(episode)) return@post
                 stopDiscovery()
                 show(Stage.Working(getString(R.string.adbpair_connecting)))
             }
@@ -261,18 +292,25 @@ class WirelessAdbPairingService : Service() {
                 }
             }.getOrNull()
             if (connectPort == null) {
+                if (!pairEpisodes.isCurrent(episode)) return@Thread
                 WirelessAdbFix.parkAuthFailure(this, prePairPort ?: runCatching { WirelessAdbFix.localConnectPort(this) }.getOrNull())
                 main.post {
+                    if (!pairEpisodes.isCurrent(episode)) return@post
                     working = false
                     finish(Stage.Parked)
                 }
                 return@Thread
             }
+            if (!pairEpisodes.isCurrent(episode)) return@Thread
             val result = runCatching {
                 attemptedPort = connectPort
-                main.post { show(Stage.Working(getString(R.string.adbpair_applying))) }
+                main.post {
+                    if (!pairEpisodes.isCurrent(episode)) return@post
+                    show(Stage.Working(getString(R.string.adbpair_applying)))
+                }
                 WirelessAdbFix.startPrivilegedDaemonViaAdb(this, WirelessAdbFix.LOOPBACK, connectPort)
             }
+            if (!pairEpisodes.isCurrent(episode)) return@Thread
             if (result.isFailure) {
                 val reason = result.exceptionOrNull()?.javaClass?.simpleName ?: "unknown"
                 val fingerprint = WirelessAdbFix.identityFingerprint(this)
@@ -292,6 +330,7 @@ class WirelessAdbPairingService : Service() {
                 com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh(caller = "pairing-start")
             }
             main.post {
+                if (!pairEpisodes.isCurrent(episode)) return@post
                 working = false
                 finish(result.exceptionOrNull()?.let { Stage.Failed(it.localizedMessage ?: getString(R.string.adbpair_command_failed)) } ?: Stage.Done)
             }
@@ -347,6 +386,7 @@ class WirelessAdbPairingService : Service() {
     }
 
     private fun finish(stage: Stage) {
+        pairEpisodes.invalidate()
         main.removeCallbacks(timeout)
         main.removeCallbacks(repeakRunnable)
         main.removeCallbacks(freshPortTimeout)
@@ -372,6 +412,7 @@ class WirelessAdbPairingService : Service() {
     }
 
     override fun onDestroy() {
+        pairEpisodes.invalidate()
         main.removeCallbacks(timeout)
         main.removeCallbacks(repeakRunnable)
         main.removeCallbacks(freshPortTimeout)
@@ -487,6 +528,7 @@ class WirelessAdbPairingService : Service() {
         private fun publish(stage: Stage) { current.value = stage }
 
         fun start(context: Context) {
+            if (current.value is Stage.Working) return
             context.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
             publish(Stage.Waiting)
             val intent = Intent(context, WirelessAdbPairingService::class.java)

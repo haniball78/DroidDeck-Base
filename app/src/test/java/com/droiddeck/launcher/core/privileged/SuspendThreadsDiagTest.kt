@@ -46,9 +46,12 @@ class SuspendThreadsDiagTest {
     fun suspendRollbackClearsEngineFlags() {
         GameModeEngine.onSuspendRollback()
         AppFreezerEngine.onSuspendRollback()
+        HogRestrictionEngine.onSuspendRollback()
         assertFalse(GameModeEngine.isActive())
         assertFalse(GameModeEngine.isAggressiveActive())
         assertFalse(AppFreezerEngine.isDozeActive())
         assertEquals(0, AppFreezerEngine.getSuspendedCount())
+        assertFalse(HogRestrictionEngine.isActive())
+        assertEquals(0, HogRestrictionEngine.getRestrictedList().size)
     }
 }

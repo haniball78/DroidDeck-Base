@@ -155,4 +155,12 @@ class HogRestrictionTest {
         assertTrue(cmd.contains("WHITELIST"))
         assertTrue(cmd.contains("dumpsys deviceidle whitelist"))
     }
+
+    @Test
+    fun suspendRollbackClearsActiveFlagAndRestrictedList() {
+        HogRestrictionEngine.onSuspendRollback()
+        assertFalse(HogRestrictionEngine.isActive())
+        assertTrue(HogRestrictionEngine.getRestrictedList().isEmpty())
+        assertEquals(EngineApplyDecision.FRESH, decideEngineApply(false, 0, 1))
+    }
 }

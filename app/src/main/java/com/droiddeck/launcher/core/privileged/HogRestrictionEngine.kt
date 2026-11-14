@@ -333,6 +333,15 @@ object HogRestrictionEngine {
         return true
     }
 
+    @Synchronized
+    fun onSuspendRollback() {
+        applied = false
+        activeGen.set(0)
+        restrictedPackages.clear()
+    }
+
+    fun isActive(): Boolean = applied
+
     fun hasHogJournal(context: Context): Boolean {
         return Tweaks.hasKey(context, "hog-restriction-appops") ||
             Tweaks.hasKey(context, "hog-restriction-buckets") ||

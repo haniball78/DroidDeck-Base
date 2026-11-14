@@ -188,6 +188,7 @@ class SessionService : Service() {
     private var safetyMonitor: SafetyMonitor? = null
     @Volatile private var deadManRunning = false
     private var deadManThread: Thread? = null
+    @Volatile private var deadManGen = 0
     private var shutdownReceiverRegistered = false
     private val shutdownReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -197,8 +198,6 @@ class SessionService : Service() {
             )
         }
     }
-    private var lastStoppedGen = 0
-    private var lastStoppedStatus = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -260,7 +259,9 @@ class SessionService : Service() {
                 Log.i(TAG, "restore retry requested")
                 if (SessionExit.retryRestore()) {
                     Thread({
-                        if (restoreInTeardown(lastStoppedGen)) finishSessionStop(lastStoppedStatus, lastStoppedGen)
+                        if (restoreInTeardown(lastStoppedGen)) {
+                            postSafetyNotification("System settings restored.")
+                        }
                     }, "session-restore-retry").start()
                 }
                 return START_NOT_STICKY
@@ -1664,6 +1665,7 @@ class SessionService : Service() {
                             if (rolledBack) {
                                 com.droiddeck.launcher.core.privileged.GameModeEngine.onSuspendRollback()
                                 com.droiddeck.launcher.core.privileged.AppFreezerEngine.onSuspendRollback()
+                                com.droiddeck.launcher.core.privileged.HogRestrictionEngine.onSuspendRollback()
                                 safetyMonitor?.setTweaksActive(false)
                                 com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                                     this, "session", "suspend-tweaks-cleared",
@@ -1916,7 +1918,7 @@ class SessionService : Service() {
     }
 
     private fun finishSessionStop(status: Int, stoppedGen: Int) {
-        stopDeadMan()
+        stopDeadMan(stoppedGen)
         mainHandler.post {
             if (stoppedGen != sessionGen || SessionState.running) {
                 Log.i(TAG, "session $stoppedGen finished stopping after a new one started")
@@ -1965,6 +1967,7 @@ class SessionService : Service() {
             Log.w(TAG, "dead-man arm failed, daemon-only watchdog unavailable")
             return
         }
+        deadManGen = sessionGen
         deadManRunning = true
         deadManThread = Thread({
             var warned = false
@@ -1988,14 +1991,17 @@ class SessionService : Service() {
         }, "dead-man-beat").apply { start() }
     }
 
-    private fun stopDeadMan() {
+    private fun stopDeadMan(gen: Int) {
+        if (!shouldDisarmDeadMan(gen, deadManGen, SessionState.running)) return
         deadManRunning = false
         deadManThread?.interrupt()
         deadManThread = null
         Thread({
+            if (!shouldDisarmDeadMan(gen, deadManGen, SessionState.running)) return@Thread
             runCatching {
                 com.droiddeck.launcher.core.privileged.PrivilegedBridge.disarmDeadMan()
             }
+            deadManGen = 0
         }, "dead-man-disarm").start()
     }
 
@@ -2327,7 +2333,11 @@ class SessionService : Service() {
         } else {
             SessionExit.restoreFailed()
             SessionEvents.record("session.restore_failed", mapOf("gen" to stoppedGen))
-            Log.w(TAG, "teardown restore failed, session not finished, journal kept for retry")
+            Log.w(TAG, "teardown restore failed, journal kept for retry")
+            postSafetyNotification(
+                "System settings could not be fully restored. Retry to restore the remaining settings.",
+                retryRestoreAction = true,
+            )
         }
         logRamReport(stoppedGen)
         return ok
@@ -2336,6 +2346,7 @@ class SessionService : Service() {
     private fun postSafetyNotification(
         text: String,
         resumeWithoutOptimizationsAction: Boolean = false,
+        retryRestoreAction: Boolean = false,
     ) {
         try {
             val manager = getSystemService(NotificationManager::class.java) ?: return
@@ -2357,7 +2368,18 @@ class SessionService : Service() {
                 .setContentTitle(getString(R.string.app_name))
                 .setContentText(text)
                 .setContentIntent(open)
-                .addAction(Notification.Action.Builder(null, "Cancel countdown", cancel).build())
+                .apply {
+                    if (!retryRestoreAction) {
+                        addAction(Notification.Action.Builder(null, "Cancel countdown", cancel).build())
+                    }
+                }
+            if (retryRestoreAction) {
+                val retry = PendingIntent.getService(
+                    this, 9, retryRestoreIntent(this),
+                    PendingIntent.FLAG_IMMUTABLE,
+                )
+                builder.addAction(Notification.Action.Builder(null, "Retry restore", retry).build())
+            }
             if (resumeWithoutOptimizationsAction) {
                 val resumeWithout = PendingIntent.getService(
                     this, 6,
@@ -2434,7 +2456,6 @@ class SessionService : Service() {
         GameThreadHints.stop()
         com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
         lastStoppedGen = sessionGen
-        lastStoppedStatus = status
         SessionEvents.transition(SessionPhase.STOPPING, "session.stopping", mapOf("status" to status))
         suspendOperationPending = false
         freezePending = false
@@ -2474,18 +2495,16 @@ class SessionService : Service() {
                     auxiliary.forEach { (pid, started) -> teardown(pid, started) }
                     if (prootPid > 1) teardown(prootPid)
                     killGuestLeftovers()
-                    if (restoreInTeardown(stoppedGen)) {
-                        finishSessionStop(status, stoppedGen)
-                        if (launcherEnded) importLauncherGames()
-                    }
+                    val restored = restoreInTeardown(stoppedGen)
+                    finishSessionStop(status, stoppedGen)
+                    if (restored && launcherEnded) importLauncherGames()
                 }, "session-teardown").start()
             } else {
                 Thread({
                     com.droiddeck.launcher.stores.gog.GogComet.end(stoppedSession)
-                    if (restoreInTeardown(stoppedGen)) {
-                        finishSessionStop(status, stoppedGen)
-                        if (launcherEnded) importLauncherGames()
-                    }
+                    val restored = restoreInTeardown(stoppedGen)
+                    finishSessionStop(status, stoppedGen)
+                    if (restored && launcherEnded) importLauncherGames()
                 }, "gog-session-stop").start()
             }
         }
@@ -2518,7 +2537,7 @@ class SessionService : Service() {
         }
         GameThreadHints.stop() // also when the session never got as far as running
         com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
-        stopDeadMan()
+        stopDeadMan(sessionGen)
         if (shutdownReceiverRegistered) {
             unregisterReceiver(shutdownReceiver)
             shutdownReceiverRegistered = false
@@ -2738,6 +2757,13 @@ class SessionService : Service() {
 
     companion object {
         private const val TAG = "SessionService"
+        @Volatile private var lastStoppedGen = 0
+
+        internal fun shouldDisarmDeadMan(disarmingGen: Int, activeGen: Int, sessionRunning: Boolean): Boolean =
+            disarmingGen != 0 && disarmingGen == activeGen && !sessionRunning
+
+        internal fun retryRestoreIntent(context: Context): Intent =
+            Intent(context, SessionService::class.java).setAction(ACTION_RETRY_RESTORE)
         private const val TRACER_NICE = -6
         private const val MIC_RELEASE_TIMEOUT_MS = 5_000L
         private const val TU_DEBUG_SWITCH = "Download/droiddeck-tu-debug"

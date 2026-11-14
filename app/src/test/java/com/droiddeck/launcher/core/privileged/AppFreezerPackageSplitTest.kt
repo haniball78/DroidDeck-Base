@@ -71,7 +71,7 @@ class AppFreezerPackageSplitTest {
     }
 
     @Test
-    fun filterSuspendTargetsExcludesWebApks() {
+    fun filterSuspendTargetsIncludesWebApks() {
         val targets = filterSuspendTargets(
             listOf(
                 "com.example.a",
@@ -80,7 +80,14 @@ class AppFreezerPackageSplitTest {
             ),
             emptySet(),
         )
-        assertEquals(listOf("com.example.a", "com.facebook.katana"), targets)
+        assertEquals(
+            listOf(
+                "com.example.a",
+                "org.chromium.webapk.ae52a25cb8056f7df_v2",
+                "com.facebook.katana",
+            ),
+            targets,
+        )
     }
 
     @Test

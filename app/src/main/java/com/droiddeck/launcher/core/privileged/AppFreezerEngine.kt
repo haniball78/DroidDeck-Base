@@ -36,12 +36,10 @@ internal fun mergeProtectedPackages(
 
 // A non-package line from pm output ("No", seen on device 2026-11-06) makes
 // cmd package suspend/unsuspend throw, which fails the first rollback attempt.
-// Chrome WebAPKs are web shortcuts, not real apps: freezing one breaks
-// its launcher entry and the user must re-install it.
 internal fun filterSuspendTargets(
     packages: List<String>,
     protected: Set<String>,
-): List<String> = packages.distinct().filter { it !in protected && AppFreezerPackageJournal.packagePattern.matches(it) && !it.startsWith("org.chromium.webapk.") }
+): List<String> = packages.distinct().filter { it !in protected && AppFreezerPackageJournal.packagePattern.matches(it) }
 
 // A system app is safe to close when it is a known-safe background
 // service (allowlist) or a user-facing app (launcher icon). Background
@@ -766,10 +764,7 @@ object AppFreezerEngine {
         return exec(context, "pm list packages -3").lines()
             .filter { it.startsWith("package:") }
             .map { it.removePrefix("package:").trim() }
-            // Chrome WebAPKs are web shortcuts, not real apps: freezing
-            // one breaks its launcher entry (it depends on Chrome) and
-            // the user must re-install it, so they are never targets.
-            .filter { it.isNotEmpty() && it !in BASE_PROTECTED_PACKAGES && it != context.packageName && !it.startsWith("org.chromium.webapk.") }
+            .filter { it.isNotEmpty() && it !in BASE_PROTECTED_PACKAGES && it != context.packageName }
     }
 
     private fun queryLauncherPackages(context: Context): Set<String> {
@@ -825,6 +820,10 @@ object AppFreezerEngine {
     }
 
     fun hasLegacyMarker(context: Context): Boolean = File(context.filesDir, MARKER_FILE).exists()
+
+    internal fun legacyPackages(context: Context): List<String>? {
+        return loadLegacyMarker(context.applicationContext)?.first
+    }
 
     fun deleteLegacyMarker(context: Context) {
         try { File(context.filesDir, MARKER_FILE).delete() } catch (_: Exception) {}
