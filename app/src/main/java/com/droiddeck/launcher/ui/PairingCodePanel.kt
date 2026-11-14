@@ -27,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -51,6 +53,8 @@ fun PairingCodePanel(
     onRetry: () -> Unit,
 ) {
     val ctx = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val colors = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
     val stage by WirelessAdbPairingService.stage.collectAsState()
@@ -82,6 +86,10 @@ fun PairingCodePanel(
         if (busy) return
         val code = codeText.filter(Char::isDigit)
         if (code.length != 6) return
+        // Detach the keyboard before the stage change removes the text
+        // field: a detached field with a live input connection crashes.
+        focusManager.clearFocus()
+        keyboardController?.hide()
         if (showManualPort) {
             val port = portText.toIntOrNull() ?: return
             busy = true
