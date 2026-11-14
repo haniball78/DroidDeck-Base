@@ -41,6 +41,19 @@ class WirelessAdbPairingService : Service() {
     private var pairingPort: Int? = null
     private var pairingServiceName: String? = null
     private var latestServiceName: String? = null
+    // Code waiting for a freshly discovered port: on every Pair tap the
+    // app re-discovers the port instead of trusting the cached one, so a
+    // stale port can never be paired with.
+    private var pendingCode: String? = null
+    // Increments on every discovery restart; resolves from an older round
+    // are ignored, so a late stale resolve cannot overwrite a fresh port.
+    private var discoveryGen = 0L
+    private val freshPortTimeout = Runnable {
+        if (pendingCode == null) return@Runnable
+        pendingCode = null
+        working = false
+        show(Stage.CodeNeeded(getString(R.string.adbpair_timed_out), pairingPort = null))
+    }
     @Volatile private var working = false
     private val timeout = Runnable { finish(Stage.Failed(getString(R.string.adbpair_timed_out))) }
     private var repeakScheduled = false
@@ -114,6 +127,8 @@ class WirelessAdbPairingService : Service() {
         pairingPort = null
         pairingServiceName = null
         latestServiceName = null
+        pendingCode = null
+        main.removeCallbacks(freshPortTimeout)
         working = false
         codePosted = false
         lastCodePostMs = 0L
@@ -127,13 +142,15 @@ class WirelessAdbPairingService : Service() {
 
     private fun startDiscovery() {
         stopDiscovery()
+        discoveryGen++
         val manager = getSystemService(Context.NSD_SERVICE) as NsdManager
         val listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) = Unit
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 if (serviceInfo.serviceType?.contains(PAIRING_TYPE) != true) return
                 latestServiceName = serviceInfo.serviceName
-                runCatching { manager.resolveService(serviceInfo, resolveListener()) }
+                val gen = discoveryGen
+                runCatching { manager.resolveService(serviceInfo, resolveListener(gen)) }
             }
             override fun onServiceLost(serviceInfo: NsdServiceInfo) {
                 if (serviceInfo.serviceName != pairingServiceName) return
@@ -159,14 +176,23 @@ class WirelessAdbPairingService : Service() {
             .onFailure { finish(Stage.Failed(getString(R.string.adbpair_discovery_failed, it.localizedMessage ?: "unknown"))) }
     }
 
-    private fun resolveListener() = object : NsdManager.ResolveListener {
+    private fun resolveListener(gen: Long) = object : NsdManager.ResolveListener {
         override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = Unit
         override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
+            if (gen != discoveryGen) return
             if (serviceInfo.serviceName != latestServiceName) return
             val address = serviceInfo.host ?: return
             if (!WirelessAdbFix.isLocalAddress(address)) return
             main.post {
-                if (working || current.value == Stage.Done) return@post
+                if (working && pendingCode == null) return@post
+                if (current.value == Stage.Done) return@post
+                val code = pendingCode
+                if (code != null) {
+                    pendingCode = null
+                    main.removeCallbacks(freshPortTimeout)
+                    doPair(serviceInfo.port, code)
+                    return@post
+                }
                 pairingHost = address.hostAddress
                 pairingPort = serviceInfo.port
                 pairingServiceName = serviceInfo.serviceName
@@ -183,19 +209,27 @@ class WirelessAdbPairingService : Service() {
     }
 
     private fun onCode(code: String) {
-        val host = pairingHost
-        val port = pairingPort
         if (working) return
-        if (host == null || port == null) {
-            show(Stage.Waiting)
-            return
-        }
         if (code.length != 6) {
-            show(Stage.CodeNeeded(getString(R.string.adbpair_six_digits), pairingPort = port))
+            show(Stage.CodeNeeded(getString(R.string.adbpair_six_digits), pairingPort = pairingPort))
             return
         }
+        // Fresh port search on every Pair tap: never trust the cached
+        // port. The code waits for the first resolve of a new discovery
+        // round, which is the currently advertised dialog.
+        pendingCode = code
         working = true
+        pairingHost = null
+        pairingPort = null
+        pairingServiceName = null
+        latestServiceName = null
         show(Stage.Working(getString(R.string.adbpair_pairing)))
+        startDiscovery()
+        main.removeCallbacks(freshPortTimeout)
+        main.postDelayed(freshPortTimeout, FRESH_PORT_TIMEOUT_MS)
+    }
+
+    private fun doPair(port: Int, code: String) {
         Thread({
             // The settle wait compares against the port from before the
             // pair, so it must be read before pairing starts.
@@ -315,6 +349,8 @@ class WirelessAdbPairingService : Service() {
     private fun finish(stage: Stage) {
         main.removeCallbacks(timeout)
         main.removeCallbacks(repeakRunnable)
+        main.removeCallbacks(freshPortTimeout)
+        pendingCode = null
         stopDiscovery()
         publish(stage)
         val manager = getSystemService(NotificationManager::class.java)
@@ -338,6 +374,8 @@ class WirelessAdbPairingService : Service() {
     override fun onDestroy() {
         main.removeCallbacks(timeout)
         main.removeCallbacks(repeakRunnable)
+        main.removeCallbacks(freshPortTimeout)
+        pendingCode = null
         stopDiscovery()
         if (current.value.let { it is Stage.Waiting || it is Stage.CodeNeeded || it is Stage.Working }) publish(Stage.Idle)
         super.onDestroy()
@@ -429,6 +467,8 @@ class WirelessAdbPairingService : Service() {
         private const val EXTRA_CODE = "code_extra"
         private const val TIMEOUT_MS = 5 * 60_000L
         private const val REPEAK_DELAY_MS = 8_000L
+        /** How long a Pair tap waits for a freshly discovered port before giving up. */
+        private const val FRESH_PORT_TIMEOUT_MS = 10_000L
         /** Identical code prompts closer than this are one event, not a new alert. */
         const val REPOST_DEBOUNCE_MS = 3_000L
 
