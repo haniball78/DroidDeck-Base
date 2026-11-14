@@ -44,7 +44,10 @@ public class DroidDeckPrivilegedServer {
     private static volatile boolean deadmanExpired = false;
     private static volatile long deadmanLastBeatMs = -1L;
     private static final long DEADMAN_WATCHDOG_MS = 45000L;
-    private static final int MAX_LINE_LENGTH = 8192;
+    // Inbound EXEC lines are Base64, so a script for ~200 freezer
+    // targets is ~12 KB and the restore/verify lines ~9 KB; the limit
+    // must cover those while still bounding a single line.
+    private static final int MAX_LINE_LENGTH = 32768;
 
     public static void main(String[] args) {
         stoppingForTest = false;

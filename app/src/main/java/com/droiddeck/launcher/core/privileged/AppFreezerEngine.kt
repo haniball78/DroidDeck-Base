@@ -556,7 +556,26 @@ object AppFreezerEngine {
             appliedChunks++
         }
         if (batchExit != 0) {
-            if (appliedChunks == 0) {
+            // A timed-out chunk may still have frozen apps: the server
+            // has no timeout and runs the chunk to completion, while
+            // the client only sees the timeout. Re-read the suspended
+            // state before deciding the journal is unnecessary; keep
+            // it when the re-read cannot prove nothing is suspended,
+            // so restore still cleans up.
+            var suspendedNow = -1
+            if (uniqueTargets.isNotEmpty()) {
+                val outputs = ArrayList<String>()
+                var verifyFailed = false
+                for (cmd in packagesVerifyChunkCmds(uniqueTargets)) {
+                    val read = execChecked(context, cmd)
+                    if (read.exitCode != 0) { verifyFailed = true; break }
+                    outputs.add(read.output)
+                }
+                if (!verifyFailed) suspendedNow = PackagesVerifyChunks.sumCounts(outputs) ?: -1
+            } else {
+                suspendedNow = 0
+            }
+            if (appliedChunks == 0 && suspendedNow == 0) {
                 Tweaks.removeKey(context, "app-freezer-doze")
                 Tweaks.removeKey(context, "app-freezer-packages")
                 suspendedPackages.clear()
@@ -564,7 +583,7 @@ object AppFreezerEngine {
                 disabledPackages.clear()
                 dozeForced = false
             }
-            Log.w(TAG, "app freezer: batch failed, exit=$batchExit, appliedChunks=$appliedChunks")
+            Log.w(TAG, "app freezer: batch failed, exit=$batchExit, appliedChunks=$appliedChunks, suspendedNow=$suspendedNow")
             com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                 context, "device.change", "app-freezer-failed",
                 fields = mapOf("exit" to batchExit.toString(), "applied_chunks" to appliedChunks.toString()),

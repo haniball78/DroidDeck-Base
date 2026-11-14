@@ -353,7 +353,7 @@ object DynamicAdaptiveGovernor {
                         val treeFound = readSessionTree(pid)
                         val treePids = treeFound.take(64)
                         if (treePids.isNotEmpty()) {
-                            val (treeExit, treeOutput) = runAppCommandOutput(buildBoostTreeCommand(treePids, treePinMask(tier)))
+                            val (treeExit, treeOutput) = runAppCommandOutput(buildBoostTreeCommand(treePids, treePinMask(tier)), 8000L)
                             val treeFields = mutableMapOf(
                                 "tier" to tier.name,
                                 "cmd" to "taskset-tree",

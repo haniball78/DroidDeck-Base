@@ -444,7 +444,7 @@ object GameModeEngine {
         }
         val treeFound = readSessionTree(pid)
         val treePids = treeFound.take(64)
-        val (treeExit, treeOutput) = runAppCommandOutput(buildBoostTreeCommand(treePids, mask))
+        val (treeExit, treeOutput) = runAppCommandOutput(buildBoostTreeCommand(treePids, mask), 8000L)
         val treeDiag = parseThreadsDiag(treeOutput)
         pidBoostFields["tree_exit"] = treeExit.toString()
         pidBoostFields["tree_found"] = treeFound.size.toString()
@@ -476,7 +476,7 @@ object GameModeEngine {
                     }
                     val followTreeFound = readSessionTree(pid)
                     val followTreePids = followTreeFound.take(64)
-                    val (followTreeExit, followTreeOutput) = runAppCommandOutput(buildBoostTreeCommand(followTreePids, mask))
+                    val (followTreeExit, followTreeOutput) = runAppCommandOutput(buildBoostTreeCommand(followTreePids, mask), 8000L)
                     val followTreeDiag = parseThreadsDiag(followTreeOutput)
                     followFields["tree_exit"] = followTreeExit.toString()
                     followFields["tree_found"] = followTreeFound.size.toString()

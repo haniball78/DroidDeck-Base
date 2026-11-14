@@ -243,6 +243,32 @@ class AppFreezerKillSuspendTest {
     }
 
     @Test
+    fun restoreVerifyAndWakeFitServerLineLimit() {
+        // DroidDeckPrivilegedServer.MAX_LINE_LENGTH is 32768: the
+        // restore, verify and wake scripts for a realistic 205-target
+        // session must fit it (they exceed the old 8192 limit, which
+        // is why the limit was raised). Names are ~30 chars, the real
+        // average on the phone, so the sizes are realistic.
+        val targets = (1..205).map { "com.example.longer.app.name$it" }
+        val disabled = listOf("com.facebook.aura", "com.facebook.katana", "com.android.vending", "com.samsung.android.smartsuggestions")
+        val restore = AppFreezerEngine.packagesRestoreCmd(targets, disabled)
+        val restoreEncoded = java.util.Base64.getEncoder()
+            .encodeToString(restore.toByteArray(Charsets.UTF_8))
+        assertTrue("EXEC:${restoreEncoded}".length <= 32768)
+        val verify = AppFreezerEngine.packagesVerifyCmd(targets)
+        val verifyEncoded = java.util.Base64.getEncoder()
+            .encodeToString(verify.toByteArray(Charsets.UTF_8))
+        assertTrue("EXEC:${verifyEncoded}".length <= 32768)
+        val wake = wakeBroadcastScript(
+            forceStopped = (1..26).map { "com.example.longer.app.name$it" },
+            fallback = setOf("com.example.longer.app.name1"),
+        )
+        val wakeEncoded = java.util.Base64.getEncoder()
+            .encodeToString(wake.toByteArray(Charsets.UTF_8))
+        assertTrue("EXEC:${wakeEncoded}".length <= 32768)
+    }
+
+    @Test
     fun batchRetryDoesNotRetryOnSuccess() {
         var calls = 0
         val result = runBatchWithRetry("echo hi", sleepMs = 0, execute = { _ ->
