@@ -36,6 +36,9 @@ internal fun mergeProtectedPackages(
 
 // A non-package line from pm output ("No", seen on device 2026-11-06) makes
 // cmd package suspend/unsuspend throw, which fails the first rollback attempt.
+// WebAPKs (org.chromium.webapk.*) are frozen like any user app, by the
+// user's explicit order (6a38f1c reverted the b561a05 exclusion); the
+// b561a05 claim that freezing one breaks its launcher entry is unproven.
 internal fun filterSuspendTargets(
     packages: List<String>,
     protected: Set<String>,
