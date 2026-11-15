@@ -35,6 +35,20 @@ class SessionGamepadPrefsTest {
         assertEquals(SessionPrefs.SURFACE_STICK, SessionPrefs.gamepadSurfaceForGame(context, "440", true))
     }
 
+    @Test fun controllerModeTogglePersists() {
+        assertEquals(true, SessionPrefs.tvControllerMode(context))
+        SessionPrefs.setTvControllerMode(context, false)
+        assertEquals(false, SessionPrefs.tvControllerMode(context))
+        SessionPrefs.setTvControllerMode(context, true)
+        assertEquals(true, SessionPrefs.tvControllerMode(context))
+    }
+
+    @Test fun render4kDefaultsOffAndPersists() {
+        assertEquals(false, SessionPrefs.tvRender4k(context))
+        SessionPrefs.setTvRender4k(context, true)
+        assertEquals(true, SessionPrefs.tvRender4k(context))
+    }
+
     @Test fun parseDropsInvalidScopesAndSurfaces() {
         val parsed = SessionPrefs.parseGamepadSurfaces(
             """{"440":{"left":"stick","right":"junk"},"0":{"left":"stick"},"abc":{"left":"stick"},"570":{"right":"trackpad"}}""",

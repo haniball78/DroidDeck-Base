@@ -7,7 +7,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -20,6 +25,7 @@ import com.droiddeck.launcher.core.TvHandoff
 // FPS, battery temperature and level, time on TV, render size, input path.
 @Composable
 fun TvCompanionStrip(state: TvHandoff.CompanionState) {
+    var collapsed by remember { mutableStateOf(false) }
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -28,18 +34,27 @@ fun TvCompanionStrip(state: TvHandoff.CompanionState) {
                 .background(Color.Black.copy(alpha = 0.65f))
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
-            Text(
-                text = companionLine(state),
-                color = Color.White,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-            )
-            if (state.cappedTo1080p) {
+            if (!collapsed) {
                 Text(
-                    text = "1080p cap: this TV offers no 1080p mode",
-                    color = Color(0xFFFFC46B),
-                    fontSize = 11.sp,
+                    text = companionLine(state),
+                    color = Color.White,
+                    fontSize = 13.sp,
                     textAlign = TextAlign.Center,
+                )
+                if (state.cappedTo1080p) {
+                    Text(
+                        text = "1080p cap: this TV offers no 1080p mode",
+                        color = Color(0xFFFFC46B),
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+            TextButton(onClick = { collapsed = !collapsed }) {
+                Text(
+                    text = if (collapsed) "▸ show info" else "▾ hide",
+                    color = Color.White,
+                    fontSize = 11.sp,
                 )
             }
         }

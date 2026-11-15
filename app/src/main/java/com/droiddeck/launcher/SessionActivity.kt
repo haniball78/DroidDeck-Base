@@ -404,6 +404,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var tvLastFrameAtMs = 0L
     private var tvCompanionTickerRunning = false
     private var tvEndButton: Button? = null
+    private var tvControllerButton: Button? = null
     private var tvEndArmedAt = 0L
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
@@ -3678,6 +3679,9 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         val toggleOn = SessionPrefs.tvControllerMode(this)
         val want = TvHandoff.shouldEngageController(tvOutputActive, SessionState.running, physical, toggleOn)
         updateTvPanelDim(physical)
+        ensureTvControllerButton()
+        tvControllerButton?.visibility = if (tvOutputActive) View.VISIBLE else View.GONE
+        tvControllerButton?.text = if (want) "Hide pad" else "Show pad"
         // No input channel left: freeze the game until a controller comes back.
         val freeze = TvHandoff.shouldFreezeOnInputLoss(tvOutputActive, SessionState.running, physical, toggleOn)
         if (freeze != tvInputLossFrozen) {
@@ -3800,6 +3804,31 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             ).apply { setMargins(0, margin, margin, 0) },
         )
         tvEndButton = button
+    }
+
+    private fun ensureTvControllerButton() {
+        if (tvControllerButton != null || !::sessionRoot.isInitialized) return
+        val margin = (12 * resources.displayMetrics.density).toInt()
+        val button = Button(this).apply {
+            text = "Show pad"
+            setOnClickListener {
+                SessionPrefs.setTvControllerMode(
+                    this@SessionActivity,
+                    !SessionPrefs.tvControllerMode(this@SessionActivity),
+                )
+                updateTvController()
+            }
+        }
+        button.visibility = View.GONE
+        sessionRoot.addView(
+            button,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.START,
+            ).apply { setMargins(margin, margin, 0, 0) },
+        )
+        tvControllerButton = button
     }
 
     private fun onGlassesSteamVr(now: SteamVr.Status) {
