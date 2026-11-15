@@ -503,6 +503,9 @@ object AppFreezerEngine {
                         append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
                     }
                 }
+                legacy.first.filter { it in STICKY_PACKAGES }.forEach { pkg ->
+                    append("pm enable $pkg 2>/dev/null; ")
+                }
             }
             if (execChecked(context, legacyScript).exitCode != 0) {
                 return "freezer: aborted (legacy leftover restore failed)"
@@ -669,6 +672,9 @@ object AppFreezerEngine {
                         append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
                     }
                 }
+                legacy.first.filter { it in STICKY_PACKAGES }.forEach { pkg ->
+                    append("pm enable $pkg 2>/dev/null; ")
+                }
             }
             if (execChecked(context, legacyScript).exitCode != 0) {
                 Log.w(TAG, "app freezer: restore failed, legacy marker kept for retry")
@@ -716,6 +722,7 @@ object AppFreezerEngine {
 
     fun migrateLegacyToJournal(context: Context): Boolean {
         val appContext = context.applicationContext
+        if (legacyMarkerUnreadable(appContext)) return false
         val legacy = loadLegacyMarker(appContext) ?: return true
         val packages = legacy.first
         val items = mutableListOf<JournalItem>()
@@ -734,7 +741,7 @@ object AppFreezerEngine {
             )
         }
         if (packages.isNotEmpty()) {
-            items.addAll(freezerPackagesItems(packages, emptyList(), 0))
+            items.addAll(freezerPackagesItems(packages, packages.filter { it in STICKY_PACKAGES }, 0))
         }
         if (items.isEmpty()) return true
         return Tweaks.recordItems(appContext, items)
@@ -833,6 +840,13 @@ object AppFreezerEngine {
             val f = File(context.filesDir, MARKER_FILE)
             if (f.exists()) SafetyChecks.decodeFreezerMarker(f.readText()) else null
         } catch (_: Exception) { null }
+    }
+
+    internal fun legacyMarkerUnreadable(context: Context): Boolean {
+        val file = File(context.filesDir, MARKER_FILE)
+        if (!file.exists()) return false
+        val text = runCatching { file.readText() }.getOrNull() ?: return true
+        return runCatching { SafetyChecks.decodeFreezerMarker(text) }.isFailure
     }
 
     fun hasLegacyMarker(context: Context): Boolean = File(context.filesDir, MARKER_FILE).exists()

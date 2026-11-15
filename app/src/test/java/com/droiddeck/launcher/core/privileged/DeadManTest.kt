@@ -104,4 +104,16 @@ class DeadManTest {
         assertEquals(500L, ShutdownDeadline.remainingMs(1000L, 1000L + DeadMan.SHUTDOWN_DEADLINE_MS - 500L))
         assertEquals(0L, ShutdownDeadline.remainingMs(1000L, 1000L + DeadMan.SHUTDOWN_DEADLINE_MS + 5000L))
     }
+
+    @Test
+    fun deadManArmActionCarriesGeneration() {
+        assertEquals("ARM:3", PrivilegedBridge.deadManArmAction(3))
+        assertEquals("ARM:0", PrivilegedBridge.deadManArmAction(0))
+    }
+
+    @Test
+    fun deadManDisarmActionCarriesGeneration() {
+        assertEquals("DISARM:3", PrivilegedBridge.deadManDisarmAction(3))
+        assertEquals("DISARM:0", PrivilegedBridge.deadManDisarmAction(0))
+    }
 }

@@ -53,6 +53,50 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
+// Client-side dead-man state: the beat thread's liveness and the armed
+// generation. A new session starting while the previous teardown is still
+// in flight takes over the running beat thread instead of leaving the
+// generation pointing at the dead session, which no later stop could disarm.
+internal class DeadManSession {
+    private val lock = Any()
+    @Volatile private var running = false
+    private var generation = 0
+
+    val isRunning: Boolean get() = running
+
+    val activeGeneration: Int get() = synchronized(lock) { generation }
+
+    fun start(newGen: Int): Boolean = synchronized(lock) {
+        if (running) {
+            generation = newGen
+            false
+        } else {
+            generation = newGen
+            running = true
+            true
+        }
+    }
+
+    fun abortStart(gen: Int): Boolean = synchronized(lock) {
+        if (gen != generation || !running) return false
+        running = false
+        generation = 0
+        true
+    }
+
+    fun stop(gen: Int, sessionRunning: Boolean): Boolean = synchronized(lock) {
+        if (!SessionService.shouldDisarmDeadMan(gen, generation, sessionRunning)) return false
+        running = false
+        true
+    }
+
+    fun clearGeneration(gen: Int): Boolean = synchronized(lock) {
+        if (gen != generation) return false
+        generation = 0
+        true
+    }
+}
+
 class SessionService : Service() {
     override fun attachBaseContext(newBase: android.content.Context) =
         super.attachBaseContext(com.droiddeck.launcher.core.AppLanguage.wrap(newBase))
@@ -186,9 +230,8 @@ class SessionService : Service() {
     @Volatile private var ramReportSuspended: Int = 0
     @Volatile private var ramReportGen: Int = -1
     private var safetyMonitor: SafetyMonitor? = null
-    @Volatile private var deadManRunning = false
+    private val deadManSession = DeadManSession()
     private var deadManThread: Thread? = null
-    @Volatile private var deadManGen = 0
     private var shutdownReceiverRegistered = false
     private val shutdownReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -257,9 +300,14 @@ class SessionService : Service() {
             }
             ACTION_RETRY_RESTORE -> {
                 Log.i(TAG, "restore retry requested")
+                if (!retryRestoreAllowed(SessionState.running)) {
+                    Log.i(TAG, "restore retry ignored: a session is running")
+                    return START_NOT_STICKY
+                }
                 if (SessionExit.retryRestore()) {
                     Thread({
                         if (restoreInTeardown(lastStoppedGen)) {
+                            finishSessionStop(0, lastStoppedGen)
                             postSafetyNotification("System settings restored.")
                         }
                     }, "session-restore-retry").start()
@@ -1962,23 +2010,33 @@ class SessionService : Service() {
     }
 
     private fun startDeadMan() {
-        if (deadManRunning) return
-        if (!com.droiddeck.launcher.core.privileged.PrivilegedBridge.armDeadMan(this)) {
-            Log.w(TAG, "dead-man arm failed, daemon-only watchdog unavailable")
+        if (!deadManSession.start(sessionGen)) {
+            Log.i(TAG, "dead-man taken over by session $sessionGen")
+            if (!runCatching {
+                    com.droiddeck.launcher.core.privileged.PrivilegedBridge.armDeadMan(this, sessionGen)
+                }.getOrDefault(false)) {
+                Log.w(TAG, "dead-man re-arm failed on takeover, the later disarm may be ignored as stale")
+            }
             return
         }
-        deadManGen = sessionGen
-        deadManRunning = true
+        val armed = runCatching {
+            com.droiddeck.launcher.core.privileged.PrivilegedBridge.armDeadMan(this, sessionGen)
+        }.getOrDefault(false)
+        if (!armed) {
+            Log.w(TAG, "dead-man arm failed, daemon-only watchdog unavailable")
+            deadManSession.abortStart(sessionGen)
+            return
+        }
         deadManThread = Thread({
             var warned = false
-            while (deadManRunning) {
+            while (deadManSession.isRunning) {
                 try {
                     Thread.sleep(com.droiddeck.launcher.core.privileged.DeadMan.BEAT_INTERVAL_MS)
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     return@Thread
                 }
-                if (!deadManRunning) return@Thread
+                if (!deadManSession.isRunning) return@Thread
                 if (!com.droiddeck.launcher.core.privileged.PrivilegedBridge.beatDeadMan()) {
                     if (!warned) {
                         warned = true
@@ -1992,16 +2050,16 @@ class SessionService : Service() {
     }
 
     private fun stopDeadMan(gen: Int) {
-        if (!shouldDisarmDeadMan(gen, deadManGen, SessionState.running)) return
-        deadManRunning = false
+        if (!deadManSession.stop(gen, SessionState.running)) return
         deadManThread?.interrupt()
         deadManThread = null
         Thread({
-            if (!shouldDisarmDeadMan(gen, deadManGen, SessionState.running)) return@Thread
+            val activeGen = deadManSession.activeGeneration
+            if (!shouldDisarmDeadMan(gen, activeGen, SessionState.running)) return@Thread
             runCatching {
-                com.droiddeck.launcher.core.privileged.PrivilegedBridge.disarmDeadMan()
+                com.droiddeck.launcher.core.privileged.PrivilegedBridge.disarmDeadMan(gen)
             }
-            deadManGen = 0
+            deadManSession.clearGeneration(gen)
         }, "dead-man-disarm").start()
     }
 
@@ -2369,7 +2427,7 @@ class SessionService : Service() {
                 .setContentText(text)
                 .setContentIntent(open)
                 .apply {
-                    if (!retryRestoreAction) {
+                    if (cancelCountdownActionAvailable(safetyMonitor != null, retryRestoreAction)) {
                         addAction(Notification.Action.Builder(null, "Cancel countdown", cancel).build())
                     }
                 }
@@ -2761,6 +2819,11 @@ class SessionService : Service() {
 
         internal fun shouldDisarmDeadMan(disarmingGen: Int, activeGen: Int, sessionRunning: Boolean): Boolean =
             disarmingGen != 0 && disarmingGen == activeGen && !sessionRunning
+
+        internal fun retryRestoreAllowed(sessionRunning: Boolean): Boolean = !sessionRunning
+
+        internal fun cancelCountdownActionAvailable(safetyMonitorActive: Boolean, retryRestoreAction: Boolean): Boolean =
+            safetyMonitorActive && !retryRestoreAction
 
         internal fun retryRestoreIntent(context: Context): Intent =
             Intent(context, SessionService::class.java).setAction(ACTION_RETRY_RESTORE)

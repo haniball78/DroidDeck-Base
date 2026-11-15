@@ -63,12 +63,49 @@ class TweaksJournalTest {
         assertNull(JournalCodec.decode("{\"version\":1,\"items\":[{\"key\":\"x\"}]}"))
         assertNull(JournalCodec.decode("{\"version\":1,\"items\":[]} trailing"))
         assertNull(JournalCodec.decode("not json"))
-        val missingMode = JournalCodec.encode(listOf(settingItem("background_process_limit", "8")))
+        assertNull(JournalCodec.decode("{\"version\":1,\"items\":[{\"key\":\"x\",\"restore\":\"\"}]}"))
+        assertNull(JournalCodec.decode("{\"version\":1,\"items\":[{\"restore\":\"echo hi\"}]}"))
+    }
+
+    @Test
+    fun codecRepairsBogusModeKeepingValidRestore() {
+        val bogusMode = JournalCodec.encode(listOf(settingItem("background_process_limit", "8")))
             .replace("\"mode\":\"value\"", "\"mode\":\"bogus\"")
-        assertNull(JournalCodec.decode(missingMode))
+        val decoded = JournalCodec.decode(bogusMode)
+        assertEquals(
+            listOf(settingItem("background_process_limit", "8").copy(verifyMode = JournalVerifyMode.UNVERIFIED)),
+            decoded,
+        )
+    }
+
+    @Test
+    fun codecRepairsValueModeWithoutVerifyCmd() {
         val missingVerify = JournalCodec.encode(listOf(settingItem("background_process_limit", "8")))
             .replace("\"verify\":\"settings get global background_process_limit\"", "\"verify\":null")
-        assertNull(JournalCodec.decode(missingVerify))
+        val decoded = JournalCodec.decode(missingVerify)
+        assertEquals(
+            listOf(
+                settingItem("background_process_limit", "8")
+                    .copy(verifyMode = JournalVerifyMode.UNVERIFIED, verifyCmd = null),
+            ),
+            decoded,
+        )
+    }
+
+    @Test
+    fun codecDefaultsMissingNonEssentialFields() {
+        val stripped = JournalCodec.encode(listOf(settingItem("background_process_limit", "8")))
+            .replace(",\"original\":\"8\"", "")
+            .replace(",\"persistent\":true", "")
+            .replace(",\"generation\":7", "")
+        val decoded = JournalCodec.decode(stripped)
+        assertEquals(
+            listOf(
+                settingItem("background_process_limit", "8")
+                    .copy(original = null, persistent = false, generation = 0),
+            ),
+            decoded,
+        )
     }
 
     @Test

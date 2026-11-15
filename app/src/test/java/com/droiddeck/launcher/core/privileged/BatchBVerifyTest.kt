@@ -100,7 +100,11 @@ class BatchBVerifyTest {
         val legacyDecoded = JournalCodec.decode(legacy)
         assertEquals(JournalVerifyMode.UNVERIFIED, legacyDecoded?.firstOrNull()?.verifyMode)
         val missingExpect = JournalCodec.encode(listOf(item)).replace("\"verifyExpect\":\"mForceIdle=false\"", "\"verifyExpect\":null")
-        assertEquals(null, JournalCodec.decode(missingExpect))
+        val repairedExpect = JournalCodec.decode(missingExpect)
+        assertEquals(
+            listOf(item.copy(verifyMode = JournalVerifyMode.UNVERIFIED, verifyExpect = null)),
+            repairedExpect,
+        )
     }
 
     @Test

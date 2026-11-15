@@ -233,10 +233,33 @@ class WirelessAdbPairingService : Service() {
     }
 
     private fun onCode(code: String) {
-        if (working) return
-        if (code.length != 6) {
-            show(Stage.CodeNeeded(getString(R.string.adbpair_six_digits), pairingPort = pairingPort))
-            return
+        when (resolveCodeTap(code, working)) {
+            CodeTap.REJECT_SHORT -> {
+                show(Stage.CodeNeeded(getString(R.string.adbpair_six_digits), pairingPort = pairingPort))
+                return
+            }
+            CodeTap.CORRECT_RUNNING -> {
+                // Corrected code while a pair is in flight: retire the
+                // stale episode so its result is ignored, and restart the
+                // fresh-port wait with the new code. A thread already
+                // blocked inside Kadb.pair() cannot be interrupted; it
+                // finishes against the old dialog and its result is
+                // discarded at the episode check.
+                pendingCode = code
+                pairEpisodes.invalidate()
+                pairingHost = null
+                pairingPort = null
+                pairingServiceName = null
+                latestServiceName = null
+                show(Stage.Working(getString(R.string.adbpair_pairing)))
+                startDiscovery()
+                main.removeCallbacks(freshPortTimeout)
+                main.postDelayed(freshPortTimeout, FRESH_PORT_TIMEOUT_MS)
+                main.removeCallbacks(timeout)
+                main.postDelayed(timeout, TIMEOUT_MS)
+                return
+            }
+            CodeTap.START_PAIR -> Unit
         }
         // Fresh port search on every Pair tap: never trust the cached
         // port. The code waits for the first resolve of a new discovery
@@ -252,6 +275,10 @@ class WirelessAdbPairingService : Service() {
         startDiscovery()
         main.removeCallbacks(freshPortTimeout)
         main.postDelayed(freshPortTimeout, FRESH_PORT_TIMEOUT_MS)
+        // The 5-minute timeout runs from the Pair tap, not from begin():
+        // the user may take a while to read the dialog and type the code.
+        main.removeCallbacks(timeout)
+        main.postDelayed(timeout, TIMEOUT_MS)
     }
 
     private fun doPair(port: Int, code: String) {
@@ -323,7 +350,7 @@ class WirelessAdbPairingService : Service() {
                 }
                 com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(this, "adb.daemon", "failed", fields = fields)
             }
-            if (result.isSuccess) {
+            if (result.isSuccess && pairEpisodes.isCurrent(episode)) {
                 // The daemon just started (and the start wrapper cleared the
                 // plain-mode latch), so probe now: this updates the shared
                 // bridge status instead of leaving it stale until restart.
@@ -387,6 +414,7 @@ class WirelessAdbPairingService : Service() {
 
     private fun finish(stage: Stage) {
         pairEpisodes.invalidate()
+        working = false
         main.removeCallbacks(timeout)
         main.removeCallbacks(repeakRunnable)
         main.removeCallbacks(freshPortTimeout)
@@ -521,6 +549,13 @@ class WirelessAdbPairingService : Service() {
             if (lastPostMs == 0L) return true
             return nowMs - lastPostMs >= REPOST_DEBOUNCE_MS || error != lastError
         }
+
+        internal enum class CodeTap { REJECT_SHORT, START_PAIR, CORRECT_RUNNING }
+
+        internal fun resolveCodeTap(code: String, working: Boolean): CodeTap =
+            if (code.length != 6) CodeTap.REJECT_SHORT
+            else if (working) CodeTap.CORRECT_RUNNING
+            else CodeTap.START_PAIR
 
         private val current = MutableStateFlow<Stage>(Stage.Idle)
         val stage: StateFlow<Stage> = current

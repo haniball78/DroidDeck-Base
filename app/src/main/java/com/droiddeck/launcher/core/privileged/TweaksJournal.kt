@@ -72,32 +72,27 @@ internal object JournalCodec {
         val map = raw as? Map<*, *> ?: return null
         val key = map["key"] as? String ?: return null
         if (key.isEmpty()) return null
-        if (!map.containsKey("original")) return null
-        val rawOriginal = map["original"]
-        if (rawOriginal != null && rawOriginal !is String) return null
-        val original = rawOriginal as? String?
         val restore = map["restore"] as? String ?: return null
         if (restore.isEmpty()) return null
-        if (!map.containsKey("verify")) return null
-        val rawVerify = map["verify"]
-        if (rawVerify != null && rawVerify !is String) return null
-        val verify = rawVerify as? String?
+        val original = map["original"] as? String?
+        val verify = map["verify"] as? String?
+        val expect = map["verifyExpect"] as? String?
         val mode = when (map["mode"] as? String) {
             "value" -> JournalVerifyMode.VALUE
             "contains" -> JournalVerifyMode.CONTAINS
             "not_contains" -> JournalVerifyMode.NOT_CONTAINS
             "exit", "unverified" -> JournalVerifyMode.UNVERIFIED
-            else -> return null
+            else -> JournalVerifyMode.UNVERIFIED
         }
-        if (mode == JournalVerifyMode.VALUE && verify == null) return null
-        if ((mode == JournalVerifyMode.CONTAINS || mode == JournalVerifyMode.NOT_CONTAINS) && verify == null) return null
-        val rawExpect = if (map.containsKey("verifyExpect")) map["verifyExpect"] else null
-        if (rawExpect != null && rawExpect !is String) return null
-        val expect = rawExpect as? String?
-        if ((mode == JournalVerifyMode.CONTAINS || mode == JournalVerifyMode.NOT_CONTAINS) && expect == null) return null
-        val persistent = map["persistent"] as? Boolean ?: return null
-        val generation = (map["generation"] as? Number)?.toInt() ?: return null
-        return JournalItem(key, original, restore, verify, mode, persistent, generation, expect)
+        val effectiveMode = when (mode) {
+            JournalVerifyMode.VALUE -> if (verify == null) JournalVerifyMode.UNVERIFIED else mode
+            JournalVerifyMode.CONTAINS, JournalVerifyMode.NOT_CONTAINS ->
+                if (verify == null || expect == null) JournalVerifyMode.UNVERIFIED else mode
+            JournalVerifyMode.UNVERIFIED -> mode
+        }
+        val persistent = map["persistent"] as? Boolean ?: false
+        val generation = (map["generation"] as? Number)?.toInt() ?: 0
+        return JournalItem(key, original, restore, verify, effectiveMode, persistent, generation, expect)
     }
 
     private fun stringify(value: Any?): String {
@@ -383,18 +378,30 @@ internal object JournalMerge {
                 merged.add(item)
             } else if (isFreezerPackagesKey(item.key)) {
                 merged[index] = unionFreezerPackages(merged[index], item)
+            } else if (isNewerGeneration(item, merged[index])) {
+                merged[index] = merged[index].copy(generation = item.generation)
             }
         }
         return merged
     }
 
+    private fun isNewerGeneration(incoming: JournalItem, existing: JournalItem): Boolean =
+        incoming.generation != 0 && incoming.generation > existing.generation
+
     private fun unionFreezerPackages(existing: JournalItem, incoming: JournalItem): JournalItem {
         val targets = (Tweaks.storedTargets(existing.restoreCmd) + Tweaks.storedTargets(incoming.restoreCmd)).distinct()
-        if (targets.isEmpty()) return existing
+        if (targets.isEmpty()) {
+            Log.w("TweaksJournal", "freezer merge dropped unparseable targets for ${existing.key}")
+            return existing
+        }
         val disabled = (AppFreezerPackageJournal.parseEnabledNames(existing.restoreCmd) + AppFreezerPackageJournal.parseEnabledNames(incoming.restoreCmd)).distinct()
+        val newer = isNewerGeneration(incoming, existing)
         return existing.copy(
             restoreCmd = AppFreezerEngine.packagesRestoreCmd(targets, disabled),
             verifyCmd = AppFreezerEngine.packagesVerifyCmd(targets),
+            original = if (newer) incoming.original else existing.original,
+            verifyExpect = if (newer) incoming.verifyExpect else existing.verifyExpect,
+            generation = if (newer) incoming.generation else existing.generation,
         )
     }
 }
@@ -491,7 +498,7 @@ object Tweaks {
             val current = load(context) ?: return@synchronized false
             val item = current.firstOrNull { it.key == key } ?: return@synchronized false
             val quarantineFile = File(context.applicationContext.noBackupFilesDir, QUARANTINE_FILE)
-            val existing = AtomicStateFile.readRecovered(quarantineFile, JournalCodec::decode) ?: emptyList()
+            val existing = AtomicStateFile.readRecovered(quarantineFile, JournalCodec::decodePartial)?.items ?: emptyList()
             if (!AtomicStateFile.save(quarantineFile, JournalCodec.encode(existing + item))) return@synchronized false
             save(context, current.filter { it.key != key })
         }
@@ -673,8 +680,10 @@ object Tweaks {
         return synchronized(journalLock) {
             val fresh = AtomicStateFile.readRecovered(file, JournalCodec::decodePartial) ?: return@synchronized null
             if (fresh.badItems.isEmpty()) return@synchronized fresh.items
-            if (!quarantineBadItems(context, fresh.badItems)) return@synchronized null
-            save(context, fresh.items)
+            if (!quarantineBadItems(context, fresh.badItems)) {
+                Log.w(TAG, "journal quarantine failed, keeping restorable items")
+            }
+            if (!save(context, fresh.items)) return@synchronized null
             fresh.items
         }
     }
@@ -682,12 +691,11 @@ object Tweaks {
     private fun quarantineBadItems(context: Context, badItems: List<String>): Boolean {
         val quarantineFile = File(context.applicationContext.noBackupFilesDir, QUARANTINE_FILE)
         val existing = if (quarantineFile.exists()) {
-            AtomicStateFile.readRecovered(quarantineFile, JournalCodec::decode) ?: return false
+            AtomicStateFile.readRecovered(quarantineFile, JournalCodec::decodePartial)?.items ?: emptyList()
         } else {
             emptyList()
         }
-        val quarantinedText = runCatching { quarantineFile.readText() }.getOrDefault("")
-        val fresh = badItems.filter { raw -> !quarantinedText.contains(raw) }.map { raw ->
+        val fresh = badItems.filter { raw -> existing.none { it.original == raw } }.map { raw ->
             JournalItem(
                 key = corruptItemKey(raw),
                 original = raw,

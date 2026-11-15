@@ -34,6 +34,20 @@ class SessionTeardownRestoreTest {
     }
 
     @Test
+    fun retryRestoreRefusedWhileSessionRunning() {
+        assertFalse(SessionService.retryRestoreAllowed(sessionRunning = true))
+        assertTrue(SessionService.retryRestoreAllowed(sessionRunning = false))
+    }
+
+    @Test
+    fun cancelCountdownActionOnlyWhenMonitorActive() {
+        assertTrue(SessionService.cancelCountdownActionAvailable(safetyMonitorActive = true, retryRestoreAction = false))
+        assertFalse(SessionService.cancelCountdownActionAvailable(safetyMonitorActive = false, retryRestoreAction = false))
+        assertFalse(SessionService.cancelCountdownActionAvailable(safetyMonitorActive = true, retryRestoreAction = true))
+        assertFalse(SessionService.cancelCountdownActionAvailable(safetyMonitorActive = false, retryRestoreAction = true))
+    }
+
+    @Test
     fun retryRestoreIntentTargetsSessionServiceWithRetryAction() {
         val intent = SessionService.retryRestoreIntent(RuntimeEnvironment.getApplication())
         assertEquals("com.droiddeck.launcher.RETRY_RESTORE", intent.action)

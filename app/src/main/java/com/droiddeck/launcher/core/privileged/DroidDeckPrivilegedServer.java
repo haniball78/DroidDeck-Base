@@ -43,6 +43,7 @@ public class DroidDeckPrivilegedServer {
     private static volatile boolean deadmanArmed = false;
     private static volatile boolean deadmanExpired = false;
     private static volatile long deadmanLastBeatMs = -1L;
+    private static volatile int deadmanArmedGen = -1;
     private static final long DEADMAN_WATCHDOG_MS = 45000L;
     // Inbound EXEC lines are Base64, so a script for ~200 freezer
     // targets is ~12 KB and the restore/verify lines ~9 KB; the limit
@@ -103,6 +104,16 @@ public class DroidDeckPrivilegedServer {
         }
     }
 
+    private static int parseDeadManGen(String line) {
+        int colon = line.indexOf(':');
+        if (colon < 0) return -1;
+        try {
+            return Integer.parseInt(line.substring(colon + 1));
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
     private static void handleClient(Socket socket) {
         new Thread(() -> {
             try (
@@ -131,14 +142,16 @@ public class DroidDeckPrivilegedServer {
                     writer.println("UNAUTHORIZED");
                     return;
                 }
-                if (line.equals("ARM") || line.equals("BEAT") || line.equals("DISARM")) {
+                if (line.equals("ARM") || line.equals("BEAT") || line.equals("DISARM")
+                        || line.startsWith("ARM:") || line.startsWith("DISARM:")) {
                     if (!authenticated || sessionToken == null) {
                         writer.println("UNAUTHORIZED");
                         return;
                     }
-                    if (line.equals("ARM")) {
+                    if (line.equals("ARM") || line.startsWith("ARM:")) {
                         deadmanArmed = true;
                         deadmanExpired = false;
+                        deadmanArmedGen = parseDeadManGen(line);
                         deadmanLastBeatMs = android.os.SystemClock.elapsedRealtime();
                         writer.println("OK");
                     } else if (line.equals("BEAT")) {
@@ -149,9 +162,16 @@ public class DroidDeckPrivilegedServer {
                             writer.println("OK");
                         }
                     } else {
-                        deadmanArmed = false;
-                        deadmanExpired = false;
-                        deadmanLastBeatMs = -1L;
+                        // A disarm for a generation that no longer owns the
+                        // watchdog is ignored, not an error: the newer
+                        // session's watchdog must keep running.
+                        int gen = parseDeadManGen(line);
+                        if (gen < 0 || deadmanArmedGen < 0 || gen == deadmanArmedGen) {
+                            deadmanArmed = false;
+                            deadmanExpired = false;
+                            deadmanLastBeatMs = -1L;
+                            deadmanArmedGen = -1;
+                        }
                         writer.println("OK");
                     }
                     return;

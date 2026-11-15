@@ -128,6 +128,7 @@ object RecoveryCoordinator {
     }
 
     private fun verifyLegacyFreezerCleared(appContext: Context): Boolean {
+        if (AppFreezerEngine.legacyMarkerUnreadable(appContext)) return false
         val packages = AppFreezerEngine.legacyPackages(appContext) ?: return true
         return freezerMarkerCleared(packages) { targets ->
             runCatching {

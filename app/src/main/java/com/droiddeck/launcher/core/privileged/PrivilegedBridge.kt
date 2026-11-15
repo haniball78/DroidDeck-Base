@@ -345,22 +345,27 @@ object PrivilegedBridge {
         else execute(cmd).exitCode == 0
     }
 
-    fun armDeadMan(context: Context): Boolean {
+    fun armDeadMan(context: Context, generation: Int): Boolean {
         ensureSessionToken(context)
-        val armed = deadManAction("ARM")
+        val armed = deadManAction(deadManArmAction(generation)) || deadManAction("ARM")
         DiagnosticsLog.log(context, "safety.deadman", if (armed) "armed" else "arm-failed")
         return armed
     }
 
     fun beatDeadMan(): Boolean = deadManAction("BEAT")
 
-    fun disarmDeadMan(): Boolean = deadManAction("DISARM")
+    fun disarmDeadMan(generation: Int): Boolean =
+        deadManAction(deadManDisarmAction(generation)) || deadManAction("DISARM")
+
+    internal fun deadManArmAction(generation: Int): String = "ARM:$generation"
+
+    internal fun deadManDisarmAction(generation: Int): String = "DISARM:$generation"
 
     private fun deadManAction(action: String): Boolean {
         if (_status.value.mode != PrivilegedMode.EMBEDDED_DAEMON) return false
         val result = runEmbeddedAction(action)
         if (action == "BEAT" && !result) DiagnosticsLog.log("safety.deadman", "beat-failed")
-        if (action == "DISARM") DiagnosticsLog.log("safety.deadman", if (result) "disarm" else "disarm-failed")
+        if (action.startsWith("DISARM")) DiagnosticsLog.log("safety.deadman", if (result) "disarm" else "disarm-failed")
         return result
     }
 

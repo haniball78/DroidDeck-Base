@@ -47,8 +47,10 @@ jobs:
             --tests "com.droiddeck.launcher.core.WirelessAdbPairingStabilityTest" \
             --tests "com.droiddeck.launcher.core.PairEpisodeGuardTest" \
             --tests "com.droiddeck.launcher.session.SessionTeardownRestoreTest" \
+            --tests "com.droiddeck.launcher.session.DeadManSessionTest" \
             --tests "com.droiddeck.launcher.core.WirelessAdbAutoRestartTest" \
             --tests "com.droiddeck.launcher.core.WirelessAdbPairingRedesignTest" \
+            --tests "com.droiddeck.launcher.core.WirelessAdbPairingCodeTapTest" \
             --tests "com.droiddeck.launcher.core.NotificationAlertTest" \
             --tests "com.droiddeck.launcher.core.PairingPanelStateTest" \
             --tests "com.droiddeck.launcher.core.PairingResetTest" \
@@ -70,6 +72,9 @@ jobs:
             --tests "com.droiddeck.launcher.core.privileged.AppFreezerPackageSplitTest" \
             --tests "com.droiddeck.launcher.core.privileged.FreezerVerifyTest" \
             --tests "com.droiddeck.launcher.core.privileged.JournalIntegrityTest" \
+            --tests "com.droiddeck.launcher.core.privileged.TweaksJournalTest" \
+            --tests "com.droiddeck.launcher.core.privileged.DeadManTest" \
+            --tests "com.droiddeck.launcher.core.privileged.BatchBVerifyTest" \
             --tests "com.droiddeck.launcher.core.privileged.AppFreezerKillSuspendTest" \
             --tests "com.droiddeck.launcher.core.privileged.HogRestrictionTest" \
             --tests "com.droiddeck.launcher.core.privileged.LiveHogWatcherTest" \
