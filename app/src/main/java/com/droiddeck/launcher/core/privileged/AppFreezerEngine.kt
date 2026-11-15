@@ -172,6 +172,20 @@ internal fun appliedVerification(
     )
 }
 
+// The privileged server has no timeout and runs a chunk to completion
+// after the client's timeout fires, so a timed-out doze EXEC may still
+// have force-idled the device. The doze journal key may therefore be
+// removed after a failed apply only when a fresh dumpsys deviceidle
+// re-read proves the device is not force-idled; a re-read that still
+// shows force-idle, or one that cannot be read at all, keeps the key
+// so restore still runs the unforce.
+internal object DozeJournalOnApplyFailure {
+    fun shouldRemoveDozeKey(appliedChunks: Int, suspendedNow: Int, readExitCode: Int, readOutput: String?): Boolean {
+        if (appliedChunks != 0 || suspendedNow != 0) return false
+        return readExitCode == 0 && DeviceBaseline.parseForceIdle(readOutput ?: "") == "false"
+    }
+}
+
 object AppFreezerEngine {
     private const val TAG = "AppFreezerEngine"
     private const val MARKER_FILE = "suspended-packages.txt"
@@ -602,15 +616,31 @@ object AppFreezerEngine {
             } else {
                 suspendedNow = 0
             }
+            var dozeKeyKept: Boolean? = null
             if (appliedChunks == 0 && suspendedNow == 0) {
-                Tweaks.removeKey(context, "app-freezer-doze")
+                // The doze script runs first, so a first-chunk failure
+                // does not prove the device was never force-idled.
+                // Re-read the live state before deleting the only
+                // record of forced doze; only a re-read proving the
+                // device is not force-idled removes the key.
+                val removeDozeKey: Boolean
+                if (!dozeForced) {
+                    removeDozeKey = true
+                } else {
+                    val read = execChecked(context, "dumpsys deviceidle")
+                    removeDozeKey = DozeJournalOnApplyFailure.shouldRemoveDozeKey(appliedChunks, suspendedNow, read.exitCode, read.output)
+                    dozeKeyKept = !removeDozeKey
+                }
+                if (removeDozeKey) {
+                    Tweaks.removeKey(context, "app-freezer-doze")
+                    dozeForced = false
+                }
                 removeFreezerPackagesKeys(context)
                 suspendedPackages.clear()
                 forceStoppedPackages.clear()
                 disabledPackages.clear()
-                dozeForced = false
             }
-            Log.w(TAG, "app freezer: batch failed, exit=$batchExit, appliedChunks=$appliedChunks, suspendedNow=$suspendedNow")
+            Log.w(TAG, "app freezer: batch failed, exit=$batchExit, appliedChunks=$appliedChunks, suspendedNow=$suspendedNow, dozeKeyKept=$dozeKeyKept")
             com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                 context, "device.change", "app-freezer-failed",
                 fields = mapOf("exit" to batchExit.toString(), "applied_chunks" to appliedChunks.toString()),

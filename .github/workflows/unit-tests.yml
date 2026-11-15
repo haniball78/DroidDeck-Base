@@ -70,6 +70,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.privileged.FixedPerformanceGetterTest" \
             --tests "com.droiddeck.launcher.core.privileged.PrivilegedBridgeProbeTest" \
             --tests "com.droiddeck.launcher.core.privileged.AppFreezerPackageSplitTest" \
+            --tests "com.droiddeck.launcher.core.privileged.DozeJournalOnApplyFailureTest" \
             --tests "com.droiddeck.launcher.core.privileged.FreezerVerifyTest" \
             --tests "com.droiddeck.launcher.core.privileged.JournalIntegrityTest" \
             --tests "com.droiddeck.launcher.core.privileged.TweaksJournalTest" \
