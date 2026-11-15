@@ -390,6 +390,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var tvScreen: TvHandoffScreen? = null
     private var tvOutputActive = false
     private var tvControllerActive = false
+    private var tvPanelDimmed = false
+    private var tvPanelSavedBrightness = -1f
     private var tvEndButton: Button? = null
     private var tvEndArmedAt = 0L
     private val displayListener = object : DisplayManager.DisplayListener {
@@ -3648,6 +3650,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         val physical = PadBridge.anyControllerConnected() || SteamControllerBle.connected
         val toggleOn = SessionPrefs.tvControllerMode(this)
         val want = TvHandoff.shouldEngageController(tvOutputActive, SessionState.running, physical, toggleOn)
+        updateTvPanelDim(physical)
         if (want == tvControllerActive) return
         tvControllerActive = want
         val reason = when {
@@ -3671,6 +3674,21 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (!want) tvEndArmedAt = 0L
         updateOnScreenControls()
         updatePadMotion()
+    }
+
+    // No app API powers the built-in display off; minimum window brightness is the closest an app can get.
+    private fun updateTvPanelDim(physicalConnected: Boolean) {
+        val want = TvHandoff.shouldDimPanel(tvOutputActive, physicalConnected)
+        if (want == tvPanelDimmed) return
+        tvPanelDimmed = want
+        window.attributes = window.attributes.apply {
+            if (want) {
+                tvPanelSavedBrightness = screenBrightness
+                screenBrightness = 0f
+            } else {
+                screenBrightness = tvPanelSavedBrightness
+            }
+        }
     }
 
     private fun ensureTvEndButton() {

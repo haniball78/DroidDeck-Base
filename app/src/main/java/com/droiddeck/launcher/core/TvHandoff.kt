@@ -19,4 +19,16 @@ object TvHandoff {
 
     fun shouldEngageController(tvActive: Boolean, running: Boolean, physicalConnected: Boolean, toggleOn: Boolean): Boolean =
         tvActive && running && toggleOn && !physicalConnected
+
+    // Dim only when a physical controller is connected: otherwise the phone itself
+    // is the controller and its pad must stay visible.
+    fun shouldDimPanel(tvActive: Boolean, physicalConnected: Boolean): Boolean =
+        tvActive && physicalConnected
+
+    // No exact 1080p display mode: still render at most 1080p and let the TV upscale.
+    fun capOutputSize(nativeWidth: Int, nativeHeight: Int): Pair<Int, Int> {
+        if (nativeWidth <= 1920 && nativeHeight <= 1080) return nativeWidth to nativeHeight
+        val scale = minOf(1920f / nativeWidth, 1080f / nativeHeight)
+        return ((nativeWidth * scale).toInt() and 1.inv()) to ((nativeHeight * scale).toInt() and 1.inv())
+    }
 }

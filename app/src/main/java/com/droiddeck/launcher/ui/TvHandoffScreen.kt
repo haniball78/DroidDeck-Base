@@ -38,10 +38,11 @@ class TvHandoffScreen(
         val modes = display.supportedModes.map {
             TvHandoff.TvMode(it.physicalWidth, it.physicalHeight, it.refreshRate, it.modeId)
         }
-        val best = TvHandoff.selectMode(modes, wantHz = refreshHz.toFloat()) ?: return
-        outputSize = best.width to best.height
+        val best = TvHandoff.selectMode(modes, wantHz = refreshHz.toFloat())
+        outputSize = best?.let { it.width to it.height }
+            ?: TvHandoff.capOutputSize(display.mode.physicalWidth, display.mode.physicalHeight)
         val w = window ?: return
-        if (w.attributes.preferredDisplayModeId != best.modeId) {
+        if (best != null && w.attributes.preferredDisplayModeId != best.modeId) {
             w.attributes = w.attributes.apply { preferredDisplayModeId = best.modeId }
         }
     }

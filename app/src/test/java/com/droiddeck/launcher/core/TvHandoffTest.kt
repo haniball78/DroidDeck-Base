@@ -56,4 +56,33 @@ class TvHandoffTest {
     @Test fun controllerStaysOffWhenToggleOff() {
         assertFalse(TvHandoff.shouldEngageController(tvActive = true, running = true, physicalConnected = false, toggleOn = false))
     }
+
+    @Test fun dimPanelWhenTvLiveAndPhysicalPadConnected() {
+        assertTrue(TvHandoff.shouldDimPanel(tvActive = true, physicalConnected = true))
+    }
+
+    @Test fun dimPanelStaysOffWhenPhoneIsTheController() {
+        assertFalse(TvHandoff.shouldDimPanel(tvActive = true, physicalConnected = false))
+    }
+
+    @Test fun dimPanelStaysOffWhenTvNotActive() {
+        assertFalse(TvHandoff.shouldDimPanel(tvActive = false, physicalConnected = true))
+    }
+
+    @Test fun capOutputSizeKeeps1080pAndBelow() {
+        assertEquals(1920 to 1080, TvHandoff.capOutputSize(1920, 1080))
+        assertEquals(1280 to 720, TvHandoff.capOutputSize(1280, 720))
+    }
+
+    @Test fun capOutputSizeCaps4kTo1080p() {
+        assertEquals(1920 to 1080, TvHandoff.capOutputSize(3840, 2160))
+        assertEquals(1920 to 1080, TvHandoff.capOutputSize(2560, 1440))
+    }
+
+    @Test fun capOutputSizeKeepsEvenDimensions() {
+        val capped = TvHandoff.capOutputSize(3839, 2159)
+        assertTrue(capped.first <= 1920 && capped.second <= 1080)
+        assertEquals(0, capped.first % 2)
+        assertEquals(0, capped.second % 2)
+    }
 }

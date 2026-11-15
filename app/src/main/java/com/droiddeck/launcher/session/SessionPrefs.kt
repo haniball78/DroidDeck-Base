@@ -71,7 +71,7 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("animations", on).apply()
     }
 
-    fun tvHandoffTest(context: Context): Boolean = prefs(context).getBoolean("tvHandoffTest", false)
+    fun tvHandoffTest(context: Context): Boolean = prefs(context).getBoolean("tvHandoffTest", true)
 
     fun setTvHandoffTest(context: Context, on: Boolean) {
         prefs(context).edit().putBoolean("tvHandoffTest", on).apply()
