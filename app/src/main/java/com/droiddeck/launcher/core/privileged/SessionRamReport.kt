@@ -14,8 +14,16 @@ internal fun parseCpuLoad(raw: String?): String {
 }
 
 internal fun readCpuLoad(loadavgPath: String = "/proc/loadavg"): String {
-    val raw = runCatching { File(loadavgPath).readText() }.getOrNull() ?: return "unknown"
-    return parseCpuLoad(raw)
+    val raw = runCatching { File(loadavgPath).readText() }.getOrNull()
+    if (raw != null) return parseCpuLoad(raw)
+    // /proc/loadavg is unreadable from the app's UID on Android 16, so a
+    // direct read always fails on device; the privileged daemon runs as
+    // shell and can read it. Only for the real device path, so unit tests
+    // passing a synthetic path never touch the bridge.
+    if (loadavgPath != "/proc/loadavg" || !PrivilegedBridge.isPrivilegedAvailable()) return "unknown"
+    val result = runCatching { PrivilegedBridge.executeChecked("cat /proc/loadavg", 2000) }.getOrNull()
+    if (result == null || result.exitCode != 0 || result.output.isBlank()) return "unknown"
+    return parseCpuLoad(result.output)
 }
 
 internal data class RamSnapshot(val availMb: Long, val cpuLoad: String)
