@@ -13,7 +13,7 @@ jobs:
   stable-connection-unit-tests:
     name: Stable connection unit tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -35,64 +35,6 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew :app:testDebugUnitTest \
-            --tests "com.droiddeck.launcher.core.ConnectionFailureTest" \
-            --tests "com.droiddeck.launcher.core.ConnectionCandidatesTest" \
-            --tests "com.droiddeck.launcher.core.CpuAllocationDefaultsTest" \
-            --tests "com.droiddeck.launcher.session.CoreAllocationPrefsTest" \
-            --tests "com.droiddeck.launcher.core.privileged.PlainModeLatchTest" \
-            --tests "com.droiddeck.launcher.session.SafetyMonitorPlainModeTest" \
-            --tests "com.droiddeck.launcher.session.PlainResumePolicyTest" \
-            --tests "com.droiddeck.launcher.session.SuspendStateTest" \
-            --tests "com.droiddeck.launcher.core.ConnectionCardStateTest" \
-            --tests "com.droiddeck.launcher.core.WirelessAdbPairingStabilityTest" \
-            --tests "com.droiddeck.launcher.core.PairEpisodeGuardTest" \
-            --tests "com.droiddeck.launcher.session.SessionTeardownRestoreTest" \
-            --tests "com.droiddeck.launcher.session.SessionGroup3FixesTest" \
-            --tests "com.droiddeck.launcher.session.DeadManSessionTest" \
-            --tests "com.droiddeck.launcher.core.WirelessAdbAutoRestartTest" \
-            --tests "com.droiddeck.launcher.core.WirelessAdbPairingRedesignTest" \
-            --tests "com.droiddeck.launcher.core.WirelessAdbPairingCodeTapTest" \
-            --tests "com.droiddeck.launcher.core.NotificationAlertTest" \
-            --tests "com.droiddeck.launcher.core.PairingPanelStateTest" \
-            --tests "com.droiddeck.launcher.core.PairingResetTest" \
-            --tests "com.droiddeck.launcher.core.AdbIdentityGeneratorTest" \
-            --tests "com.droiddeck.launcher.core.AdbSlowPairingDiagnosticsTest" \
-            --tests "com.droiddeck.launcher.core.WirelessAdbPatientRetryTest" \
-            --tests "com.droiddeck.launcher.core.WirelessAdbAutoRecoveryTest" \
-            --tests "com.droiddeck.launcher.core.WirelessAdbAutoGrantTest" \
-            --tests "com.droiddeck.launcher.core.WirelessDebugNavigatorTest" \
-            --tests "com.droiddeck.launcher.core.TvHandoffTest" \
-            --tests "com.droiddeck.launcher.core.privileged.TvDiagnosticsLogTest" \
-            --tests "com.droiddeck.launcher.session.TvStreamLoopbackTest" \
-            --tests "com.droiddeck.launcher.session.TvSurfaceEncodeTest" \
-            --tests "com.droiddeck.launcher.session.TvStreamServerTest" \
-            --tests "com.droiddeck.launcher.core.privileged.GovernorTierCommandsTest" \
-            --tests "com.droiddeck.launcher.core.privileged.BatchCVerifyTest" \
-            --tests "com.droiddeck.launcher.core.privileged.FixedPerformanceGetterTest" \
-            --tests "com.droiddeck.launcher.core.privileged.PrivilegedBridgeProbeTest" \
-            --tests "com.droiddeck.launcher.core.privileged.AppFreezerPackageSplitTest" \
-            --tests "com.droiddeck.launcher.core.privileged.DozeJournalOnApplyFailureTest" \
-            --tests "com.droiddeck.launcher.core.privileged.FreezerVerifyTest" \
-            --tests "com.droiddeck.launcher.core.privileged.JournalIntegrityTest" \
-            --tests "com.droiddeck.launcher.core.privileged.JournalGroup3FixesTest" \
-            --tests "com.droiddeck.launcher.core.privileged.TweaksJournalTest" \
-            --tests "com.droiddeck.launcher.core.privileged.DeadManTest" \
-            --tests "com.droiddeck.launcher.core.privileged.BatchBVerifyTest" \
-            --tests "com.droiddeck.launcher.core.privileged.AppFreezerKillSuspendTest" \
-            --tests "com.droiddeck.launcher.core.privileged.HogRestrictionTest" \
-            --tests "com.droiddeck.launcher.core.privileged.LiveHogWatcherTest" \
-            --tests "com.droiddeck.launcher.core.privileged.GameModeBoostTest" \
-            --tests "com.droiddeck.launcher.core.privileged.SessionStartTweaksDecisionTest" \
-            --tests "com.droiddeck.launcher.core.privileged.PackagesVerifyChunksTest" \
-            --tests "com.droiddeck.launcher.core.privileged.AdvancedGeneralFixesTest" \
-            --tests "com.droiddeck.launcher.core.privileged.AdvancedTogglePolicyTest" \
-            --tests "com.droiddeck.launcher.core.privileged.SuspendThreadsDiagTest" \
-            --tests "com.droiddeck.launcher.session.SafetyPolicyTest" \
-            --tests "com.droiddeck.launcher.core.privileged.PerformanceLogTest" \
-            --tests "com.droiddeck.launcher.core.privileged.SessionRamReportTest" \
-            --tests "com.droiddeck.launcher.core.privileged.SessionRamSnapshotTest" \
-            --tests "com.droiddeck.launcher.core.privileged.DeviceBaselineTest" \
-            --tests "com.droiddeck.launcher.core.privileged.DeviceBaselineOnceTest" \
             -PndkVersion=29.0.14206865 \
             -PskipRust=true \
             --stacktrace --no-daemon 2>&1 | tee /tmp/unified-unit-tests.log
