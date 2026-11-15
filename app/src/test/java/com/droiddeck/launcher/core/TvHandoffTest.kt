@@ -70,6 +70,27 @@ class TvHandoffTest {
         assertFalse(TvHandoff.shouldDimPanel(tvActive = false, physicalConnected = true))
     }
 
+    @Test fun controllerWantOverrideOnIgnoresPhysicalPad() {
+        assertTrue(TvHandoff.controllerWant(true, true, true, true, true))
+        assertTrue(TvHandoff.controllerWant(true, true, true, false, true))
+    }
+
+    @Test fun controllerWantOverrideOffHidesPad() {
+        assertFalse(TvHandoff.controllerWant(true, true, false, true, false))
+        assertFalse(TvHandoff.controllerWant(true, true, true, true, false))
+    }
+
+    @Test fun controllerWantNullFallsBackToAutomatic() {
+        assertTrue(TvHandoff.controllerWant(true, true, false, true, null))
+        assertFalse(TvHandoff.controllerWant(true, true, true, true, null))
+        assertFalse(TvHandoff.controllerWant(true, true, false, false, null))
+    }
+
+    @Test fun controllerWantNeedsTvAndRunningEvenWithOverride() {
+        assertFalse(TvHandoff.controllerWant(false, true, false, true, true))
+        assertFalse(TvHandoff.controllerWant(true, false, false, true, true))
+    }
+
     @Test fun capOutputSizeKeeps1080pAndBelow() {
         assertEquals(1920 to 1080, TvHandoff.capOutputSize(1920, 1080))
         assertEquals(1280 to 720, TvHandoff.capOutputSize(1280, 720))

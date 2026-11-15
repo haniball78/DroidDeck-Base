@@ -405,6 +405,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var tvCompanionTickerRunning = false
     private var tvEndButton: Button? = null
     private var tvControllerButton: Button? = null
+    private var tvControllerOverride: Boolean? = null
+    private var tvCompanionCollapsed by mutableStateOf(false)
     private var tvEndArmedAt = 0L
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
@@ -730,11 +732,19 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                     cursorImage, cursorHotX, cursorHotY, cursorImageScale)
                 if (hud.text.isNotEmpty() || hud.graph.size >= 2) HudText(hud.text, hud.graph, hudColor, hudOpacity)
                 if (tvCompanionState != null && TvHandoff.shouldShowCompanion(tvOutputActive, tvControllerActive, loading.visible, drawerOpen, pcKeyboardOpen)) {
-                    TvCompanionStrip(tvCompanionState!!)
+                    TvCompanionStrip(
+                        state = tvCompanionState!!,
+                        collapsed = tvCompanionCollapsed,
+                        onToggleCollapsed = {
+                            tvCompanionCollapsed = !tvCompanionCollapsed
+                            if (!tvCompanionCollapsed) startTvCompanionTicker()
+                        },
+                    )
                 }
                 if (tvInputLossFrozen) {
                     TvInputLostCard(onUsePhoneController = {
                         SessionPrefs.setTvControllerMode(this@SessionActivity, true)
+                        tvControllerOverride = null
                         updateTvController()
                     })
                 }
@@ -3657,6 +3667,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (tvScreen !== screen) return
         tvScreen = null
         tvOutputActive = false
+        tvControllerOverride = null
+        tvCompanionCollapsed = false
         stopTvCompanionTicker()
         surfaceW = 0
         surfaceH = 0
@@ -3677,13 +3689,13 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private fun updateTvController() {
         val physical = PadBridge.anyControllerConnected() || SteamControllerBle.connected || TvHandoff.hasKeyboardOrMouse()
         val toggleOn = SessionPrefs.tvControllerMode(this)
-        val want = TvHandoff.shouldEngageController(tvOutputActive, SessionState.running, physical, toggleOn)
-        updateTvPanelDim(physical)
+        val want = TvHandoff.controllerWant(tvOutputActive, SessionState.running, physical, toggleOn, tvControllerOverride)
+        updateTvPanelDim(physical && !want)
         ensureTvControllerButton()
         tvControllerButton?.visibility = if (tvOutputActive) View.VISIBLE else View.GONE
         tvControllerButton?.text = if (want) "Hide pad" else "Show pad"
         // No input channel left: freeze the game until a controller comes back.
-        val freeze = TvHandoff.shouldFreezeOnInputLoss(tvOutputActive, SessionState.running, physical, toggleOn)
+        val freeze = TvHandoff.shouldFreezeOnInputLoss(tvOutputActive, SessionState.running, physical, toggleOn || tvControllerOverride == true)
         if (freeze != tvInputLossFrozen) {
             tvInputLossFrozen = freeze
             SessionService.setTvInputLost(this, freeze)
@@ -3737,6 +3749,10 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private val tvCompanionTick = object : Runnable {
         override fun run() {
             if (!tvOutputActive || !SessionState.running) {
+                tvCompanionTickerRunning = false
+                return
+            }
+            if (tvCompanionCollapsed) {
                 tvCompanionTickerRunning = false
                 return
             }
@@ -3812,10 +3828,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         val button = Button(this).apply {
             text = "Show pad"
             setOnClickListener {
-                SessionPrefs.setTvControllerMode(
-                    this@SessionActivity,
-                    !SessionPrefs.tvControllerMode(this@SessionActivity),
-                )
+                tvControllerOverride = if (tvControllerActive) false else true
                 updateTvController()
             }
         }

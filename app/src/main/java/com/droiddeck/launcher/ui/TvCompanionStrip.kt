@@ -9,10 +9,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,8 +20,11 @@ import com.droiddeck.launcher.core.TvHandoff
 // Live phone strip while the game is on the TV and the phone is the controller:
 // FPS, battery temperature and level, time on TV, render size, input path.
 @Composable
-fun TvCompanionStrip(state: TvHandoff.CompanionState) {
-    var collapsed by remember { mutableStateOf(false) }
+fun TvCompanionStrip(
+    state: TvHandoff.CompanionState,
+    collapsed: Boolean,
+    onToggleCollapsed: () -> Unit,
+) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -50,7 +49,7 @@ fun TvCompanionStrip(state: TvHandoff.CompanionState) {
                     )
                 }
             }
-            TextButton(onClick = { collapsed = !collapsed }) {
+            TextButton(onClick = onToggleCollapsed) {
                 Text(
                     text = if (collapsed) "▸ show info" else "▾ hide",
                     color = Color.White,

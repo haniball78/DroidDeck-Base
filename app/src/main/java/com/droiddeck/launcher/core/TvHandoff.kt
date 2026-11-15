@@ -38,6 +38,19 @@ object TvHandoff {
     fun shouldEngageController(tvActive: Boolean, running: Boolean, physicalConnected: Boolean, toggleOn: Boolean): Boolean =
         tvActive && running && toggleOn && !physicalConnected
 
+    // The in-session pad button sets a manual override that wins over the toggle
+    // and the physical detection, so the phone can be forced into controller mode
+    // while a real pad stays connected (and back out again).
+    fun controllerWant(
+        tvActive: Boolean,
+        running: Boolean,
+        physicalConnected: Boolean,
+        toggleOn: Boolean,
+        override: Boolean?,
+    ): Boolean =
+        if (override != null) tvActive && running && override
+        else shouldEngageController(tvActive, running, physicalConnected, toggleOn)
+
     // Dim only when a physical controller is connected: otherwise the phone itself
     // is the controller and its pad must stay visible.
     fun shouldDimPanel(tvActive: Boolean, physicalConnected: Boolean): Boolean =
