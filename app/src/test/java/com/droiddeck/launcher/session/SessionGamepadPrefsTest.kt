@@ -49,6 +49,14 @@ class SessionGamepadPrefsTest {
         assertEquals(true, SessionPrefs.tvRender4k(context))
     }
 
+    @Test fun companionInfoDefaultsOffAndPersists() {
+        assertEquals(false, SessionPrefs.tvCompanionInfo(context))
+        SessionPrefs.setTvCompanionInfo(context, true)
+        assertEquals(true, SessionPrefs.tvCompanionInfo(context))
+        SessionPrefs.setTvCompanionInfo(context, false)
+        assertEquals(false, SessionPrefs.tvCompanionInfo(context))
+    }
+
     @Test fun parseDropsInvalidScopesAndSurfaces() {
         val parsed = SessionPrefs.parseGamepadSurfaces(
             """{"440":{"left":"stick","right":"junk"},"0":{"left":"stick"},"abc":{"left":"stick"},"570":{"right":"trackpad"}}""",

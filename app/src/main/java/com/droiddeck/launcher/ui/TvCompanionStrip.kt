@@ -19,11 +19,11 @@ import com.droiddeck.launcher.core.TvHandoff
 
 // Live phone strip while the game is on the TV and the phone is the controller:
 // FPS, battery temperature and level, time on TV, render size, input path.
+// Shown only when the user enabled it; hide turns it off again.
 @Composable
 fun TvCompanionStrip(
     state: TvHandoff.CompanionState,
-    collapsed: Boolean,
-    onToggleCollapsed: () -> Unit,
+    onHide: () -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
@@ -33,25 +33,23 @@ fun TvCompanionStrip(
                 .background(Color.Black.copy(alpha = 0.65f))
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
-            if (!collapsed) {
+            Text(
+                text = companionLine(state),
+                color = Color.White,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+            )
+            if (state.cappedTo1080p) {
                 Text(
-                    text = companionLine(state),
-                    color = Color.White,
-                    fontSize = 13.sp,
+                    text = "1080p cap: this TV offers no 1080p mode",
+                    color = Color(0xFFFFC46B),
+                    fontSize = 11.sp,
                     textAlign = TextAlign.Center,
                 )
-                if (state.cappedTo1080p) {
-                    Text(
-                        text = "1080p cap: this TV offers no 1080p mode",
-                        color = Color(0xFFFFC46B),
-                        fontSize = 11.sp,
-                        textAlign = TextAlign.Center,
-                    )
-                }
             }
-            TextButton(onClick = onToggleCollapsed) {
+            TextButton(onClick = onHide) {
                 Text(
-                    text = if (collapsed) "▸ show info" else "▾ hide",
+                    text = "▾ hide",
                     color = Color.White,
                     fontSize = 11.sp,
                 )

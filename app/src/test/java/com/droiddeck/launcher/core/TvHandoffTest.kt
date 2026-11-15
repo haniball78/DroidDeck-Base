@@ -70,25 +70,33 @@ class TvHandoffTest {
         assertFalse(TvHandoff.shouldDimPanel(tvActive = false, physicalConnected = true))
     }
 
-    @Test fun controllerWantOverrideOnIgnoresPhysicalPad() {
-        assertTrue(TvHandoff.controllerWant(true, true, true, true, true))
-        assertTrue(TvHandoff.controllerWant(true, true, true, false, true))
+    @Test fun padShowsWhenEngagedAndMouseModeOff() {
+        assertTrue(TvHandoff.shouldShowPad(true, true, false, true, false))
     }
 
-    @Test fun controllerWantOverrideOffHidesPad() {
-        assertFalse(TvHandoff.controllerWant(true, true, false, true, false))
-        assertFalse(TvHandoff.controllerWant(true, true, true, true, false))
+    @Test fun padHidesWhenMouseModeOn() {
+        assertFalse(TvHandoff.shouldShowPad(true, true, false, true, true))
     }
 
-    @Test fun controllerWantNullFallsBackToAutomatic() {
-        assertTrue(TvHandoff.controllerWant(true, true, false, true, null))
-        assertFalse(TvHandoff.controllerWant(true, true, true, true, null))
-        assertFalse(TvHandoff.controllerWant(true, true, false, false, null))
+    @Test fun padHidesWhenNotEngagedEvenWithoutMouseMode() {
+        assertFalse(TvHandoff.shouldShowPad(true, true, true, true, false))
+        assertFalse(TvHandoff.shouldShowPad(true, true, false, false, false))
+        assertFalse(TvHandoff.shouldShowPad(false, true, false, true, false))
     }
 
-    @Test fun controllerWantNeedsTvAndRunningEvenWithOverride() {
-        assertFalse(TvHandoff.controllerWant(false, true, false, true, true))
-        assertFalse(TvHandoff.controllerWant(true, false, false, true, true))
+    @Test fun mousePadShowsOnlyOnLiveTvWithMouseMode() {
+        assertTrue(TvHandoff.shouldShowMousePad(true, true))
+        assertFalse(TvHandoff.shouldShowMousePad(false, true))
+        assertFalse(TvHandoff.shouldShowMousePad(true, false))
+        assertFalse(TvHandoff.shouldShowMousePad(false, false))
+    }
+
+    @Test fun companionInfoNeedsInfoOnAndMouseModeOff() {
+        assertTrue(TvHandoff.shouldShowCompanionInfo(true, true, false, false, false, true, false))
+        assertFalse(TvHandoff.shouldShowCompanionInfo(true, true, false, false, false, false, false))
+        assertFalse(TvHandoff.shouldShowCompanionInfo(true, true, false, false, false, true, true))
+        assertFalse(TvHandoff.shouldShowCompanionInfo(true, false, false, false, false, true, false))
+        assertFalse(TvHandoff.shouldShowCompanionInfo(false, true, false, false, false, true, false))
     }
 
     @Test fun capOutputSizeKeeps1080pAndBelow() {

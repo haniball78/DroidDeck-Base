@@ -107,6 +107,12 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("tvRender4k", on).apply()
     }
 
+    fun tvCompanionInfo(context: Context): Boolean = prefs(context).getBoolean("tvCompanionInfo", false)
+
+    fun setTvCompanionInfo(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("tvCompanionInfo", on).apply()
+    }
+
     fun gameStoresEnabled(context: Context): Boolean = prefs(context).getBoolean("gameStoresEnabled", true)
 
     fun setGameStoresEnabled(context: Context, on: Boolean) {

@@ -25,6 +25,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -101,8 +102,6 @@ import com.droiddeck.launcher.session.GameEnvironmentStore
 import com.droiddeck.launcher.session.GameProfileFollowState
 import com.droiddeck.launcher.session.GameProfileInventoryCache
 import com.droiddeck.launcher.session.GameProfileRefreshState
-import com.droiddeck.launcher.session.ExitReason
-import com.droiddeck.launcher.session.SessionExit
 import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.session.SessionEvents
 import com.droiddeck.launcher.session.SessionArtifacts
@@ -126,6 +125,7 @@ import com.droiddeck.launcher.ui.SecondScreenPresentation
 import com.droiddeck.launcher.ui.TvCompanionStrip
 import com.droiddeck.launcher.ui.TvHandoffScreen
 import com.droiddeck.launcher.ui.TvInputLostCard
+import com.droiddeck.launcher.ui.TvPhoneMousePad
 import com.droiddeck.launcher.ui.DroidDeckTheme
 import com.droiddeck.launcher.wayland.CompositorHost
 import com.droiddeck.launcher.wayland.WaylandCompositor
@@ -403,11 +403,10 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var tvLastFrameCount = 0L
     private var tvLastFrameAtMs = 0L
     private var tvCompanionTickerRunning = false
-    private var tvEndButton: Button? = null
-    private var tvControllerButton: Button? = null
-    private var tvControllerOverride: Boolean? = null
-    private var tvCompanionCollapsed by mutableStateOf(false)
-    private var tvEndArmedAt = 0L
+    private var tvCompanionInfoOn by mutableStateOf(false)
+    private var tvPhoneMouseMode by mutableStateOf(false)
+    private var tvEdgeButton: Button? = null
+    private var tvMousePad: TvPhoneMousePad? = null
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
             notifyActivityDisplayStateChanged(displayId)
@@ -731,20 +730,19 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 CursorOverlay({ cursorPos }, cursorVisible, resources.displayMetrics.density,
                     cursorImage, cursorHotX, cursorHotY, cursorImageScale)
                 if (hud.text.isNotEmpty() || hud.graph.size >= 2) HudText(hud.text, hud.graph, hudColor, hudOpacity)
-                if (tvCompanionState != null && TvHandoff.shouldShowCompanion(tvOutputActive, tvControllerActive, loading.visible, drawerOpen, pcKeyboardOpen)) {
+                if (tvCompanionState != null && TvHandoff.shouldShowCompanionInfo(tvOutputActive, tvControllerActive, loading.visible, drawerOpen, pcKeyboardOpen, tvCompanionInfoOn, tvPhoneMouseMode)) {
                     TvCompanionStrip(
                         state = tvCompanionState!!,
-                        collapsed = tvCompanionCollapsed,
-                        onToggleCollapsed = {
-                            tvCompanionCollapsed = !tvCompanionCollapsed
-                            if (!tvCompanionCollapsed) startTvCompanionTicker()
+                        onHide = {
+                            SessionPrefs.setTvCompanionInfo(this@SessionActivity, false)
+                            tvCompanionInfoOn = false
+                            stopTvCompanionTicker()
                         },
                     )
                 }
                 if (tvInputLossFrozen) {
                     TvInputLostCard(onUsePhoneController = {
                         SessionPrefs.setTvControllerMode(this@SessionActivity, true)
-                        tvControllerOverride = null
                         updateTvController()
                     })
                 }
@@ -2954,7 +2952,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             ?.let { FileUtils.readString(it)?.trim()?.lowercase() }
             ?: SessionPrefs.oscMode(this)
         val controls = onScreenControls ?: return
-        if (pipUi || unfoldedPanel != null || pcKeyboardOpen ||
+        if (pipUi || unfoldedPanel != null || pcKeyboardOpen || tvPhoneMouseMode ||
             (SessionState.mode == SessionService.MODE_STEAM && !SessionPrefs.builtinPad(this) && !tvControllerActive)) {
             onScreenButtonsVisible = false
             controls.releaseAll()
@@ -3474,6 +3472,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 )
             }
             tvAttachedAtMs = SystemClock.elapsedRealtime()
+            tvCompanionInfoOn = SessionPrefs.tvCompanionInfo(this)
             startTvCompanionTicker()
             // Let the switch settle and frames flow before resizing, so a
             // failure is attributable to the resize step, not the switch.
@@ -3667,8 +3666,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (tvScreen !== screen) return
         tvScreen = null
         tvOutputActive = false
-        tvControllerOverride = null
-        tvCompanionCollapsed = false
+        tvPhoneMouseMode = false
+        tvMousePad?.releaseAll()
         stopTvCompanionTicker()
         surfaceW = 0
         surfaceH = 0
@@ -3689,13 +3688,13 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private fun updateTvController() {
         val physical = PadBridge.anyControllerConnected() || SteamControllerBle.connected || TvHandoff.hasKeyboardOrMouse()
         val toggleOn = SessionPrefs.tvControllerMode(this)
-        val want = TvHandoff.controllerWant(tvOutputActive, SessionState.running, physical, toggleOn, tvControllerOverride)
+        val want = TvHandoff.shouldShowPad(tvOutputActive, SessionState.running, physical, toggleOn, tvPhoneMouseMode)
         updateTvPanelDim(physical && !want)
-        ensureTvControllerButton()
-        tvControllerButton?.visibility = if (tvOutputActive) View.VISIBLE else View.GONE
-        tvControllerButton?.text = if (want) "Hide pad" else "Show pad"
+        ensureTvEdgeButton()
+        tvEdgeButton?.visibility = if (tvOutputActive) View.VISIBLE else View.GONE
         // No input channel left: freeze the game until a controller comes back.
-        val freeze = TvHandoff.shouldFreezeOnInputLoss(tvOutputActive, SessionState.running, physical, toggleOn || tvControllerOverride == true)
+        // The phone mouse is an input channel like the phone pad.
+        val freeze = TvHandoff.shouldFreezeOnInputLoss(tvOutputActive, SessionState.running, physical, toggleOn || tvPhoneMouseMode)
         if (freeze != tvInputLossFrozen) {
             tvInputLossFrozen = freeze
             SessionService.setTvInputLost(this, freeze)
@@ -3704,6 +3703,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 fields = mapOf("step" to if (freeze) "frozen" else "unfrozen"),
             )
         }
+        applyTvPhoneMouseMode()
         if (want == tvControllerActive) return
         tvControllerActive = want
         val reason = when {
@@ -3711,6 +3711,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             !SessionState.running -> "session-ended"
             !toggleOn -> "toggle-off"
             physical -> "physical-connected"
+            tvPhoneMouseMode -> "phone-mouse"
             else -> "no-physical-controller"
         }
         TvDiagnosticsLog.log(
@@ -3722,9 +3723,6 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             ),
         )
         Log.i(TAG, "tv controller mode ${if (want) "on" else "off"} ($reason)")
-        ensureTvEndButton()
-        tvEndButton?.visibility = if (want) View.VISIBLE else View.GONE
-        if (!want) tvEndArmedAt = 0L
         updateOnScreenControls()
         updatePadMotion()
     }
@@ -3752,7 +3750,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 tvCompanionTickerRunning = false
                 return
             }
-            if (tvCompanionCollapsed) {
+            if (!tvCompanionInfoOn) {
                 tvCompanionTickerRunning = false
                 return
             }
@@ -3781,7 +3779,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     }
 
     private fun startTvCompanionTicker() {
-        if (tvCompanionTickerRunning) return
+        if (!tvCompanionInfoOn || tvCompanionTickerRunning) return
         tvCompanionTickerRunning = true
         tvLastFrameAtMs = 0L
         uiHandler.post(tvCompanionTick)
@@ -3793,55 +3791,84 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         tvCompanionState = null
     }
 
-    private fun ensureTvEndButton() {
-        if (tvEndButton != null || !::sessionRoot.isInitialized) return
-        val margin = (12 * resources.displayMetrics.density).toInt()
+    // Small translucent "<" tab flush against the right edge while the TV is
+    // attached. It opens the TV menu: companion info and the phone-as-mouse mode.
+    private fun ensureTvEdgeButton() {
+        if (tvEdgeButton != null || !::sessionRoot.isInitialized) return
+        val density = resources.displayMetrics.density
         val button = Button(this).apply {
-            text = "End session"
-            setOnClickListener {
-                val now = android.os.SystemClock.uptimeMillis()
-                if (now - tvEndArmedAt > 3_000L) {
-                    tvEndArmedAt = now
-                    text = "Tap again to end"
-                    return@setOnClickListener
-                }
-                tvEndArmedAt = 0L
-                TvDiagnosticsLog.log("tv", "controller", fields = mapOf("step" to "end-pressed"))
-                SessionExit.request(this@SessionActivity, ExitReason.USER)
-            }
+            text = "<"
+            alpha = 0.55f
+            setOnClickListener { showTvEdgeMenu() }
         }
         button.visibility = View.GONE
         sessionRoot.addView(
             button,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.END,
-            ).apply { setMargins(0, margin, margin, 0) },
+                (30 * density).toInt(),
+                (72 * density).toInt(),
+                Gravity.END or Gravity.CENTER_VERTICAL,
+            ),
         )
-        tvEndButton = button
+        tvEdgeButton = button
     }
 
-    private fun ensureTvControllerButton() {
-        if (tvControllerButton != null || !::sessionRoot.isInitialized) return
-        val margin = (12 * resources.displayMetrics.density).toInt()
-        val button = Button(this).apply {
-            text = "Show pad"
-            setOnClickListener {
-                tvControllerOverride = if (tvControllerActive) false else true
-                updateTvController()
+    private fun showTvEdgeMenu() {
+        val anchor = tvEdgeButton ?: return
+        val menu = PopupMenu(this, anchor)
+        val infoItem = menu.menu.add(0, 1, 0, "Show info")
+        infoItem.isCheckable = true
+        infoItem.isChecked = tvCompanionInfoOn
+        val mouseItem = menu.menu.add(0, 2, 1, "Phone as mouse")
+        mouseItem.isCheckable = true
+        mouseItem.isChecked = tvPhoneMouseMode
+        menu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> {
+                    val on = !tvCompanionInfoOn
+                    SessionPrefs.setTvCompanionInfo(this, on)
+                    tvCompanionInfoOn = on
+                    if (on) startTvCompanionTicker() else stopTvCompanionTicker()
+                    true
+                }
+                2 -> {
+                    updatePhoneMouseMode(!tvPhoneMouseMode)
+                    true
+                }
+                else -> false
             }
         }
-        button.visibility = View.GONE
+        menu.show()
+    }
+
+    private fun updatePhoneMouseMode(on: Boolean) {
+        if (on == tvPhoneMouseMode) return
+        tvPhoneMouseMode = on
+        if (!on) tvMousePad?.releaseAll()
+        updateTvController()
+        updateOnScreenControls()
+        applyTvPhoneMouseMode()
+    }
+
+    private fun ensureTvMousePad() {
+        if (tvMousePad != null || !::sessionRoot.isInitialized) return
+        val pad = TvPhoneMousePad(this)
+        pad.visibility = View.GONE
         sessionRoot.addView(
-            button,
+            pad,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.START,
-            ).apply { setMargins(margin, margin, 0, 0) },
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
         )
-        tvControllerButton = button
+        tvMousePad = pad
+    }
+
+    private fun applyTvPhoneMouseMode() {
+        ensureTvMousePad()
+        val show = TvHandoff.shouldShowMousePad(tvOutputActive, tvPhoneMouseMode)
+        tvMousePad?.visibility = if (show) View.VISIBLE else View.GONE
+        if (show) tvEdgeButton?.bringToFront()
     }
 
     private fun onGlassesSteamVr(now: SteamVr.Status) {

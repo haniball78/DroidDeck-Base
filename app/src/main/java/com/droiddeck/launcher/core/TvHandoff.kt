@@ -38,18 +38,21 @@ object TvHandoff {
     fun shouldEngageController(tvActive: Boolean, running: Boolean, physicalConnected: Boolean, toggleOn: Boolean): Boolean =
         tvActive && running && toggleOn && !physicalConnected
 
-    // The in-session pad button sets a manual override that wins over the toggle
-    // and the physical detection, so the phone can be forced into controller mode
-    // while a real pad stays connected (and back out again).
-    fun controllerWant(
+    // The phone pad shows only when the phone is the controller and the phone
+    // is not in mouse mode: mouse mode owns the whole screen.
+    fun shouldShowPad(
         tvActive: Boolean,
         running: Boolean,
         physicalConnected: Boolean,
         toggleOn: Boolean,
-        override: Boolean?,
+        mouseMode: Boolean,
     ): Boolean =
-        if (override != null) tvActive && running && override
-        else shouldEngageController(tvActive, running, physicalConnected, toggleOn)
+        shouldEngageController(tvActive, running, physicalConnected, toggleOn) && !mouseMode
+
+    // The phone-as-mouse trackpad covers the whole phone screen while the TV
+    // session runs and mouse mode is on.
+    fun shouldShowMousePad(tvActive: Boolean, mouseMode: Boolean): Boolean =
+        tvActive && mouseMode
 
     // Dim only when a physical controller is connected: otherwise the phone itself
     // is the controller and its pad must stay visible.
@@ -114,6 +117,19 @@ object TvHandoff {
         drawerOpen: Boolean,
         pcKeyboardOpen: Boolean,
     ): Boolean = tvActive && controllerActive && !loadingVisible && !drawerOpen && !pcKeyboardOpen
+
+    // The companion readings show only when the user enabled them, the phone is
+    // the lit controller, and mouse mode is off (mouse mode owns the screen).
+    fun shouldShowCompanionInfo(
+        tvActive: Boolean,
+        controllerActive: Boolean,
+        loadingVisible: Boolean,
+        drawerOpen: Boolean,
+        pcKeyboardOpen: Boolean,
+        infoOn: Boolean,
+        mouseMode: Boolean,
+    ): Boolean =
+        shouldShowCompanion(tvActive, controllerActive, loadingVisible, drawerOpen, pcKeyboardOpen) && infoOn && !mouseMode
 
     // Frames per second from two compositor frame counts. Same window math as the
     // game-thread hints (3 s window there); here the caller samples once a second.
