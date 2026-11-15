@@ -41,6 +41,20 @@ internal fun filterSuspendTargets(
     protected: Set<String>,
 ): List<String> = packages.distinct().filter { it !in protected && AppFreezerPackageJournal.packagePattern.matches(it) }
 
+// The freezer restore is split into this many journal items instead
+// of one bulk restore: a single EXEC for ~205 targets fails on first
+// attempt (exit -1), while each chunk's EXEC is far under the server
+// line limit.
+internal const val FREEZER_PACKAGES_CHUNK_COUNT = 3
+
+internal fun freezerPackagesKey(index: Int): String = "app-freezer-packages-$index"
+
+internal fun isFreezerPackagesKey(key: String): Boolean {
+    if (key == "app-freezer-packages") return true
+    if (!key.startsWith("app-freezer-packages-")) return false
+    return key.removePrefix("app-freezer-packages-").toIntOrNull() != null
+}
+
 // A system app is safe to close when it is a known-safe background
 // service (allowlist) or a user-facing app (launcher icon). Background
 // services and critical system services both lack a launcher icon, so
@@ -194,6 +208,27 @@ object AppFreezerEngine {
             disabled.forEach { pkg ->
                 append("pm enable $pkg 2>/dev/null; ")
             }
+        }
+    }
+
+    // One journal item per restore chunk, so the rollback executes one
+    // small EXEC per chunk instead of a single bulk EXEC. The pm enable
+    // for the disabled sticky apps goes on the last chunk only, so it
+    // runs once.
+    internal fun freezerPackagesItems(targets: List<String>, disabled: List<String>, generation: Int): List<JournalItem> {
+        if (targets.isEmpty()) return emptyList()
+        val chunkSize = (targets.size + FREEZER_PACKAGES_CHUNK_COUNT - 1) / FREEZER_PACKAGES_CHUNK_COUNT
+        val chunks = targets.chunked(chunkSize)
+        return chunks.mapIndexed { index, chunk ->
+            JournalItem(
+                key = freezerPackagesKey(index + 1),
+                original = "0",
+                restoreCmd = packagesRestoreCmd(chunk, if (index == chunks.size - 1) disabled else emptyList()),
+                verifyCmd = packagesVerifyCmd(chunk),
+                verifyMode = JournalVerifyMode.VALUE,
+                persistent = true,
+                generation = generation,
+            )
         }
     }
 
@@ -513,18 +548,7 @@ object AppFreezerEngine {
                 )
             }
             if (uniqueTargets.isNotEmpty()) {
-                val restoreScript = packagesRestoreCmd(uniqueTargets, disabled)
-                items.add(
-                    JournalItem(
-                        key = "app-freezer-packages",
-                        original = "0",
-                        restoreCmd = restoreScript,
-                        verifyCmd = packagesVerifyCmd(uniqueTargets),
-                        verifyMode = JournalVerifyMode.VALUE,
-                        persistent = true,
-                        generation = sessionGen,
-                    )
-                )
+                items.addAll(freezerPackagesItems(uniqueTargets, disabled, sessionGen))
             }
             if (!Tweaks.recordItems(context, items)) {
                 return "freezer: aborted (journal save failed)"
@@ -577,7 +601,7 @@ object AppFreezerEngine {
             }
             if (appliedChunks == 0 && suspendedNow == 0) {
                 Tweaks.removeKey(context, "app-freezer-doze")
-                Tweaks.removeKey(context, "app-freezer-packages")
+                removeFreezerPackagesKeys(context)
                 suspendedPackages.clear()
                 forceStoppedPackages.clear()
                 disabledPackages.clear()
@@ -677,10 +701,17 @@ object AppFreezerEngine {
         return true
     }
 
+    private fun removeFreezerPackagesKeys(context: Context) {
+        Tweaks.removeKey(context, "app-freezer-packages")
+        for (index in 1..FREEZER_PACKAGES_CHUNK_COUNT) {
+            Tweaks.removeKey(context, freezerPackagesKey(index))
+        }
+    }
+
     fun hasFreezerJournal(context: Context): Boolean {
         return Tweaks.hasKey(context, "app-freezer") ||
             Tweaks.hasKey(context, "app-freezer-doze") ||
-            Tweaks.hasKey(context, "app-freezer-packages")
+            Tweaks.journalSnapshot(context).any { isFreezerPackagesKey(it.key) }
     }
 
     fun migrateLegacyToJournal(context: Context): Boolean {
@@ -703,22 +734,7 @@ object AppFreezerEngine {
             )
         }
         if (packages.isNotEmpty()) {
-            val restoreScript = buildString {
-                packages.chunked(50).forEach { chunk ->
-                    append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
-                }
-            }
-            items.add(
-                JournalItem(
-                    key = "app-freezer-packages",
-                    original = "0",
-                    restoreCmd = restoreScript,
-                    verifyCmd = packagesVerifyCmd(packages),
-                    verifyMode = JournalVerifyMode.VALUE,
-                    persistent = true,
-                    generation = 0,
-                )
-            )
+            items.addAll(freezerPackagesItems(packages, emptyList(), 0))
         }
         if (items.isEmpty()) return true
         return Tweaks.recordItems(appContext, items)

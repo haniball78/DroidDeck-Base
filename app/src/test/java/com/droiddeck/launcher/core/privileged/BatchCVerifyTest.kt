@@ -129,7 +129,7 @@ class BatchCVerifyTest {
         assertEquals("app-freezer-doze", dozeFail.failedKey)
         assertEquals(listOf(doze), dozeFail.remaining)
         val packages = JournalItem(
-            key = "app-freezer-packages",
+            key = freezerPackagesKey(2),
             original = "0",
             restoreCmd = "cmd package unsuspend --user 0 com.example.game",
             verifyCmd = "cmd package list packages -s --user 0",

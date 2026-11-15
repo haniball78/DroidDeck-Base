@@ -8,7 +8,7 @@ import org.junit.Test
 class FreezerVerifyTest {
     private fun legacyPackagesItem(): JournalItem {
         return JournalItem(
-            "app-freezer-packages",
+            freezerPackagesKey(1),
             "0",
             "cmd package unsuspend --user 0 com.samsung.android.bixby.agent com.microsoft.skydrive 2>/dev/null; ",
             "cmd package list packages -s --user 0 2>/dev/null | grep -F -e com.samsung.android.bixby.agent -e com.microsoft.skydrive 2>/dev/null | wc -l",

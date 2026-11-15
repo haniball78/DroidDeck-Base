@@ -52,9 +52,9 @@ class JournalIntegrityTest {
         )
     }
 
-    private fun freezerItem(targets: List<String>, disabled: List<String> = emptyList()): JournalItem {
+    private fun freezerItem(targets: List<String>, disabled: List<String> = emptyList(), chunk: Int = 1): JournalItem {
         return JournalItem(
-            key = "app-freezer-packages",
+            key = freezerPackagesKey(chunk),
             original = "0",
             restoreCmd = AppFreezerEngine.packagesRestoreCmd(targets, disabled),
             verifyCmd = AppFreezerEngine.packagesVerifyCmd(targets),
@@ -140,7 +140,7 @@ class JournalIntegrityTest {
         )
         val merged = JournalMerge.merge(current, incoming)
         assertEquals(2, merged.size)
-        val freezer = merged.first { it.key == "app-freezer-packages" }
+        val freezer = merged.first { it.key == freezerPackagesKey(1) }
         assertEquals(
             listOf("com.example.a", "com.example.b", "com.example.c"),
             Tweaks.storedTargets(freezer.restoreCmd),
@@ -158,9 +158,35 @@ class JournalIntegrityTest {
     }
 
     @Test
+    fun mergeUnionsSameChunkKeyOnly() {
+        val current = listOf(
+            freezerItem(listOf("com.example.a"), chunk = 1),
+            freezerItem(listOf("com.example.b"), chunk = 2),
+        )
+        val incoming = listOf(
+            freezerItem(listOf("com.example.c"), chunk = 1),
+            freezerItem(listOf("com.example.d"), chunk = 3),
+        )
+        val merged = JournalMerge.merge(current, incoming)
+        assertEquals(3, merged.size)
+        assertEquals(
+            listOf("com.example.a", "com.example.c"),
+            Tweaks.storedTargets(merged.first { it.key == freezerPackagesKey(1) }.restoreCmd),
+        )
+        assertEquals(
+            listOf("com.example.b"),
+            Tweaks.storedTargets(merged.first { it.key == freezerPackagesKey(2) }.restoreCmd),
+        )
+        assertEquals(
+            listOf("com.example.d"),
+            Tweaks.storedTargets(merged.first { it.key == freezerPackagesKey(3) }.restoreCmd),
+        )
+    }
+
+    @Test
     fun mergeKeepsExistingWhenFreezerTargetsUnparseable() {
         val existing = JournalItem(
-            key = "app-freezer-packages",
+            key = freezerPackagesKey(2),
             original = "0",
             restoreCmd = "true 2>/dev/null",
             verifyCmd = "true",

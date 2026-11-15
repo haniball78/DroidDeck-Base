@@ -6,9 +6,9 @@ import org.junit.Test
 
 class AppFreezerPackageSplitTest {
 
-    private fun packagesItem(targets: List<String>): JournalItem {
+    private fun packagesItem(targets: List<String>, chunk: Int = 1): JournalItem {
         return JournalItem(
-            key = "app-freezer-packages",
+            key = freezerPackagesKey(chunk),
             original = "0",
             restoreCmd = AppFreezerEngine.packagesRestoreCmd(targets),
             verifyCmd = AppFreezerEngine.packagesVerifyCmd(targets),
@@ -16,6 +16,43 @@ class AppFreezerPackageSplitTest {
             persistent = true,
             generation = 7,
         )
+    }
+
+    @Test
+    fun isFreezerPackagesKeyRecognizesBaseAndChunkedKeys() {
+        assertTrue(isFreezerPackagesKey("app-freezer-packages"))
+        assertTrue(isFreezerPackagesKey(freezerPackagesKey(1)))
+        assertTrue(isFreezerPackagesKey(freezerPackagesKey(2)))
+        assertTrue(isFreezerPackagesKey(freezerPackagesKey(3)))
+        assertTrue(!isFreezerPackagesKey("app-freezer-doze"))
+        assertTrue(!isFreezerPackagesKey("app-freezer-packages-foo"))
+        assertTrue(!isFreezerPackagesKey("app-freezer-packages-"))
+        assertTrue(!isFreezerPackagesKey("app-freezer"))
+    }
+
+    @Test
+    fun chunkedRestoreSplitsTargetsAndKeepsPmEnableOnLastChunk() {
+        val targets = (1..205).map { "com.example.longer.app.name$it" }
+        val disabled = listOf("com.facebook.aura", "com.facebook.katana", "com.android.vending", "com.samsung.android.smartsuggestions")
+        val items = AppFreezerEngine.freezerPackagesItems(targets, disabled, 7)
+        assertEquals(3, items.size)
+        assertEquals(listOf(freezerPackagesKey(1), freezerPackagesKey(2), freezerPackagesKey(3)), items.map { it.key })
+        assertEquals(targets, items.flatMap { Tweaks.storedTargets(it.restoreCmd) })
+        assertEquals(emptyList<String>(), AppFreezerPackageJournal.parseEnabledNames(items[0].restoreCmd))
+        assertEquals(emptyList<String>(), AppFreezerPackageJournal.parseEnabledNames(items[1].restoreCmd))
+        assertEquals(disabled, AppFreezerPackageJournal.parseEnabledNames(items[2].restoreCmd))
+        for (item in items) {
+            assertEquals("0", item.original)
+            assertEquals(JournalVerifyMode.VALUE, item.verifyMode)
+            assertTrue(item.persistent)
+            assertEquals(7, item.generation)
+            val encoded = java.util.Base64.getEncoder()
+                .encodeToString(item.restoreCmd.toByteArray(Charsets.UTF_8))
+            assertTrue("EXEC:${encoded}".length <= 8192)
+            val verifyEncoded = java.util.Base64.getEncoder()
+                .encodeToString(item.verifyCmd!!.toByteArray(Charsets.UTF_8))
+            assertTrue("EXEC:${verifyEncoded}".length <= 8192)
+        }
     }
 
     @Test
@@ -92,15 +129,38 @@ class AppFreezerPackageSplitTest {
 
     @Test
     fun splitItemKeepsOnlyRemainingPackages() {
-        val original = packagesItem(listOf("com.example.a", "com.example.b", "com.example.c"))
+        val original = packagesItem(listOf("com.example.a", "com.example.b", "com.example.c"), chunk = 2)
         val split = AppFreezerPackageJournal.splitItem(original, listOf("com.example.b"))
-        assertEquals("app-freezer-packages", split.key)
+        assertEquals(freezerPackagesKey(2), split.key)
         assertEquals("0", split.original)
         assertEquals(JournalVerifyMode.VALUE, split.verifyMode)
         assertEquals(AppFreezerEngine.packagesRestoreCmd(listOf("com.example.b")), split.restoreCmd)
         assertEquals(AppFreezerEngine.packagesVerifyCmd(listOf("com.example.b")), split.verifyCmd)
         assertTrue(!split.restoreCmd.contains("com.example.a"))
         assertTrue(!split.restoreCmd.contains("com.example.c"))
+    }
+
+    @Test
+    fun splitItemPreservesPmEnableTargets() {
+        val original = JournalItem(
+            key = freezerPackagesKey(3),
+            original = "0",
+            restoreCmd = AppFreezerEngine.packagesRestoreCmd(
+                listOf("com.example.a", "com.example.b"),
+                listOf("com.android.vending", "com.facebook.aura"),
+            ),
+            verifyCmd = AppFreezerEngine.packagesVerifyCmd(listOf("com.example.a", "com.example.b")),
+            verifyMode = JournalVerifyMode.VALUE,
+            persistent = true,
+            generation = 7,
+        )
+        val split = AppFreezerPackageJournal.splitItem(original, listOf("com.example.b"))
+        assertEquals(freezerPackagesKey(3), split.key)
+        assertEquals(
+            listOf("com.android.vending", "com.facebook.aura"),
+            AppFreezerPackageJournal.parseEnabledNames(split.restoreCmd),
+        )
+        assertTrue(!split.restoreCmd.contains("com.example.a"))
     }
 
     @Test

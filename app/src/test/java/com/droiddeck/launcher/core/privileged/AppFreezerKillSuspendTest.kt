@@ -269,6 +269,25 @@ class AppFreezerKillSuspendTest {
     }
 
     @Test
+    fun chunkedRestoreFitsOldServerLineLimit() {
+        // The bulk restore for a realistic 205-target session is 8877
+        // chars as one EXEC, over the old 8192 limit, and it fails on
+        // first attempt on device. Split into 3 chunks, every chunk's
+        // restore EXEC must fit the old 8192 limit, so no chunk can
+        // fail the way the bulk restore did.
+        val targets = (1..205).map { "com.example.longer.app.name$it" }
+        val disabled = listOf("com.facebook.aura", "com.facebook.katana", "com.android.vending", "com.samsung.android.smartsuggestions")
+        val items = AppFreezerEngine.freezerPackagesItems(targets, disabled, 7)
+        assertEquals(3, items.size)
+        for (item in items) {
+            val encoded = java.util.Base64.getEncoder()
+                .encodeToString(item.restoreCmd.toByteArray(Charsets.UTF_8))
+            assertTrue("EXEC:${encoded}".length <= 8192)
+        }
+        assertEquals(targets, items.flatMap { Tweaks.storedTargets(it.restoreCmd) })
+    }
+
+    @Test
     fun batchRetryDoesNotRetryOnSuccess() {
         var calls = 0
         val result = runBatchWithRetry("echo hi", sleepMs = 0, execute = { _ ->

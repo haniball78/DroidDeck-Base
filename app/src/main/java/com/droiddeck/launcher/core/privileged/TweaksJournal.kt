@@ -321,7 +321,7 @@ internal object AppFreezerPackageJournal {
 
     fun splitItem(item: JournalItem, remaining: List<String>): JournalItem {
         return item.copy(
-            restoreCmd = AppFreezerEngine.packagesRestoreCmd(remaining),
+            restoreCmd = AppFreezerEngine.packagesRestoreCmd(remaining, parseEnabledNames(item.restoreCmd)),
             verifyCmd = AppFreezerEngine.packagesVerifyCmd(remaining),
         )
     }
@@ -381,7 +381,7 @@ internal object JournalMerge {
             val index = merged.indexOfFirst { it.key == item.key }
             if (index < 0) {
                 merged.add(item)
-            } else if (item.key == "app-freezer-packages") {
+            } else if (isFreezerPackagesKey(item.key)) {
                 merged[index] = unionFreezerPackages(merged[index], item)
             }
         }
@@ -445,7 +445,7 @@ object Tweaks {
 
     internal fun effectiveVerifyCmd(item: JournalItem): String? {
         val stored = item.verifyCmd ?: return null
-        if (item.key != "app-freezer-packages" || !stored.contains("list packages -s")) return stored
+        if (!isFreezerPackagesKey(item.key) || !stored.contains("list packages -s")) return stored
         val targets = storedTargets(item.restoreCmd)
         if (targets.isEmpty()) return stored
         return AppFreezerEngine.packagesVerifyCmd(targets)
@@ -498,7 +498,7 @@ object Tweaks {
     }
 
     private fun readVerifiedForItem(context: Context, item: JournalItem): String? {
-        if (item.key == "app-freezer-packages") {
+        if (isFreezerPackagesKey(item.key)) {
             val targets = storedTargets(item.restoreCmd)
             if (targets.isNotEmpty()) {
                 val outputs = ArrayList<String>()
@@ -574,12 +574,13 @@ object Tweaks {
             if (result.success) {
                 return AtomicStateFile.delete(journalFile(context))
             }
-            if (result.failedKey != "app-freezer-packages") {
-                Log.w(TAG, "rollback failed at ${result.failedKey}, journal kept")
+            val failedKey = result.failedKey
+            if (failedKey == null || !isFreezerPackagesKey(failedKey)) {
+                Log.w(TAG, "rollback failed at $failedKey, journal kept")
                 save(context, result.remaining)
                 return false
             }
-            val failedItem = current.firstOrNull { it.key == "app-freezer-packages" } ?: run {
+            val failedItem = current.firstOrNull { it.key == failedKey } ?: run {
                 save(context, result.remaining)
                 return false
             }
@@ -627,9 +628,9 @@ object Tweaks {
                 }
                 DiagnosticsLog.log(
                     context, "safety.restore", "restored",
-                    fields = mapOf("key" to "app-freezer-packages", "verify" to "verified"),
+                    fields = mapOf("key" to failedItem.key, "verify" to "verified"),
                 )
-                current = result.remaining.filter { it.key != "app-freezer-packages" }
+                current = result.remaining.filter { it.key != failedItem.key }
                 if (current.isEmpty()) {
                     return AtomicStateFile.delete(journalFile(context))
                 }
@@ -639,7 +640,7 @@ object Tweaks {
             DiagnosticsLog.log(
                 context, "safety.restore", "still-suspended",
                 fields = mapOf(
-                    "key" to "app-freezer-packages",
+                    "key" to failedItem.key,
                     "count" to still.size.toString(),
                     "packages" to still.joinToString(","),
                 ),
@@ -649,7 +650,7 @@ object Tweaks {
                 return false
             }
             val split = AppFreezerPackageJournal.splitItem(failedItem, still)
-            val remaining = result.remaining.map { if (it.key == "app-freezer-packages") split else it }
+            val remaining = result.remaining.map { if (it.key == failedItem.key) split else it }
             save(context, remaining)
             return false
         }
