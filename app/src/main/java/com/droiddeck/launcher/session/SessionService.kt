@@ -2372,7 +2372,11 @@ class SessionService : Service() {
             Log.w(TAG, "teardown restore refused by exit gate for generation $stoppedGen")
             return false
         }
-        val deadlineMs = 15000L
+        // The journal rollback alone takes ~15 s (8 items, each a privileged
+        // exec plus verify) and the freezer wake ~6 s more, so a 15 s deadline
+        // expired while the worker was still in the wake step and reported a
+        // restore failure that never happened (device-proven 2026-11-15).
+        val deadlineMs = 60000L
         var ok = false
         val worker = Thread({
             ok = try {
