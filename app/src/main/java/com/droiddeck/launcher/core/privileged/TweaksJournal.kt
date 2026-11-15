@@ -251,12 +251,18 @@ internal object JournalCodec {
 }
 
 internal object JournalRollback {
+    data class Failure(
+        val key: String,
+        val stage: String,
+    )
+
     data class Result(
         val success: Boolean,
         val remaining: List<JournalItem>,
         val failedKey: String?,
         val completed: List<JournalItem> = emptyList(),
         val failedStage: String? = null,
+        val failures: List<Failure> = emptyList(),
     )
 
     fun rollback(
@@ -265,35 +271,50 @@ internal object JournalRollback {
         readVerified: (JournalItem) -> String?,
     ): Result {
         val completed = ArrayList<JournalItem>()
+        val failures = ArrayList<Failure>()
         for (index in items.indices.reversed()) {
             val item = items[index]
-            if (!SafetyChecks.isValidSettingValue(item.key, item.original) || item.restoreCmd.contains("Daemon error")) {
-                return Result(false, items.subList(0, index + 1), item.key, completed, "corrupt")
+            val stage = rollbackItem(item, execute, readVerified)
+            if (stage == null) {
+                completed += item
+            } else {
+                failures.add(Failure(item.key, stage))
             }
-            if (execute(item.restoreCmd) != 0) {
-                return Result(false, items.subList(0, index + 1), item.key, completed, "execute")
-            }
-            val verified = when (item.verifyMode) {
-                JournalVerifyMode.VALUE -> {
-                    val raw = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed, "verify-unreadable")
-                    SafetyChecks.parseBackgroundLimit(raw) == item.original
-                }
-                JournalVerifyMode.CONTAINS -> {
-                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed, "verify-unreadable")
-                    output.contains(item.verifyExpect ?: "")
-                }
-                JournalVerifyMode.NOT_CONTAINS -> {
-                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed, "verify-unreadable")
-                    !output.contains(item.verifyExpect ?: "")
-                }
-                JournalVerifyMode.UNVERIFIED -> true
-            }
-            if (!verified) {
-                return Result(false, items.subList(0, index + 1), item.key, completed, "verify-mismatch")
-            }
-            completed += item
         }
-        return Result(true, emptyList(), null, completed)
+        if (failures.isEmpty()) return Result(true, emptyList(), null, completed)
+        val failedKeys = failures.map { it.key }.toSet()
+        val remaining = items.filter { it.key in failedKeys }
+        val first = failures.first()
+        return Result(false, remaining, first.key, completed, first.stage, failures)
+    }
+
+    private fun rollbackItem(
+        item: JournalItem,
+        execute: (String) -> Int,
+        readVerified: (JournalItem) -> String?,
+    ): String? {
+        if (!SafetyChecks.isValidSettingValue(item.key, item.original) || item.restoreCmd.contains("Daemon error")) {
+            return "corrupt"
+        }
+        if (execute(item.restoreCmd) != 0) {
+            return "execute"
+        }
+        val verified = when (item.verifyMode) {
+            JournalVerifyMode.VALUE -> {
+                val raw = readVerified(item) ?: return "verify-unreadable"
+                SafetyChecks.parseBackgroundLimit(raw) == item.original
+            }
+            JournalVerifyMode.CONTAINS -> {
+                val output = readVerified(item) ?: return "verify-unreadable"
+                output.contains(item.verifyExpect ?: "")
+            }
+            JournalVerifyMode.NOT_CONTAINS -> {
+                val output = readVerified(item) ?: return "verify-unreadable"
+                !output.contains(item.verifyExpect ?: "")
+            }
+            JournalVerifyMode.UNVERIFIED -> true
+        }
+        return if (verified) null else "verify-mismatch"
     }
 }
 
@@ -366,6 +387,12 @@ internal object JournalRepair {
             return if (SafetyChecks.parseBackgroundLimit(currentValue) == item.original) RepairDecision.ALREADY_OK else RepairDecision.RETRY
         }
         return RepairDecision.RETRY
+    }
+
+    fun rowMatches(scannedGeneration: Int, scannedOriginal: String?, current: JournalItem?): Boolean {
+        if (current == null) return false
+        if (current.generation != scannedGeneration) return false
+        return current.original == scannedOriginal
     }
 }
 
@@ -489,6 +516,7 @@ object Tweaks {
             } catch (_: Exception) {
                 return@synchronized false
             }
+            if (JournalCodec.decode(text) == null) return@synchronized false
             AtomicStateFile.save(File(dir, REPAIR_BACKUP_FILE), text)
         }
     }
@@ -498,10 +526,37 @@ object Tweaks {
             val current = load(context) ?: return@synchronized false
             val item = current.firstOrNull { it.key == key } ?: return@synchronized false
             val quarantineFile = File(context.applicationContext.noBackupFilesDir, QUARANTINE_FILE)
-            val existing = AtomicStateFile.readRecovered(quarantineFile, JournalCodec::decodePartial)?.items ?: emptyList()
-            if (!AtomicStateFile.save(quarantineFile, JournalCodec.encode(existing + item))) return@synchronized false
-            save(context, current.filter { it.key != key })
+            val previousText = if (quarantineFile.exists()) runCatching { quarantineFile.readText() }.getOrNull() else null
+            if (appendQuarantine(context, listOf(item)).isEmpty()) return@synchronized false
+            if (!save(context, current.filter { it.key != key })) {
+                if (previousText == null) AtomicStateFile.delete(quarantineFile)
+                else AtomicStateFile.save(quarantineFile, previousText)
+                save(context, current)
+                return@synchronized false
+            }
+            true
         }
+    }
+
+    private fun readQuarantinePartial(context: Context): JournalCodec.PartialDecode? {
+        val quarantineFile = File(context.applicationContext.noBackupFilesDir, QUARANTINE_FILE)
+        if (!quarantineFile.exists() && !AtomicStateFile.bakFile(quarantineFile).exists() && !AtomicStateFile.tmpFile(quarantineFile).exists()) {
+            return JournalCodec.PartialDecode(emptyList(), emptyList())
+        }
+        return AtomicStateFile.readRecovered(quarantineFile, JournalCodec::decodePartial)
+    }
+
+    private fun appendQuarantine(context: Context, items: List<JournalItem>): List<String> {
+        val quarantineFile = File(context.applicationContext.noBackupFilesDir, QUARANTINE_FILE)
+        val existing = readQuarantinePartial(context) ?: JournalCodec.PartialDecode(emptyList(), emptyList())
+        if (existing.badItems.isNotEmpty()) return emptyList()
+        val merged = existing.items.toMutableList()
+        for (item in items) {
+            val index = merged.indexOfFirst { it.key == item.key }
+            if (index < 0) merged.add(item) else merged[index] = item
+        }
+        if (!AtomicStateFile.save(quarantineFile, JournalCodec.encode(merged))) return emptyList()
+        return items.map { it.key }
     }
 
     private fun readVerifiedForItem(context: Context, item: JournalItem): String? {
@@ -564,13 +619,13 @@ object Tweaks {
                     ),
                 )
             }
-            result.failedKey?.let { key ->
+            for (failure in result.failures) {
                 DiagnosticsLog.log(
                     context, "safety.restore", "failed",
                     fields = mapOf(
-                        "key" to key,
+                        "key" to failure.key,
                         "verify" to "failed",
-                        "stage" to (result.failedStage ?: "unknown"),
+                        "stage" to failure.stage,
                     ),
                 )
             }
@@ -581,19 +636,36 @@ object Tweaks {
             if (result.success) {
                 return AtomicStateFile.delete(journalFile(context))
             }
+            val corruptKeys = result.failures.filter { it.stage == "corrupt" }.map { it.key }.toSet()
+            val quarantinedKeys = if (corruptKeys.isEmpty()) {
+                emptySet()
+            } else {
+                val stored = appendQuarantine(context, result.remaining.filter { it.key in corruptKeys }).toSet()
+                for (key in stored) {
+                    DiagnosticsLog.log(
+                        context, "safety.restore", "quarantined",
+                        fields = mapOf("key" to key),
+                    )
+                }
+                stored
+            }
+            val kept = result.remaining.filter { it.key !in quarantinedKeys }
+            if (kept.isEmpty()) {
+                return AtomicStateFile.delete(journalFile(context))
+            }
             val failedKey = result.failedKey
-            if (failedKey == null || !isFreezerPackagesKey(failedKey)) {
+            if (failedKey == null || failedKey in quarantinedKeys || !isFreezerPackagesKey(failedKey)) {
                 Log.w(TAG, "rollback failed at $failedKey, journal kept")
-                save(context, result.remaining)
+                save(context, kept)
                 return false
             }
             val failedItem = current.firstOrNull { it.key == failedKey } ?: run {
-                save(context, result.remaining)
+                save(context, kept)
                 return false
             }
             val targets = storedTargets(failedItem.restoreCmd)
             if (targets.isEmpty()) {
-                save(context, result.remaining)
+                save(context, kept)
                 return false
             }
             var bridgeDown = false
@@ -603,7 +675,7 @@ object Tweaks {
                 }
             }
             if (bridgeDown) {
-                save(context, result.remaining)
+                save(context, kept)
                 return false
             }
             val namesOutputs = ArrayList<String>()
@@ -617,12 +689,12 @@ object Tweaks {
                 namesOutputs.add(chunkRead.output)
             }
             if (namesFailed) {
-                save(context, result.remaining)
+                save(context, kept)
                 return false
             }
             val still = AppFreezerPackageJournal.parseSuspendedNames(namesOutputs.joinToString("\n"))
             if (still.any { it !in targets }) {
-                save(context, result.remaining)
+                save(context, kept)
                 return false
             }
             if (still.isEmpty()) {
@@ -637,7 +709,7 @@ object Tweaks {
                     context, "safety.restore", "restored",
                     fields = mapOf("key" to failedItem.key, "verify" to "verified"),
                 )
-                current = result.remaining.filter { it.key != failedItem.key }
+                current = kept.filter { it.key != failedItem.key }
                 if (current.isEmpty()) {
                     return AtomicStateFile.delete(journalFile(context))
                 }
@@ -653,11 +725,11 @@ object Tweaks {
                 ),
             )
             if (still.size == targets.size) {
-                save(context, result.remaining)
+                save(context, kept)
                 return false
             }
             val split = AppFreezerPackageJournal.splitItem(failedItem, still)
-            val remaining = result.remaining.map { if (it.key == failedItem.key) split else it }
+            val remaining = kept.map { if (it.key == failedItem.key) split else it }
             save(context, remaining)
             return false
         }
@@ -689,12 +761,7 @@ object Tweaks {
     }
 
     private fun quarantineBadItems(context: Context, badItems: List<String>): Boolean {
-        val quarantineFile = File(context.applicationContext.noBackupFilesDir, QUARANTINE_FILE)
-        val existing = if (quarantineFile.exists()) {
-            AtomicStateFile.readRecovered(quarantineFile, JournalCodec::decodePartial)?.items ?: emptyList()
-        } else {
-            emptyList()
-        }
+        val existing = readQuarantinePartial(context)?.items ?: emptyList()
         val fresh = badItems.filter { raw -> existing.none { it.original == raw } }.map { raw ->
             JournalItem(
                 key = corruptItemKey(raw),
@@ -707,7 +774,7 @@ object Tweaks {
             )
         }
         if (fresh.isEmpty()) return true
-        return AtomicStateFile.save(quarantineFile, JournalCodec.encode(existing + fresh))
+        return appendQuarantine(context, fresh).size == fresh.size
     }
 
     private fun corruptItemKey(raw: String): String {

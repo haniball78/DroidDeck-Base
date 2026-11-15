@@ -39,7 +39,27 @@ object RecoveryCoordinator {
     fun recoveryPending(context: Context): Boolean {
         val appContext = context.applicationContext
         if (GameModeEngine.hasLegacyMarker(appContext) || AppFreezerEngine.hasLegacyMarker(appContext)) return true
-        return Tweaks.recoveryNeeded(appContext)
+        if (Tweaks.recoveryNeeded(appContext)) return true
+        return isDeadManExpired(appContext)
+    }
+
+    internal fun deadManExpiredFlagSet(value: String?): Boolean = value?.trim() == "1"
+
+    fun isDeadManExpired(context: Context): Boolean {
+        val value = runCatching {
+            android.provider.Settings.Global.getString(
+                context.applicationContext.contentResolver,
+                "droiddeck_deadman_expired",
+            )
+        }.getOrNull()
+        return deadManExpiredFlagSet(value)
+    }
+
+    private fun clearDeadManExpiredFlag(context: Context) {
+        runCatching {
+            PrivilegedBridge.ensureSessionToken(context)
+            PrivilegedBridge.executeChecked("settings delete global droiddeck_deadman_expired")
+        }
     }
 
     fun recoveryBlocksNewSession(context: Context, sessionGen: Int): Boolean {
@@ -96,13 +116,11 @@ object RecoveryCoordinator {
                 }
                 GameModeEngine.deleteLegacyMarker(appContext)
                 AppFreezerEngine.deleteLegacyMarker(appContext)
+                clearDeadManExpiredFlag(appContext)
                 return true
             }
             if (Tweaks.rollback(appContext)) {
-                runCatching {
-                    PrivilegedBridge.ensureSessionToken(appContext)
-                    PrivilegedBridge.executeChecked("settings delete global droiddeck_deadman_expired")
-                }
+                clearDeadManExpiredFlag(appContext)
                 if (!verifyLegacyFreezerCleared(appContext)) {
                     Log.w(TAG, "recovery pending: legacy freezer packages still suspended after rollback, marker kept")
                     return false

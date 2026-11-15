@@ -58,4 +58,16 @@ object ShutdownDeadline {
     fun remainingMs(startMs: Long, nowMs: Long): Long {
         return (DeadMan.SHUTDOWN_DEADLINE_MS - (nowMs - startMs)).coerceAtLeast(0L)
     }
+
+    fun joinWithinDeadline(thread: Thread, startMs: Long, nowMs: Long): Boolean {
+        val remaining = remainingMs(startMs, nowMs)
+        if (remaining <= 0L) return !thread.isAlive
+        return try {
+            thread.join(remaining)
+            !thread.isAlive
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            !thread.isAlive
+        }
+    }
 }

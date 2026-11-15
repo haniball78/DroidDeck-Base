@@ -47,6 +47,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.WirelessAdbPairingStabilityTest" \
             --tests "com.droiddeck.launcher.core.PairEpisodeGuardTest" \
             --tests "com.droiddeck.launcher.session.SessionTeardownRestoreTest" \
+            --tests "com.droiddeck.launcher.session.SessionGroup3FixesTest" \
             --tests "com.droiddeck.launcher.session.DeadManSessionTest" \
             --tests "com.droiddeck.launcher.core.WirelessAdbAutoRestartTest" \
             --tests "com.droiddeck.launcher.core.WirelessAdbPairingRedesignTest" \
@@ -73,6 +74,7 @@ jobs:
             --tests "com.droiddeck.launcher.core.privileged.DozeJournalOnApplyFailureTest" \
             --tests "com.droiddeck.launcher.core.privileged.FreezerVerifyTest" \
             --tests "com.droiddeck.launcher.core.privileged.JournalIntegrityTest" \
+            --tests "com.droiddeck.launcher.core.privileged.JournalGroup3FixesTest" \
             --tests "com.droiddeck.launcher.core.privileged.TweaksJournalTest" \
             --tests "com.droiddeck.launcher.core.privileged.DeadManTest" \
             --tests "com.droiddeck.launcher.core.privileged.BatchBVerifyTest" \

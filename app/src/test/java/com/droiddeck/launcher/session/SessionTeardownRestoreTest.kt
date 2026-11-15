@@ -78,4 +78,45 @@ class SessionTeardownRestoreTest {
         gate.beginTeardown(5)
         assertFalse(gate.retryRestore())
     }
+
+    @Test
+    fun beginRestoreReentryWithMatchingGenerationIsAllowed() {
+        val gate = ExitGate()
+        assertTrue(gate.request(ExitReason.USER, 5))
+        gate.beginTeardown(5)
+        assertTrue(gate.beginRestore(5))
+        assertEquals(ExitState.RESTORING, gate.state)
+        assertTrue(gate.beginRestore(5))
+        assertFalse(gate.beginRestore(6))
+    }
+
+    @Test
+    fun staleTeardownRestoreRefusedAfterNewSessionClaimsGate() {
+        val gate = ExitGate()
+        assertTrue(gate.request(ExitReason.USER, 5))
+        gate.beginTeardown(5)
+        assertTrue(gate.beginRestore(5))
+        gate.restoreSucceeded()
+        assertEquals(ExitState.DONE, gate.state)
+        gate.reset()
+        assertTrue(gate.request(ExitReason.USER, 6))
+        gate.beginTeardown(6)
+        assertFalse(gate.beginRestore(5))
+        assertTrue(gate.beginRestore(6))
+    }
+
+    @Test
+    fun beginRestoreRefusedFromIdle() {
+        val gate = ExitGate()
+        assertFalse(gate.beginRestore(5))
+        assertFalse(gate.beginRestore(0))
+    }
+
+    @Test
+    fun beginRestoreAllowedFromRequested() {
+        val gate = ExitGate()
+        assertTrue(gate.request(ExitReason.USER, 5))
+        assertTrue(gate.beginRestore(5))
+        assertEquals(ExitState.RESTORING, gate.state)
+    }
 }

@@ -17,15 +17,8 @@ object ShutdownRestore {
                 runCatching { pending?.finish() }
             }
         }
-        Thread({
-            try {
-                Thread.sleep(DeadMan.SHUTDOWN_DEADLINE_MS)
-            } catch (_: InterruptedException) {
-            }
-            finishOnce()
-        }, "safety-shutdown-deadline").start()
-        Thread({
-            val start = android.os.SystemClock.elapsedRealtime()
+        val rollbackStartMs = android.os.SystemClock.elapsedRealtime()
+        val rollbackThread = Thread({
             com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(appContext, "safety.shutdown", "received")
             if (!Tweaks.recoveryNeeded(appContext)) {
                 Log.i(TAG, "shutdown restore not needed, no journal")
@@ -38,7 +31,7 @@ object ShutdownRestore {
                 Log.w(TAG, "shutdown restore", t)
                 false
             }
-            val elapsed = android.os.SystemClock.elapsedRealtime() - start
+            val elapsed = android.os.SystemClock.elapsedRealtime() - rollbackStartMs
             com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
                 appContext, "safety.shutdown", if (ok) "rollback-finished" else "rollback-failed",
                 fields = mapOf("duration_ms" to elapsed.toString()),
@@ -49,7 +42,15 @@ object ShutdownRestore {
                 Log.w(TAG, "shutdown restore failed after ${elapsed}ms, journal kept")
             }
             finishOnce()
-        }, "safety-shutdown").start()
+        }, "safety-shutdown")
+        val deadlineThread = Thread({
+            ShutdownDeadline.joinWithinDeadline(
+                rollbackThread, rollbackStartMs, android.os.SystemClock.elapsedRealtime(),
+            )
+            finishOnce()
+        }, "safety-shutdown-deadline")
+        rollbackThread.start()
+        deadlineThread.start()
     }
 }
 

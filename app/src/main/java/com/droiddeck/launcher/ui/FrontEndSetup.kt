@@ -1310,6 +1310,8 @@ private data class RepairRow(
     val decision: com.droiddeck.launcher.core.privileged.RepairDecision,
     val original: String?,
     val current: String?,
+    val generation: Int,
+    val snapshotOriginal: String?,
 )
 
 @Composable
@@ -1672,6 +1674,8 @@ private fun AdvancedSetupTab(
                         } else {
                             null
                         },
+                        item.generation,
+                        item.original,
                     )
                 }
                 scannedRows.forEach { row ->
@@ -1709,6 +1713,16 @@ private fun AdvancedSetupTab(
                 var failed = 0
                 var skipped = 0
                 rows.forEach { row ->
+                    val currentItem = com.droiddeck.launcher.core.privileged.Tweaks.journalSnapshot(ctx)
+                        .firstOrNull { it.key == row.key }
+                    if (!com.droiddeck.launcher.core.privileged.JournalRepair.rowMatches(row.generation, row.snapshotOriginal, currentItem)) {
+                        skipped++
+                        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                            ctx, "device.repair", "stale",
+                            fields = mapOf("key" to row.key, "outcome" to "stale"),
+                        )
+                        return@forEach
+                    }
                     val outcome = when (row.decision) {
                         com.droiddeck.launcher.core.privileged.RepairDecision.CORRUPT -> {
                             if (com.droiddeck.launcher.core.privileged.Tweaks.quarantineKey(ctx, row.key)) {
@@ -2064,8 +2078,12 @@ private fun AdvancedSetupTab(
                                 verifying = true
                                 val r = withContext(Dispatchers.IO) {
                                     val gm = com.droiddeck.launcher.core.privileged.GameModeEngine.testRestoreNow(ctx)
-                                    com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(ctx, 999)
-                                    "$gm\n\n=== APP FREEZER ===\napp freezer: restored (all packages unsuspended)"
+                                    val freezerOk = com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(ctx, 999)
+                                    "$gm\n\n=== APP FREEZER ===\n" + if (freezerOk) {
+                                        "app freezer: restored (all packages unsuspended)"
+                                    } else {
+                                        "app freezer: restore FAILED - packages kept for retry"
+                                    }
                                 }
                                 verificationReport = r
                                 liveMetrics = withContext(Dispatchers.IO) {

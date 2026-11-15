@@ -1,6 +1,8 @@
 package com.droiddeck.launcher.core.privileged
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class JournalRepairTest {
@@ -66,6 +68,36 @@ class JournalRepairTest {
         val numeric = item("background_process_limit", "2", "settings put global background_process_limit 2 2>/dev/null")
         assertEquals(RepairDecision.ALREADY_OK, JournalRepair.classify(numeric, "2"))
         assertEquals(RepairDecision.RETRY, JournalRepair.classify(numeric, "4"))
+    }
+
+    @Test
+    fun rowMatchesScannedGenerationAndOriginal() {
+        val current = item("background_process_limit", "8", "settings put global background_process_limit 8 2>/dev/null")
+        assertTrue(JournalRepair.rowMatches(1, "8", current))
+    }
+
+    @Test
+    fun rowStaleWhenGenerationChanged() {
+        val current = item("background_process_limit", "8", "settings put global background_process_limit 8 2>/dev/null")
+        assertFalse(JournalRepair.rowMatches(2, "8", current))
+    }
+
+    @Test
+    fun rowStaleWhenOriginalChanged() {
+        val current = item("background_process_limit", "8", "settings put global background_process_limit 8 2>/dev/null")
+        assertFalse(JournalRepair.rowMatches(1, "4", current))
+    }
+
+    @Test
+    fun rowStaleWhenItemGone() {
+        assertFalse(JournalRepair.rowMatches(1, "8", null))
+    }
+
+    @Test
+    fun rowMatchesNullOriginalOnBothSides() {
+        val current = item("background_process_limit", null, "settings delete global background_process_limit 2>/dev/null")
+        assertTrue(JournalRepair.rowMatches(1, null, current))
+        assertFalse(JournalRepair.rowMatches(1, "8", current))
     }
 
     @Test

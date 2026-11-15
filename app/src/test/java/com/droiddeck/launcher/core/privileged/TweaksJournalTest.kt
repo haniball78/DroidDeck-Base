@@ -144,7 +144,7 @@ class TweaksJournalTest {
     }
 
     @Test
-    fun rollbackStopsAtFailedItemAndKeepsEarlierItems() {
+    fun rollbackContinuesPastFailedItemAndRestoresEarlierItems() {
         val items = listOf(
             settingItem("a_key", "1"),
             settingItem("b_key", "2"),
@@ -161,10 +161,56 @@ class TweaksJournalTest {
         )
         assertFalse(result.success)
         assertEquals("b_key", result.failedKey)
-        assertEquals(listOf(items[0], items[1]), result.remaining)
-        assertFalse(executed.any { it.contains("a_key") })
-        assertTrue(executed.any { it.contains("c_key") })
+        assertEquals(listOf(items[1]), result.remaining)
+        assertEquals(listOf("b_key"), result.failures.map { it.key })
+        assertEquals(listOf("execute"), result.failures.map { it.stage })
+        assertEquals(listOf(items[2], items[0]), result.completed)
+        assertTrue(executed.any { it.contains("a_key") })
         assertTrue(executed.any { it.contains("b_key") })
+        assertTrue(executed.any { it.contains("c_key") })
+    }
+
+    @Test
+    fun rollbackSkipsCorruptItemAndRestoresTheRest() {
+        val corrupt = settingItem("background_process_limit", "8")
+            .copy(restoreCmd = "Daemon error: failed to connect")
+        val items = listOf(
+            settingItem("a_key", "1"),
+            corrupt,
+            settingItem("c_key", "3"),
+        )
+        val executed = mutableListOf<String>()
+        val result = JournalRollback.rollback(
+            items,
+            execute = { cmd ->
+                executed.add(cmd)
+                0
+            },
+            readVerified = { item -> item.original },
+        )
+        assertFalse(result.success)
+        assertEquals(listOf(corrupt), result.remaining)
+        assertEquals(listOf("corrupt"), result.failures.map { it.stage })
+        assertEquals(listOf(items[2], items[0]), result.completed)
+        assertFalse(executed.any { it.contains("Daemon error") })
+    }
+
+    @Test
+    fun rollbackCollectsMultipleFailures() {
+        val items = listOf(
+            settingItem("a_key", "1"),
+            settingItem("b_key", "2"),
+            settingItem("c_key", "3"),
+        )
+        val result = JournalRollback.rollback(
+            items,
+            execute = { cmd -> if (cmd.contains("a_key") || cmd.contains("c_key")) 1 else 0 },
+            readVerified = { item -> item.original },
+        )
+        assertFalse(result.success)
+        assertEquals(listOf(items[0], items[2]), result.remaining)
+        assertEquals(setOf("a_key", "c_key"), result.failures.map { it.key }.toSet())
+        assertEquals(listOf(items[1]), result.completed)
     }
 
     @Test

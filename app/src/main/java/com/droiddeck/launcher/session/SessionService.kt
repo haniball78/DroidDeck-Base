@@ -2364,7 +2364,14 @@ class SessionService : Service() {
     }
 
     private fun restoreInTeardown(stoppedGen: Int): Boolean {
-        SessionExit.beginRestore()
+        if (!teardownRestoreAllowed(stoppedGen, sessionGen)) {
+            Log.w(TAG, "teardown restore skipped: stale generation $stoppedGen (active $sessionGen)")
+            return false
+        }
+        if (!SessionExit.beginRestore(stoppedGen)) {
+            Log.w(TAG, "teardown restore refused by exit gate for generation $stoppedGen")
+            return false
+        }
         val deadlineMs = 15000L
         var ok = false
         val worker = Thread({
@@ -2485,7 +2492,7 @@ class SessionService : Service() {
         }, "tracer-priority").start()
     }
 
-    private fun stopSession(status: Int) {
+    private fun stopSession(status: Int): java.util.concurrent.CountDownLatch? {
         cancelLeaveTimer()
         leaveRestored = false
         tweaksEndedForSafety = false
@@ -2495,7 +2502,7 @@ class SessionService : Service() {
         gameExitWatchToken++
         completeNativeSleep()
         val (ended, endedArch) = synchronized(stopLock) {
-            if (!SessionState.running) return
+            if (!SessionState.running) return null
             SessionState.running = false
             SessionPaths.take() to SessionState.steamClientArch
         }
@@ -2545,29 +2552,39 @@ class SessionService : Service() {
         FakeInputWriter.releaseAllRingSlots()
         com.droiddeck.launcher.input.SteamTouchDevice.release()
         val steamClientMayRun = SessionState.mode == MODE_STEAM || SessionState.mode == MODE_DESKTOP
+        val teardownDone = java.util.concurrent.CountDownLatch(1)
         val finishAfterTeardown: () -> Unit = {
             if (prootPid > 1 || auxiliary.isNotEmpty()) {
                 Thread({
-                    if (prootPid > 1 && steamClientMayRun) askSteamToExit(prootPid)
-                    com.droiddeck.launcher.stores.gog.GogComet.end(stoppedSession)
-                    auxiliary.forEach { (pid, started) -> teardown(pid, started) }
-                    if (prootPid > 1) teardown(prootPid)
-                    killGuestLeftovers()
-                    val restored = restoreInTeardown(stoppedGen)
-                    finishSessionStop(status, stoppedGen)
-                    if (restored && launcherEnded) importLauncherGames()
+                    try {
+                        if (prootPid > 1 && steamClientMayRun) askSteamToExit(prootPid)
+                        com.droiddeck.launcher.stores.gog.GogComet.end(stoppedSession)
+                        auxiliary.forEach { (pid, started) -> teardown(pid, started) }
+                        if (prootPid > 1) teardown(prootPid)
+                        killGuestLeftovers()
+                        val restored = restoreInTeardown(stoppedGen)
+                        finishSessionStop(status, stoppedGen)
+                        if (restored && launcherEnded) importLauncherGames()
+                    } finally {
+                        teardownDone.countDown()
+                    }
                 }, "session-teardown").start()
             } else {
                 Thread({
-                    com.droiddeck.launcher.stores.gog.GogComet.end(stoppedSession)
-                    val restored = restoreInTeardown(stoppedGen)
-                    finishSessionStop(status, stoppedGen)
-                    if (restored && launcherEnded) importLauncherGames()
+                    try {
+                        com.droiddeck.launcher.stores.gog.GogComet.end(stoppedSession)
+                        val restored = restoreInTeardown(stoppedGen)
+                        finishSessionStop(status, stoppedGen)
+                        if (restored && launcherEnded) importLauncherGames()
+                    } finally {
+                        teardownDone.countDown()
+                    }
                 }, "gog-session-stop").start()
             }
         }
         if (prootPid > 1) acquireLocks()
         if (controller != null) controller.closeAndResume(finishAfterTeardown) else finishAfterTeardown()
+        return teardownDone
     }
 
     private fun importLauncherGames() {
@@ -2589,9 +2606,11 @@ class SessionService : Service() {
     }
 
     override fun onDestroy() {
-        if (SessionState.running) {
+        val teardown = if (SessionState.running) {
             SessionExit.beginDirect(ExitReason.SERVICE_DESTROYED, sessionGen)
             stopSession(0)
+        } else {
+            null
         }
         GameThreadHints.stop() // also when the session never got as far as running
         com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
@@ -2607,6 +2626,9 @@ class SessionService : Service() {
         if (displayListenerRegistered) {
             (getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)?.unregisterDisplayListener(displayListener)
             displayListenerRegistered = false
+        }
+        if (!awaitTeardown(teardown, TEARDOWN_WAIT_MS)) {
+            Log.w(TAG, "service destroyed before teardown finished, journal kept for boot recovery")
         }
         super.onDestroy()
     }
@@ -2819,6 +2841,21 @@ class SessionService : Service() {
 
         internal fun shouldDisarmDeadMan(disarmingGen: Int, activeGen: Int, sessionRunning: Boolean): Boolean =
             disarmingGen != 0 && disarmingGen == activeGen && !sessionRunning
+
+        internal fun teardownRestoreAllowed(stoppedGen: Int, activeGen: Int): Boolean =
+            stoppedGen == 0 || activeGen == 0 || stoppedGen == activeGen
+
+        internal fun awaitTeardown(latch: java.util.concurrent.CountDownLatch?, timeoutMs: Long): Boolean {
+            if (latch == null) return true
+            return try {
+                latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
+        }
+
+        private const val TEARDOWN_WAIT_MS = 20_000L
 
         internal fun retryRestoreAllowed(sessionRunning: Boolean): Boolean = !sessionRunning
 

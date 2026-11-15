@@ -68,6 +68,7 @@ internal class ExitGate {
 
     fun beginRestore(generation: Int = 0): Boolean {
         return synchronized(lock) {
+            if (state == ExitState.RESTORING) return@synchronized generationMatches(generation)
             if (state != ExitState.TEARDOWN && state != ExitState.REQUESTED) return@synchronized false
             if (!generationMatches(generation)) return@synchronized false
             state = ExitState.RESTORING

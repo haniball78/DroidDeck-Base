@@ -609,11 +609,11 @@ object GameModeEngine {
     }
 
     fun testRestoreNow(context: Context): String {
-        restore(context, 999)
+        val restored = restore(context, 999)
         val metrics = runLiveVerification(context)
         return buildString {
             appendLine("=== TEST RESTORE RESULT ===")
-            appendLine("game mode restored to defaults")
+            appendLine(if (restored) "game mode restored to defaults" else "game mode restore FAILED - settings kept for retry")
             appendLine("--- Verified Live System State ---")
             metrics.forEach { (k, v) -> appendLine("$k: $v") }
         }
