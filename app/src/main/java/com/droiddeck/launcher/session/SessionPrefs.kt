@@ -1235,6 +1235,57 @@ object SessionPrefs {
         prefs(context).edit().putString(if (right) "gamepadRight" else "gamepadLeft", surface).apply()
     }
 
+    // Per-game pad surfaces, keyed by Steam app id, same JSON-map shape as the
+    // per-game texture filtering. "" means no game: the global surface applies.
+    // A game with no entry falls back to the global surface for that side.
+    data class GamepadSurfaces(val left: String?, val right: String?)
+
+    fun gamepadSurfaceForGame(context: Context, scope: String, right: Boolean): String {
+        val scoped = if (scope.isEmpty()) null else gamepadSurfaces(context)[scope]
+            ?.let { if (right) it.right else it.left }
+        return scoped ?: gamepadSurface(context, right)
+    }
+
+    fun setGamepadSurfaceForGame(context: Context, scope: String, right: Boolean, surface: String) {
+        require(surface in setOf(SURFACE_STICK, SURFACE_TRACKPAD))
+        if (scope.isEmpty()) {
+            setGamepadSurface(context, right, surface)
+            return
+        }
+        require(GameEnvironment.validScope(scope))
+        val choices = gamepadSurfaces(context).toMutableMap()
+        val current = choices[scope] ?: GamepadSurfaces(null, null)
+        choices[scope] = if (right) current.copy(right = surface) else current.copy(left = surface)
+        prefs(context).edit().putString("gamepadSurfaceByGame", serializeGamepadSurfaces(choices)).apply()
+    }
+
+    fun gamepadSurfaces(context: Context): Map<String, GamepadSurfaces> =
+        parseGamepadSurfaces(prefs(context).getString("gamepadSurfaceByGame", null) ?: "{}")
+
+    internal fun parseGamepadSurfaces(json: String): Map<String, GamepadSurfaces> {
+        val parsed = runCatching { JSONObject(json) }.getOrElse { JSONObject() }
+        return buildMap {
+            parsed.keys().forEach { scope ->
+                if (scope.isEmpty() || !GameEnvironment.validScope(scope)) return@forEach
+                val entry = parsed.optJSONObject(scope) ?: return@forEach
+                val left = entry.optString("left").takeIf { entry.has("left") && it in setOf(SURFACE_STICK, SURFACE_TRACKPAD) }
+                val right = entry.optString("right").takeIf { entry.has("right") && it in setOf(SURFACE_STICK, SURFACE_TRACKPAD) }
+                if (left != null || right != null) put(scope, GamepadSurfaces(left, right))
+            }
+        }
+    }
+
+    internal fun serializeGamepadSurfaces(choices: Map<String, GamepadSurfaces>): String {
+        val json = JSONObject()
+        choices.forEach { (scope, surfaces) ->
+            json.put(scope, JSONObject().apply {
+                surfaces.left?.let { put("left", it) }
+                surfaces.right?.let { put("right", it) }
+            })
+        }
+        return json.toString()
+    }
+
     fun suspendPolicy(context: Context, mode: String): String =
         prefs(context).getString("suspendPolicy.${prefMode(mode)}", SUSPEND_MANUAL)
             ?.let { if (it == LEGACY_SUSPEND_DOWNLOADS) SUSPEND_AUTO else it }

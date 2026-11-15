@@ -23,6 +23,9 @@ class TvHandoffScreen(
     val hz: Float get() = display.mode.refreshRate
     var outputSize: Pair<Int, Int> = display.mode.physicalWidth to display.mode.physicalHeight
         private set
+    // True when the TV offers no exact 1080p mode and the render was capped to 1080p.
+    var cappedTo1080p: Boolean = false
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,6 +42,8 @@ class TvHandoffScreen(
             TvHandoff.TvMode(it.physicalWidth, it.physicalHeight, it.refreshRate, it.modeId)
         }
         val best = TvHandoff.selectMode(modes, wantHz = refreshHz.toFloat())
+        cappedTo1080p = best == null &&
+            (display.mode.physicalWidth > 1920 || display.mode.physicalHeight > 1080)
         outputSize = best?.let { it.width to it.height }
             ?: TvHandoff.capOutputSize(display.mode.physicalWidth, display.mode.physicalHeight)
         val w = window ?: return

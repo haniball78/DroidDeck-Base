@@ -85,4 +85,60 @@ class TvHandoffTest {
         assertEquals(0, capped.first % 2)
         assertEquals(0, capped.second % 2)
     }
+
+    @Test fun gameScopeParsesSteamLaunchUrl() {
+        assertEquals("440", TvHandoff.gameScope("steam://rungameid/440"))
+        assertEquals("440", TvHandoff.gameScope("steam://run/440"))
+        assertEquals("440", TvHandoff.gameScope("steam://rungameid/440/extra"))
+    }
+
+    @Test fun gameScopeRejectsNonGameUrls() {
+        assertEquals("", TvHandoff.gameScope(null))
+        assertEquals("", TvHandoff.gameScope(""))
+        assertEquals("", TvHandoff.gameScope("steam://open/library"))
+        assertEquals("", TvHandoff.gameScope("steam://rungameid/0"))
+        assertEquals("", TvHandoff.gameScope("steam://rungameid/abc"))
+        assertEquals("", TvHandoff.gameScope("steam://rungameid/4294967296"))
+    }
+
+    @Test fun freezeOnlyWhenNoInputChannelLeft() {
+        assertTrue(TvHandoff.shouldFreezeOnInputLoss(tvActive = true, running = true, physicalConnected = false, toggleOn = false))
+        assertFalse(TvHandoff.shouldFreezeOnInputLoss(tvActive = true, running = true, physicalConnected = true, toggleOn = false))
+        assertFalse(TvHandoff.shouldFreezeOnInputLoss(tvActive = true, running = true, physicalConnected = false, toggleOn = true))
+        assertFalse(TvHandoff.shouldFreezeOnInputLoss(tvActive = true, running = false, physicalConnected = false, toggleOn = false))
+        assertFalse(TvHandoff.shouldFreezeOnInputLoss(tvActive = false, running = true, physicalConnected = false, toggleOn = false))
+    }
+
+    @Test fun companionShowsOnlyOnLitPhoneController() {
+        assertTrue(TvHandoff.shouldShowCompanion(tvActive = true, controllerActive = true, loadingVisible = false, drawerOpen = false, pcKeyboardOpen = false))
+        assertFalse(TvHandoff.shouldShowCompanion(tvActive = true, controllerActive = false, loadingVisible = false, drawerOpen = false, pcKeyboardOpen = false))
+        assertFalse(TvHandoff.shouldShowCompanion(tvActive = false, controllerActive = true, loadingVisible = false, drawerOpen = false, pcKeyboardOpen = false))
+        assertFalse(TvHandoff.shouldShowCompanion(tvActive = true, controllerActive = true, loadingVisible = true, drawerOpen = false, pcKeyboardOpen = false))
+        assertFalse(TvHandoff.shouldShowCompanion(tvActive = true, controllerActive = true, loadingVisible = false, drawerOpen = true, pcKeyboardOpen = false))
+        assertFalse(TvHandoff.shouldShowCompanion(tvActive = true, controllerActive = true, loadingVisible = false, drawerOpen = false, pcKeyboardOpen = true))
+    }
+
+    @Test fun fpsFromCountsNeedsPositiveWindow() {
+        assertEquals(60.0, TvHandoff.fpsFromCounts(100, 160, 1000), 0.001)
+        assertEquals(60.0, TvHandoff.fpsFromCounts(0, 30, 500), 0.001)
+        assertEquals(0.0, TvHandoff.fpsFromCounts(100, 160, 0), 0.001)
+        assertEquals(0.0, TvHandoff.fpsFromCounts(160, 100, 1000), 0.001)
+    }
+
+    @Test fun stickDeadZoneCentersSmallMoves() {
+        assertEquals(0f to 0f, TvHandoff.stickDeadZone(0f, 0f, 100f))
+        assertEquals(0f to 0f, TvHandoff.stickDeadZone(5f, 0f, 100f))
+        assertEquals(0f to 0f, TvHandoff.stickDeadZone(0f, 0f, 0f))
+    }
+
+    @Test fun stickDeadZoneStretchesPastTheZone() {
+        val full = TvHandoff.stickDeadZone(100f, 0f, 100f)
+        assertEquals(100f, full.first, 0.001f)
+        assertEquals(0f, full.second, 0.001f)
+        val half = TvHandoff.stickDeadZone(50f, 0f, 100f)
+        assertEquals((0.5f - 0.12f) / 0.88f * 100f, half.first, 0.01f)
+        val diagonal = TvHandoff.stickDeadZone(70.71f, 70.71f, 100f)
+        assertEquals(diagonal.first, diagonal.second, 0.01f)
+        assertTrue(diagonal.first > 0f && diagonal.first < 100f)
+    }
 }

@@ -42,7 +42,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.droiddeck.launcher.core.FileUtils
 import com.droiddeck.launcher.core.TextureFiltering
+import com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor
 import com.droiddeck.launcher.core.TvHandoff
+import com.droiddeck.launcher.session.SafetySources
 import com.droiddeck.launcher.core.privileged.DiagnosticsLog
 import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
 import com.droiddeck.launcher.files.InAppFilePicker
@@ -121,7 +123,9 @@ import com.droiddeck.launcher.ui.LoadingOverlay
 import com.droiddeck.launcher.ui.SessionDrawer
 import com.droiddeck.launcher.ui.SessionPausedOverlay
 import com.droiddeck.launcher.ui.SecondScreenPresentation
+import com.droiddeck.launcher.ui.TvCompanionStrip
 import com.droiddeck.launcher.ui.TvHandoffScreen
+import com.droiddeck.launcher.ui.TvInputLostCard
 import com.droiddeck.launcher.ui.DroidDeckTheme
 import com.droiddeck.launcher.wayland.CompositorHost
 import com.droiddeck.launcher.wayland.WaylandCompositor
@@ -392,6 +396,13 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var tvControllerActive = false
     private var tvPanelDimmed = false
     private var tvPanelSavedBrightness = -1f
+    // True while the TV session is frozen for input loss; drives the overlay card.
+    private var tvInputLossFrozen by mutableStateOf(false)
+    private var tvCompanionState by mutableStateOf<TvHandoff.CompanionState?>(null)
+    private var tvAttachedAtMs = 0L
+    private var tvLastFrameCount = 0L
+    private var tvLastFrameAtMs = 0L
+    private var tvCompanionTickerRunning = false
     private var tvEndButton: Button? = null
     private var tvEndArmedAt = 0L
     private val displayListener = object : DisplayManager.DisplayListener {
@@ -715,6 +726,15 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 CursorOverlay({ cursorPos }, cursorVisible, resources.displayMetrics.density,
                     cursorImage, cursorHotX, cursorHotY, cursorImageScale)
                 if (hud.text.isNotEmpty() || hud.graph.size >= 2) HudText(hud.text, hud.graph, hudColor, hudOpacity)
+                if (tvCompanionState != null && TvHandoff.shouldShowCompanion(tvOutputActive, tvControllerActive, loading.visible, drawerOpen, pcKeyboardOpen)) {
+                    TvCompanionStrip(tvCompanionState!!)
+                }
+                if (tvInputLossFrozen) {
+                    TvInputLostCard(onUsePhoneController = {
+                        SessionPrefs.setTvControllerMode(this@SessionActivity, true)
+                        updateTvController()
+                    })
+                }
                 val phonePanel = glassesOutputActive && !loading.visible && !drawerOpen && !pcKeyboardOpen
                 if (phonePanel) GlassesPhonePanel(glasses, steamVrStatus == SteamVr.Status.RUNNING, headTracking)
                 if (trackingRecovery != null && !drawerOpen && !pcKeyboardOpen && !loading.visible) {
@@ -2649,7 +2669,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         }
         if (panel == null) {
             panel = com.droiddeck.launcher.ui.DeckControlsPanel(this, onClose = { chooseUnfoldedControls(false) },
-                onSteamMenu = ::tapSteamButton, onQam = ::tapQam, pad = padBridge)
+                onSteamMenu = ::tapSteamButton, onQam = ::tapQam, pad = padBridge,
+                gameScope = TvHandoff.gameScope(SessionState.steamUrl))
             sessionRoot.addView(panel, sessionRoot.indexOfChild(surfaceView) + 1)
             unfoldedPanel = panel
             updateOnScreenControls()
@@ -3435,9 +3456,12 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                         "step" to "attached",
                         "display" to screen.display.displayId.toString(),
                         "size" to "${screen.outputSize.first}x${screen.outputSize.second}",
+                        "capped" to screen.cappedTo1080p.toString(),
                     ),
                 )
             }
+            tvAttachedAtMs = SystemClock.elapsedRealtime()
+            startTvCompanionTicker()
             // Let the switch settle and frames flow before resizing, so a
             // failure is attributable to the resize step, not the switch.
             uiHandler.postDelayed({
@@ -3630,6 +3654,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (tvScreen !== screen) return
         tvScreen = null
         tvOutputActive = false
+        stopTvCompanionTicker()
         surfaceW = 0
         surfaceH = 0
         CompositorHost.detach(screen.holder.surface)
@@ -3651,6 +3676,16 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         val toggleOn = SessionPrefs.tvControllerMode(this)
         val want = TvHandoff.shouldEngageController(tvOutputActive, SessionState.running, physical, toggleOn)
         updateTvPanelDim(physical)
+        // No input channel left: freeze the game until a controller comes back.
+        val freeze = TvHandoff.shouldFreezeOnInputLoss(tvOutputActive, SessionState.running, physical, toggleOn)
+        if (freeze != tvInputLossFrozen) {
+            tvInputLossFrozen = freeze
+            SessionService.setTvInputLost(this, freeze)
+            TvDiagnosticsLog.log(
+                "tv", "input",
+                fields = mapOf("step" to if (freeze) "frozen" else "unfrozen"),
+            )
+        }
         if (want == tvControllerActive) return
         tvControllerActive = want
         val reason = when {
@@ -3689,6 +3724,51 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 screenBrightness = tvPanelSavedBrightness
             }
         }
+    }
+
+    // Companion readings, once a second while the game is on the TV: FPS from the
+    // compositor frame count, battery level and temperature, time on TV, render size.
+    private val tvCompanionTick = object : Runnable {
+        override fun run() {
+            if (!tvOutputActive || !SessionState.running) {
+                tvCompanionTickerRunning = false
+                return
+            }
+            val nowMs = SystemClock.elapsedRealtime()
+            val count = WaylandCompositor.gameFrameCount()
+            val fps = if (tvLastFrameAtMs > 0) {
+                TvHandoff.fpsFromCounts(tvLastFrameCount, count, nowMs - tvLastFrameAtMs)
+            } else 0.0
+            tvLastFrameCount = count
+            tvLastFrameAtMs = nowMs
+            val battery = SafetySources.battery(this@SessionActivity).read()
+            val screen = tvScreen
+            tvCompanionState = TvHandoff.CompanionState(
+                fps = fps,
+                batteryPct = battery?.levelPercent ?: -1,
+                charging = battery?.charging == true,
+                batteryTempC = DynamicAdaptiveGovernor.getBatteryTemperature(this@SessionActivity),
+                tvSeconds = if (tvAttachedAtMs > 0) (nowMs - tvAttachedAtMs) / 1000 else 0,
+                width = screen?.outputSize?.first ?: 0,
+                height = screen?.outputSize?.second ?: 0,
+                physicalInput = PadBridge.anyControllerConnected() || SteamControllerBle.connected,
+                cappedTo1080p = screen?.cappedTo1080p == true,
+            )
+            uiHandler.postDelayed(this, 1000L)
+        }
+    }
+
+    private fun startTvCompanionTicker() {
+        if (tvCompanionTickerRunning) return
+        tvCompanionTickerRunning = true
+        tvLastFrameAtMs = 0L
+        uiHandler.post(tvCompanionTick)
+    }
+
+    private fun stopTvCompanionTicker() {
+        tvCompanionTickerRunning = false
+        uiHandler.removeCallbacks(tvCompanionTick)
+        tvCompanionState = null
     }
 
     private fun ensureTvEndButton() {

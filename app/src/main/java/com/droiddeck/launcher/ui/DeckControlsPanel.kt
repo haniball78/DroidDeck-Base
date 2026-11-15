@@ -20,6 +20,7 @@ import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.droiddeck.launcher.core.TvHandoff
 import com.droiddeck.launcher.input.DeckControls
 import com.droiddeck.launcher.input.PadBridge
 import com.droiddeck.launcher.input.PadState
@@ -37,6 +38,7 @@ class DeckControlsPanel(
     private val onSteamMenu: () -> Unit,
     private val onQam: () -> Unit,
     private val pad: PadBridge? = null,
+    private val gameScope: String = "",
 ) : LinearLayout(context) {
     private enum class Tab(val label: Int) { GAMEPAD(R.string.deck_tab_gamepad), GRIPS(R.string.deck_tab_grips), LEFT(R.string.deck_tab_left), RIGHT(R.string.deck_tab_right), BOTH(R.string.deck_tab_both) }
 
@@ -209,7 +211,7 @@ class DeckControlsPanel(
         val slot = this
         fun show() {
             slot.removeAllViews()
-            val stick = SessionPrefs.gamepadSurface(context, right) == SessionPrefs.SURFACE_STICK
+            val stick = SessionPrefs.gamepadSurfaceForGame(context, gameScope, right) == SessionPrefs.SURFACE_STICK
             slot.addView(if (stick) StickView(context, pad, right) else TrackpadView(context, right, captioned = false),
                 FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             val chip = TextView(context).apply {
@@ -222,7 +224,7 @@ class DeckControlsPanel(
                 background = outline(CORNER_PILL, SURFACE)
                 setOnClickListener {
                     performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                    SessionPrefs.setGamepadSurface(context, right,
+                    SessionPrefs.setGamepadSurfaceForGame(context, gameScope, right,
                         if (stick) SessionPrefs.SURFACE_TRACKPAD else SessionPrefs.SURFACE_STICK)
                     show()
                 }
@@ -472,7 +474,9 @@ class DeckControlsPanel(
             var dy = y - originY
             val length = hypot(dx, dy)
             if (length > r) { dx *= r / length; dy *= r / length }
-            move(dx, dy, r)
+            // Dead zone, same as the JoyCon sticks: small drift reports center.
+            val (ox, oy) = TvHandoff.stickDeadZone(dx, dy, r)
+            move(ox, oy, r)
         }
 
         private fun move(dx: Float, dy: Float, r: Float) {

@@ -124,6 +124,9 @@ class SessionService : Service() {
     private var activityDisplayId = Display.DEFAULT_DISPLAY
     private var xrActivityVisible = false
     private var signInHold = false
+    // The TV session lost its last input channel (no physical pad, phone pad off).
+    // While set, the session stays frozen the same way a manual pause freezes it.
+    private var tvInputLossPause = false
     private val hasVisibleSurface get() = !SessionVisibilityPolicy.isHidden(
         activityStarted = activityVisible || signInHold,
         defaultDisplayOn = (getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive ?: screenOn,
@@ -397,6 +400,14 @@ class SessionService : Service() {
                 updateSuspendPolicy()
                 return START_NOT_STICKY
             }
+            ACTION_TV_INPUT_LOSS -> {
+                val lost = intent?.getBooleanExtra(EXTRA_TV_INPUT_LOST, false) == true
+                if (lost == tvInputLossPause) return START_NOT_STICKY
+                tvInputLossPause = lost
+                suspendAttemptFailed = false
+                updateSuspendPolicy()
+                return START_NOT_STICKY
+            }
             ACTION_SUSPEND_POLICY_CHANGED -> {
                 if (!SessionState.running) return START_NOT_STICKY
                 suspendPolicy = SessionPrefs.suspendPolicy(this, SessionState.mode)
@@ -441,6 +452,7 @@ class SessionService : Service() {
         activityDisplayId = intent?.getIntExtra(EXTRA_ACTIVITY_DISPLAY_ID, sessionDisplayId) ?: sessionDisplayId
         screenOn = readScreenOn()
         manualPauseRequested = false
+        tvInputLossPause = false
         suspendDownloadNow = false
         steamDownloadMonitor.reset()
         downloadActive = false
@@ -1644,11 +1656,12 @@ class SessionService : Service() {
         }
         val controller = suspendController ?: return
         if (downloadsBlockingSuspend) acquireLocks()
-        val steamPause = SessionState.mode == MODE_STEAM && !downloadsBlockingSuspend && when (suspendPolicy) {
-            SessionPrefs.SUSPEND_AUTO, SessionPrefs.SUSPEND_NATIVE -> hidden
-            SessionPrefs.SUSPEND_MANUAL -> manualPauseRequested
-            else -> false
-        }
+        val steamPause = SessionState.mode == MODE_STEAM && !downloadsBlockingSuspend &&
+            (when (suspendPolicy) {
+                SessionPrefs.SUSPEND_AUTO, SessionPrefs.SUSPEND_NATIVE -> hidden
+                SessionPrefs.SUSPEND_MANUAL -> manualPauseRequested
+                else -> false
+            } || tvInputLossPause)
         if (!steamPause) {
             completeNativeSleep()
         } else if (nativeSleepToken == null && steamSleepToken == null &&
@@ -1656,12 +1669,13 @@ class SessionService : Service() {
             prepareNativeSleep()
         }
         val prepared = SessionState.mode != MODE_STEAM || nativeSleepReady
-        val shouldSuspend = steamSleepToken != null || when (suspendPolicy) {
-            SessionPrefs.SUSPEND_AUTO -> hidden && prepared && !downloadsBlockingSuspend
-            SessionPrefs.SUSPEND_NATIVE -> hidden && nativeSleepReady && !downloadsBlockingSuspend
-            SessionPrefs.SUSPEND_MANUAL -> manualPauseRequested && prepared && !downloadsBlockingSuspend
-            else -> false
-        }
+        val shouldSuspend = steamSleepToken != null ||
+            (tvInputLossPause && prepared && !downloadsBlockingSuspend) || when (suspendPolicy) {
+                SessionPrefs.SUSPEND_AUTO -> hidden && prepared && !downloadsBlockingSuspend
+                SessionPrefs.SUSPEND_NATIVE -> hidden && nativeSleepReady && !downloadsBlockingSuspend
+                SessionPrefs.SUSPEND_MANUAL -> manualPauseRequested && prepared && !downloadsBlockingSuspend
+                else -> false
+            }
         if (freezePending && !shouldSuspend && !freezeCancelled) {
             freezeCancelled = true
             controller.cancelFreeze()
@@ -2907,6 +2921,8 @@ class SessionService : Service() {
         private const val ACTION_XR_ACTIVITY_HIDDEN = "com.droiddeck.launcher.XR_ACTIVITY_HIDDEN"
         private const val ACTION_SIGN_IN_HOLD = "com.droiddeck.launcher.SIGN_IN_HOLD"
         private const val EXTRA_HOLD = "hold"
+        const val ACTION_TV_INPUT_LOSS = "com.droiddeck.launcher.TV_INPUT_LOSS"
+        private const val EXTRA_TV_INPUT_LOST = "tvInputLost"
         private const val ACTION_TRACK_AUXILIARY = "com.droiddeck.launcher.TRACK_AUXILIARY"
         private const val ACTION_STOP_AUXILIARY = "com.droiddeck.launcher.STOP_AUXILIARY"
         private const val ACTION_AUXILIARY_EXITED = "com.droiddeck.launcher.AUXILIARY_EXITED"
@@ -3005,6 +3021,13 @@ class SessionService : Service() {
         fun holdForSignIn(context: Context, hold: Boolean) {
             if (!SessionState.running) return
             context.startService(Intent(context, SessionService::class.java).setAction(ACTION_SIGN_IN_HOLD).putExtra(EXTRA_HOLD, hold))
+        }
+
+        // Freeze (lost=true) or unfreeze (lost=false) the TV session when its last
+        // input channel is gone or back. No-op when the session is not running.
+        fun setTvInputLost(context: Context, lost: Boolean) {
+            if (!SessionState.running) return
+            context.startService(Intent(context, SessionService::class.java).setAction(ACTION_TV_INPUT_LOSS).putExtra(EXTRA_TV_INPUT_LOST, lost))
         }
 
         fun resume(context: Context) {

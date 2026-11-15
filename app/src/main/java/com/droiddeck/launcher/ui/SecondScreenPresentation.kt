@@ -22,6 +22,7 @@ import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.droiddeck.launcher.core.TvHandoff
 import com.droiddeck.launcher.input.KeyboardHost
 import com.droiddeck.launcher.input.PadBridge
 import com.droiddeck.launcher.input.PointerGestures
@@ -118,7 +119,7 @@ class SecondScreenPresentation(
         when (mode) {
             SecondScreenMode.KEYBOARD_TRACKPAD -> renderKeyboardAndTrackpad()
             SecondScreenMode.TERMINAL -> renderTerminal()
-            SecondScreenMode.DECK_CONTROLS -> root.addView(DeckControlsPanel(context, onClose, onSteamMenu, onQam, pad), weightParams())
+            SecondScreenMode.DECK_CONTROLS -> root.addView(DeckControlsPanel(context, onClose, onSteamMenu, onQam, pad, TvHandoff.gameScope(SessionState.steamUrl)), weightParams())
             SecondScreenMode.NONE -> Unit
         }
     }
