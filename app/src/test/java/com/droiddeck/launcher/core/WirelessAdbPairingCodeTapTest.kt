@@ -1,6 +1,6 @@
 package com.droiddeck.launcher.core
 
-import com.droiddeck.launcher.core.WirelessAdbPairingService.CodeTap
+import com.droiddeck.launcher.core.WirelessAdbPairingService.Companion.CodeTap
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
