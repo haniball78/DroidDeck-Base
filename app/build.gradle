@@ -341,7 +341,7 @@ dependencies {
     implementation 'androidx.compose.material:material-icons-extended'
     implementation 'io.coil-kt:coil-compose:2.6.0'
     implementation 'com.caverock:androidsvg-aar:1.4'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
     implementation 'com.flyfishxu:kadb-android:1.2.1'
     // Direct: the reset mint generates its own identity with these (kadb
     // only carries them as runtime deps, so they are not visible here).
@@ -356,6 +356,7 @@ dependencies {
     }
 
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2'
     testImplementation 'org.robolectric:robolectric:4.16.1'
     testImplementation 'androidx.compose.ui:ui-test-junit4'
     testRuntimeOnly 'com.github.luben:zstd-jni:1.5.7-4@jar'
