@@ -33,6 +33,7 @@ fun TvSettingsPage(onBack: () -> Unit) {
     var tvStreamLoopbackTest by remember { mutableStateOf(SessionPrefs.tvStreamLoopbackTest(ctx)) }
     var tvSurfaceEncodeTest by remember { mutableStateOf(SessionPrefs.tvSurfaceEncodeTest(ctx)) }
     var tvStreamTest by remember { mutableStateOf(SessionPrefs.tvStreamTest(ctx)) }
+    var tvRender4k by remember { mutableStateOf(SessionPrefs.tvRender4k(ctx)) }
     var tvDiagnosticsEnabled by remember { mutableStateOf(TvDiagnosticsLog.isEnabled(ctx)) }
     var summary by remember { mutableStateOf(TvDiagnosticsLog.summary(ctx)) }
     var hasFile by remember { mutableStateOf(TvDiagnosticsLog.file(ctx) != null) }
@@ -49,7 +50,7 @@ fun TvSettingsPage(onBack: () -> Unit) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     "Test only: while the handoff test is on, a running game moves to a connected " +
-                    "TV at 1080p when the TV is plugged in. Turning the test off, or unplugging " +
+                    "TV at 1080p (or 4K when the 4K render toggle below is on) when the TV is plugged in. Turning the test off, or unplugging " +
                     "the TV, moves the game back to the phone.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -86,6 +87,19 @@ fun TvSettingsPage(onBack: () -> Unit) {
                 ToggleSwitch(checked = tvControllerMode, onChange = { on ->
                     tvControllerMode = on
                     SessionPrefs.setTvControllerMode(ctx, on)
+                })
+            }
+        }
+
+        // ── TV 4K render ────────────────────────────────────────
+        SettingsGroup("TV 4K render") {
+            SettingsRow(
+                label = "TV 4K render",
+                hint = "Off by default: while on, the game renders at the TV's native 4K (3840x2160) instead of 1080p. Sharper picture, but much heavier on the phone: more heat and battery drain. Applies the next time the game moves to the TV.",
+            ) {
+                ToggleSwitch(checked = tvRender4k, onChange = { on ->
+                    tvRender4k = on
+                    SessionPrefs.setTvRender4k(ctx, on)
                 })
             }
         }

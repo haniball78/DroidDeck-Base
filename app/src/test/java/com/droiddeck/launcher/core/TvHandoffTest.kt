@@ -1,5 +1,6 @@
 package com.droiddeck.launcher.core
 
+import android.view.InputDevice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -84,6 +85,36 @@ class TvHandoffTest {
         assertTrue(capped.first <= 1920 && capped.second <= 1080)
         assertEquals(0, capped.first % 2)
         assertEquals(0, capped.second % 2)
+    }
+
+    @Test fun selectModePicks4kWhenAsked() {
+        val modes = listOf(
+            TvHandoff.TvMode(3840, 2160, 60f, 1),
+            TvHandoff.TvMode(1920, 1080, 60f, 2),
+        )
+        assertEquals(1, TvHandoff.selectMode(modes, wantWidth = 3840, wantHeight = 2160)?.modeId)
+    }
+
+    @Test fun capOutputSizeKeepsNative4kWhen4kCap() {
+        assertEquals(3840 to 2160, TvHandoff.capOutputSize(3840, 2160, 3840, 2160))
+    }
+
+    @Test fun capOutputSizeScalesDownTo4kCap() {
+        assertEquals(3840 to 2160, TvHandoff.capOutputSize(5120, 2880, 3840, 2160))
+    }
+
+    @Test fun keyboardSourceCountsAsKeyboardOrMouse() {
+        assertTrue(TvHandoff.isKeyboardOrMouseSource(InputDevice.SOURCE_KEYBOARD))
+    }
+
+    @Test fun mouseSourceCountsAsKeyboardOrMouse() {
+        assertTrue(TvHandoff.isKeyboardOrMouseSource(InputDevice.SOURCE_MOUSE))
+    }
+
+    @Test fun touchAndGamepadSourcesDoNotCountAsKeyboardOrMouse() {
+        assertFalse(TvHandoff.isKeyboardOrMouseSource(InputDevice.SOURCE_TOUCHSCREEN))
+        assertFalse(TvHandoff.isKeyboardOrMouseSource(InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_JOYSTICK))
+        assertFalse(TvHandoff.isKeyboardOrMouseSource(0))
     }
 
     @Test fun gameScopeParsesSteamLaunchUrl() {

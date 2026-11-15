@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import com.droiddeck.launcher.core.TvHandoff
+import com.droiddeck.launcher.session.SessionPrefs
 
 class TvHandoffScreen(
     context: Context,
@@ -41,11 +42,14 @@ class TvHandoffScreen(
         val modes = display.supportedModes.map {
             TvHandoff.TvMode(it.physicalWidth, it.physicalHeight, it.refreshRate, it.modeId)
         }
-        val best = TvHandoff.selectMode(modes, wantHz = refreshHz.toFloat())
-        cappedTo1080p = best == null &&
+        val render4k = SessionPrefs.tvRender4k(context)
+        val maxWidth = if (render4k) 3840 else 1920
+        val maxHeight = if (render4k) 2160 else 1080
+        val best = TvHandoff.selectMode(modes, wantWidth = maxWidth, wantHeight = maxHeight, wantHz = refreshHz.toFloat())
+        cappedTo1080p = !render4k && best == null &&
             (display.mode.physicalWidth > 1920 || display.mode.physicalHeight > 1080)
         outputSize = best?.let { it.width to it.height }
-            ?: TvHandoff.capOutputSize(display.mode.physicalWidth, display.mode.physicalHeight)
+            ?: TvHandoff.capOutputSize(display.mode.physicalWidth, display.mode.physicalHeight, maxWidth, maxHeight)
         val w = window ?: return
         if (best != null && w.attributes.preferredDisplayModeId != best.modeId) {
             w.attributes = w.attributes.apply { preferredDisplayModeId = best.modeId }

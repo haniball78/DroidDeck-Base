@@ -101,6 +101,12 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("tvStreamTest", on).apply()
     }
 
+    fun tvRender4k(context: Context): Boolean = prefs(context).getBoolean("tvRender4k", false)
+
+    fun setTvRender4k(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("tvRender4k", on).apply()
+    }
+
     fun gameStoresEnabled(context: Context): Boolean = prefs(context).getBoolean("gameStoresEnabled", true)
 
     fun setGameStoresEnabled(context: Context, on: Boolean) {

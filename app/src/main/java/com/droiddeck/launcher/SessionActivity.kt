@@ -460,6 +460,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             joyConVr?.refresh()
             padBridge?.syncConnectedControllers()
             refreshControls()
+            updateTvController()
             updatePointerCapture()
             updateHandCamera()
         }
@@ -470,6 +471,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             padBridge?.onDeviceRemoved(deviceId)
             if (::padMouse.isInitialized) padMouse.reset()
             refreshControls()
+            updateTvController()
             updatePointerCapture()
             updateHandCamera()
         }
@@ -3672,7 +3674,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     }
 
     private fun updateTvController() {
-        val physical = PadBridge.anyControllerConnected() || SteamControllerBle.connected
+        val physical = PadBridge.anyControllerConnected() || SteamControllerBle.connected || TvHandoff.hasKeyboardOrMouse()
         val toggleOn = SessionPrefs.tvControllerMode(this)
         val want = TvHandoff.shouldEngageController(tvOutputActive, SessionState.running, physical, toggleOn)
         updateTvPanelDim(physical)
@@ -3751,7 +3753,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 tvSeconds = if (tvAttachedAtMs > 0) (nowMs - tvAttachedAtMs) / 1000 else 0,
                 width = screen?.outputSize?.first ?: 0,
                 height = screen?.outputSize?.second ?: 0,
-                physicalInput = PadBridge.anyControllerConnected() || SteamControllerBle.connected,
+                physicalInput = PadBridge.anyControllerConnected() || SteamControllerBle.connected || TvHandoff.hasKeyboardOrMouse(),
                 cappedTo1080p = screen?.cappedTo1080p == true,
             )
             uiHandler.postDelayed(this, 1000L)

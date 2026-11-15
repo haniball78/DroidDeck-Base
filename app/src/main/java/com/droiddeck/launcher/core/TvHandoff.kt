@@ -1,5 +1,6 @@
 package com.droiddeck.launcher.core
 
+import android.view.InputDevice
 import kotlin.math.abs
 import kotlin.math.hypot
 
@@ -42,10 +43,33 @@ object TvHandoff {
     fun shouldDimPanel(tvActive: Boolean, physicalConnected: Boolean): Boolean =
         tvActive && physicalConnected
 
-    // No exact 1080p display mode: still render at most 1080p and let the TV upscale.
-    fun capOutputSize(nativeWidth: Int, nativeHeight: Int): Pair<Int, Int> {
-        if (nativeWidth <= 1920 && nativeHeight <= 1080) return nativeWidth to nativeHeight
-        val scale = minOf(1920f / nativeWidth, 1080f / nativeHeight)
+    // A physical keyboard or mouse counts as a controller for the TV, same as a pad:
+    // with one connected the phone pad hides and the panel dims. Gamepads are excluded
+    // here because PadBridge already reports them, and the raw bit test alone would
+    // match a gamepad, whose source mask contains the keyboard bits.
+    fun isKeyboardOrMouseSource(sources: Int): Boolean {
+        if ((sources and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD) return false
+        if ((sources and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) return false
+        return (sources and InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD ||
+            (sources and InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE
+    }
+
+    fun hasKeyboardOrMouse(): Boolean =
+        InputDevice.getDeviceIds().any { id ->
+            val device = InputDevice.getDevice(id) ?: return@any false
+            !device.isVirtual && isKeyboardOrMouseSource(device.sources)
+        }
+
+    // No exact display mode: still render at most the cap (1080p by default, 4K when
+    // the 4K render toggle is on) and let the TV upscale.
+    fun capOutputSize(
+        nativeWidth: Int,
+        nativeHeight: Int,
+        maxWidth: Int = 1920,
+        maxHeight: Int = 1080,
+    ): Pair<Int, Int> {
+        if (nativeWidth <= maxWidth && nativeHeight <= maxHeight) return nativeWidth to nativeHeight
+        val scale = minOf(maxWidth.toFloat() / nativeWidth, maxHeight.toFloat() / nativeHeight)
         return ((nativeWidth * scale).toInt() and 1.inv()) to ((nativeHeight * scale).toInt() and 1.inv())
     }
 
