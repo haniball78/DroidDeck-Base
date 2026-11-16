@@ -2,6 +2,7 @@ package com.droiddeck.launcher.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -50,7 +51,7 @@ fun ComputerSettingsPage(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "While the computer is recognized, a small \"Phone pad\" button appears during a session: tap it to bring the phone pad back while the computer keeps driving the game, and tap it again to return to automatic. The button never stops the app from recognizing the computer.",
+                    "While the computer is recognized, a small gamepad button (🎮) appears during a session: tap it to bring the phone pad back while the computer keeps driving the game, and tap it again to return to automatic. The button never stops the app from recognizing the computer.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -61,12 +62,24 @@ fun ComputerSettingsPage(onBack: () -> Unit) {
         SettingsGroup("Step 1: Install scrcpy") {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    "Install scrcpy 2.4 or newer on the computer. Nothing else is needed — no Python.",
+                    "First, open the terminal on the computer. Every command on this page runs in the computer's terminal.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "Check the version — only if scrcpy was installed before. If it was never installed, this command prints nothing.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             CommandRow("Check the version", "scrcpy --version")
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "If it is not installed, install scrcpy 2.4 or newer. Nothing else is needed — no Python.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             CommandRow("Windows", "winget install Genymobile.scrcpy")
             CommandRow("macOS", "brew install scrcpy")
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -82,19 +95,33 @@ fun ComputerSettingsPage(onBack: () -> Unit) {
         SettingsGroup("Step 2: Connect the phone") {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    "USB: turn on USB debugging in Developer options, plug in the USB cable and accept the Allow USB debugging? prompt.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "Wireless: turn on Wireless debugging in Developer options, tap Pair device with pairing code, then run the two commands below on the computer.",
+                    "Two ways to connect — pick one. Tap a way to open its steps.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            CommandRow("Pair (wireless)", "adb pair <phone-ip>:<pair-port>")
-            CommandRow("Connect (wireless)", "adb connect <phone-ip>:<port>")
-            CommandRow("Connect over TCP", "scrcpy --tcpip=<phone-ip>:<port>")
+            ConnectionPath("Wired — USB cable") {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Open Developer options on the phone, then turn on USB debugging. Plug in the USB cable and accept the Allow USB debugging? prompt on the phone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                CommandRow("Check the connection", "adb devices")
+            }
+            ConnectionPath("Wireless — Wi-Fi") {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Open Developer options on the phone, then turn on Wireless debugging. Tap Pair device with pairing code, then run the commands below in the computer's terminal.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                CommandRow("Pair", "adb pair <phone-ip>:<pair-port>")
+                CommandRow("Connect", "adb connect <phone-ip>:<port>")
+                CommandRow("Connect over TCP", "scrcpy --tcpip=<phone-ip>:<port>")
+            }
         }
 
         // ── Step 3: run scrcpy ────────────────────────────────────
@@ -128,6 +155,27 @@ fun ComputerSettingsPage(onBack: () -> Unit) {
                     computerState = TvHandoff.computerState(ctx)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionPath(title: String, content: @Composable ColumnScope.() -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            SecondaryButton(if (expanded) "Hide" else "Show", compact = true) {
+                expanded = !expanded
+            }
+        }
+        if (expanded) {
+            content()
         }
     }
 }

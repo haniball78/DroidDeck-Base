@@ -3793,22 +3793,22 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         sessionRoot.addView(
             button,
             FrameLayout.LayoutParams(
-                (30 * density).toInt(),
-                (72 * density).toInt(),
+                (24 * density).toInt(),
+                (56 * density).toInt(),
                 Gravity.END or Gravity.CENTER_VERTICAL,
             ),
         )
         tvEdgeButton = button
     }
 
-    // Small "Phone pad" button, top-right, visible only while a computer is
+    // Small gamepad button, top-left, visible only while a computer is
     // recognized as a controller: one tap brings the phone pad back without
     // un-recognizing the computer; a second tap returns to automatic.
     private fun ensureComputerPadButton() {
         if (computerPadButton != null || !::sessionRoot.isInitialized) return
         val density = resources.displayMetrics.density
         val button = Button(this).apply {
-            text = "Phone pad"
+            text = "🎮"
             alpha = 0.85f
             setOnClickListener {
                 computerPadOverride = !computerPadOverride
@@ -3820,12 +3820,12 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         sessionRoot.addView(
             button,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                (48 * density).toInt(),
-                Gravity.END or Gravity.TOP,
+                (44 * density).toInt(),
+                (44 * density).toInt(),
+                Gravity.START or Gravity.TOP,
             ).apply {
                 topMargin = (8 * density).toInt()
-                marginEnd = (8 * density).toInt()
+                marginStart = (8 * density).toInt()
             },
         )
         computerPadButton = button
@@ -3836,7 +3836,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         val osc = SessionPrefs.oscMode(this)
         val useful = osc == SessionPrefs.OSC_AUTO || osc == SessionPrefs.OSC_STEAM_TOUCH
         button.visibility = if (TvHandoff.hasComputerController() && useful) View.VISIBLE else View.GONE
-        button.text = if (computerPadOverride) "PC control" else "Phone pad"
+        button.text = if (computerPadOverride) "💻" else "🎮"
     }
 
     private fun showTvEdgeMenu() {
