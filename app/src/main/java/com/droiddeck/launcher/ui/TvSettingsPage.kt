@@ -125,12 +125,17 @@ fun TvSettingsPage(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "Screen off (the game is on the TV through the mirror): scrcpy --mouse=uhid --keyboard=uhid --turn-screen-off --stay-awake -f",
+                    "Wireless instead: turn on Wireless debugging in Developer options, tap Pair device with pairing code, then on the computer run adb pair <phone-ip>:<pair-port> and adb connect <phone-ip>:<port>, then the same scrcpy command (or scrcpy --tcpip=<phone-ip>:<port>).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "Screen on: scrcpy --mouse=uhid --keyboard=uhid -f",
+                    "Screen off (phone screen off, mirror stays on the computer): scrcpy --mouse=uhid --keyboard=uhid --turn-screen-off --stay-awake -f",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "Screen on: scrcpy --mouse=uhid --keyboard=uhid --stay-awake -f",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
