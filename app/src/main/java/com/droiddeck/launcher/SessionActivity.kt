@@ -2980,9 +2980,9 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             SessionPrefs.OSC_STEAM_QAM -> true
             SessionPrefs.OSC_NEVER -> false
             SessionPrefs.OSC_STEAM_TOUCH -> SessionState.mode == SessionService.MODE_STEAM ||
-                (!PadBridge.anyControllerConnected() && SessionState.mode != SessionService.MODE_DESKTOP)
+                (!PadBridge.anyControllerConnected() && !TvHandoff.hasComputerController() && SessionState.mode != SessionService.MODE_DESKTOP)
             else -> !PadBridge.anyControllerConnected() && !SteamControllerBle.connected &&
-                SessionState.mode != SessionService.MODE_DESKTOP
+                !TvHandoff.hasComputerController() && SessionState.mode != SessionService.MODE_DESKTOP
         }
         onScreenButtonsVisible = show
         val drawn = show && !keyboardCoversPad()

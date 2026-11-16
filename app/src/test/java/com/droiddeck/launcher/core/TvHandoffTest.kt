@@ -201,4 +201,34 @@ class TvHandoffTest {
         assertEquals(diagonal.first, diagonal.second, 0.01f)
         assertTrue(diagonal.first > 0f && diagonal.first < 100f)
     }
+
+    @Test fun scrcpyMouseCountsAsComputerController() {
+        assertTrue(TvHandoff.isComputerControllerDevice("scrcpy", InputDevice.SOURCE_MOUSE, false))
+    }
+
+    @Test fun scrcpyKeyboardCountsAsComputerController() {
+        assertTrue(TvHandoff.isComputerControllerDevice("scrcpy", InputDevice.SOURCE_KEYBOARD, false))
+    }
+
+    @Test fun scrcpyGamepadCountsAsComputerController() {
+        assertTrue(TvHandoff.isComputerControllerDevice("scrcpy: Xbox Wireless Controller", InputDevice.SOURCE_GAMEPAD, false))
+    }
+
+    @Test fun dongleMouseDoesNotCountAsComputerController() {
+        assertFalse(TvHandoff.isComputerControllerDevice("Logitech MX Master", InputDevice.SOURCE_MOUSE, false))
+    }
+
+    @Test fun virtualScrcpyDeviceDoesNotCountAsComputerController() {
+        assertFalse(TvHandoff.isComputerControllerDevice("scrcpy", InputDevice.SOURCE_MOUSE, true))
+    }
+
+    @Test fun touchOnlyScrcpyDeviceDoesNotCountAsComputerController() {
+        assertFalse(TvHandoff.isComputerControllerDevice("scrcpy", InputDevice.SOURCE_TOUCHSCREEN, false))
+    }
+
+    @Test fun similarNameDoesNotCountAsComputerController() {
+        assertFalse(TvHandoff.isComputerControllerDevice("scrcpyfoo", InputDevice.SOURCE_MOUSE, false))
+        assertFalse(TvHandoff.isComputerControllerDevice(null, InputDevice.SOURCE_MOUSE, false))
+        assertFalse(TvHandoff.isComputerControllerDevice("", InputDevice.SOURCE_MOUSE, false))
+    }
 }

@@ -1,5 +1,7 @@
 package com.droiddeck.launcher.core
 
+import android.content.Context
+import android.content.IntentFilter
 import android.view.InputDevice
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -75,6 +77,47 @@ object TvHandoff {
             val device = InputDevice.getDevice(id) ?: return@any false
             !device.isVirtual && isKeyboardOrMouseSource(device.sources)
         }
+
+    // scrcpy names the UHID keyboard/mouse it creates "scrcpy" (gamepads
+    // "scrcpy: <name>"); a physical mouse is named after its hardware, so the
+    // name is what tells the computer apart from a dongle mouse.
+    fun isScrcpyUhidDeviceName(name: String?): Boolean =
+        name == "scrcpy" || (name != null && name.startsWith("scrcpy:"))
+
+    fun isComputerControllerDevice(name: String?, sources: Int, isVirtual: Boolean): Boolean {
+        if (isVirtual || !isScrcpyUhidDeviceName(name)) return false
+        if (isKeyboardOrMouseSource(sources)) return true
+        return (sources and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+    }
+
+    // The computer, connected over scrcpy, counts as a controller: its UHID
+    // mouse/keyboard are real input devices, so the pad hands over to them
+    // the same way it hands over to a gamepad.
+    fun hasComputerController(): Boolean =
+        InputDevice.getDeviceIds().any { id ->
+            val device = InputDevice.getDevice(id) ?: return@any false
+            isComputerControllerDevice(device.name, device.sources, device.isVirtual)
+        }
+
+    enum class ComputerState { NONE, DEBUGGING, SCRCPY }
+
+    // The USB-state broadcast constants are hidden in the public SDK, so the
+    // documented action/extra names are used literally.
+    private const val ACTION_USB_STATE = "android.hardware.usb.action.USB_STATE"
+    private const val EXTRA_USB_CONNECTED = "connected"
+    private const val EXTRA_USB_FUNCTION_ADB = "adb"
+
+    // Strongest first: scrcpy running (a UHID device is present). Otherwise a
+    // computer plugged in over USB with debugging active (sticky USB state:
+    // connected + adb). Wireless debugging has no USB state, so only the
+    // scrcpy level can see it.
+    fun computerState(context: Context): ComputerState {
+        if (hasComputerController()) return ComputerState.SCRCPY
+        val usbState = context.registerReceiver(null, IntentFilter(ACTION_USB_STATE))
+        val connected = usbState?.getBooleanExtra(EXTRA_USB_CONNECTED, false) == true
+        val adb = usbState?.getBooleanExtra(EXTRA_USB_FUNCTION_ADB, false) == true
+        return if (connected && adb) ComputerState.DEBUGGING else ComputerState.NONE
+    }
 
     // No exact display mode: still render at most the cap (1080p by default, 4K when
     // the 4K render toggle is on) and let the TV upscale.
