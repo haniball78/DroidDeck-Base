@@ -56,13 +56,8 @@ object TvHandoff {
     fun shouldShowMousePad(tvActive: Boolean, mouseMode: Boolean): Boolean =
         tvActive && mouseMode
 
-    // Dim only when a physical controller is connected: otherwise the phone itself
-    // is the controller and its pad must stay visible.
-    fun shouldDimPanel(tvActive: Boolean, physicalConnected: Boolean): Boolean =
-        tvActive && physicalConnected
-
     // A physical keyboard or mouse counts as a controller for the TV, same as a pad:
-    // with one connected the phone pad hides and the panel dims. Gamepads are excluded
+    // with one connected the phone pad hides. Gamepads are excluded
     // here because PadBridge already reports them, and the raw bit test alone would
     // match a gamepad, whose source mask contains the keyboard bits.
     fun isKeyboardOrMouseSource(sources: Int): Boolean {

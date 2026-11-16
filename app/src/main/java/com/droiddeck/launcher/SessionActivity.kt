@@ -394,8 +394,6 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var tvScreen: TvHandoffScreen? = null
     private var tvOutputActive = false
     private var tvControllerActive = false
-    private var tvPanelDimmed = false
-    private var tvPanelSavedBrightness = -1f
     // True while the TV session is frozen for input loss; drives the overlay card.
     private var tvInputLossFrozen by mutableStateOf(false)
     private var tvCompanionState by mutableStateOf<TvHandoff.CompanionState?>(null)
@@ -3692,7 +3690,6 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         val physical = PadBridge.anyControllerConnected() || SteamControllerBle.connected || TvHandoff.hasKeyboardOrMouse()
         val toggleOn = SessionPrefs.tvControllerMode(this)
         val want = TvHandoff.shouldShowPad(tvOutputActive, SessionState.running, physical, toggleOn, tvPhoneMouseMode)
-        updateTvPanelDim(physical && !want)
         ensureTvEdgeButton()
         tvEdgeButton?.visibility = if (tvOutputActive) View.VISIBLE else View.GONE
         if (!TvHandoff.hasComputerController()) computerPadOverride = false
@@ -3731,21 +3728,6 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         Log.i(TAG, "tv controller mode ${if (want) "on" else "off"} ($reason)")
         updateOnScreenControls()
         updatePadMotion()
-    }
-
-    // No app API powers the built-in display off; minimum window brightness is the closest an app can get.
-    private fun updateTvPanelDim(physicalConnected: Boolean) {
-        val want = TvHandoff.shouldDimPanel(tvOutputActive, physicalConnected)
-        if (want == tvPanelDimmed) return
-        tvPanelDimmed = want
-        window.attributes = window.attributes.apply {
-            if (want) {
-                tvPanelSavedBrightness = screenBrightness
-                screenBrightness = 0f
-            } else {
-                screenBrightness = tvPanelSavedBrightness
-            }
-        }
     }
 
     // Companion readings, once a second while the game is on the TV: FPS from the

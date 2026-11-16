@@ -58,18 +58,6 @@ class TvHandoffTest {
         assertFalse(TvHandoff.shouldEngageController(tvActive = true, running = true, physicalConnected = false, toggleOn = false))
     }
 
-    @Test fun dimPanelWhenTvLiveAndPhysicalPadConnected() {
-        assertTrue(TvHandoff.shouldDimPanel(tvActive = true, physicalConnected = true))
-    }
-
-    @Test fun dimPanelStaysOffWhenPhoneIsTheController() {
-        assertFalse(TvHandoff.shouldDimPanel(tvActive = true, physicalConnected = false))
-    }
-
-    @Test fun dimPanelStaysOffWhenTvNotActive() {
-        assertFalse(TvHandoff.shouldDimPanel(tvActive = false, physicalConnected = true))
-    }
-
     @Test fun padShowsWhenEngagedAndMouseModeOff() {
         assertTrue(TvHandoff.shouldShowPad(true, true, false, true, false))
     }
