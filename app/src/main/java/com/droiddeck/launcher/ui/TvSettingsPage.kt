@@ -49,27 +49,27 @@ fun TvSettingsPage(onBack: () -> Unit) {
         SettingsGroup("What is this?") {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    "Test only: while the handoff test is on, a running game moves to a connected " +
-                    "TV at 1080p (or 4K when the 4K render toggle below is on) when the TV is plugged in. Turning the test off, or unplugging " +
+                    "While the handoff is on, a running game moves to a connected " +
+                    "TV at 1080p (or 4K when the 4K render toggle below is on) when the TV is plugged in. Turning it off, or unplugging " +
                     "the TV, moves the game back to the phone.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     "The TV diagnostics log below records the whole TV session: each handoff step " +
-                    "(shown, attached, resized, restored, failed), the controller mode switching on " +
-                    "and off, and the End button. It is a separate file from the main diagnostics log.",
+                    "(shown, attached, resized, restored, failed) and the controller mode switching on " +
+                    "and off. It is a separate file from the main diagnostics log.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
 
-        // ── Handoff test ──────────────────────────────────────────
-        SettingsGroup("TV handoff test") {
+        // ── Handoff ─────────────────────────────────────────────
+        SettingsGroup("TV handoff") {
             SettingsRow(
-                label = "TV handoff test",
-                hint = "Test only: while on, a running game moves to a connected TV at 1080p when the TV is plugged in. Turn off to move it back to the phone.",
+                label = "TV handoff",
+                hint = "While on, a running game moves to a connected TV at 1080p when the TV is plugged in. Turn off to move it back to the phone.",
             ) {
                 ToggleSwitch(checked = tvHandoffTest, onChange = { on ->
                     tvHandoffTest = on
@@ -82,7 +82,7 @@ fun TvSettingsPage(onBack: () -> Unit) {
         SettingsGroup("TV controller") {
             SettingsRow(
                 label = "TV controller mode",
-                hint = "While on, the phone becomes the controller when the game is on the TV and no physical controller is connected: on-screen controls stay visible, gyro aiming runs, and a small End button appears on the phone (tap twice to end the session).",
+                hint = "While on, the phone becomes the controller when the game is on the TV and no physical controller is connected: on-screen controls stay visible and gyro aiming runs.",
             ) {
                 ToggleSwitch(checked = tvControllerMode, onChange = { on ->
                     tvControllerMode = on
