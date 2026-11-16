@@ -2139,6 +2139,12 @@ private fun AdvancedSetupTab(
                 stringResource(R.string.setup_adv_configure),
                 onClick = { onSelect("tv") },
             )
+            ActionRow(
+                stringResource(R.string.computer_settings),
+                stringResource(R.string.computer_settings_hint),
+                stringResource(R.string.setup_adv_configure),
+                onClick = { onSelect("computer") },
+            )
         }
     }
 

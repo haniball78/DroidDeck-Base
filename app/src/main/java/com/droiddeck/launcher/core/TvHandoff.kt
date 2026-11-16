@@ -99,6 +99,11 @@ object TvHandoff {
             isComputerControllerDevice(device.name, device.sources, device.isVirtual)
         }
 
+    // The pad-return override bypasses only the computer term: the computer
+    // stays recognized as a controller while the pad is forced back on.
+    fun computerHidesPad(computerConnected: Boolean, padOverride: Boolean): Boolean =
+        computerConnected && !padOverride
+
     enum class ComputerState { NONE, DEBUGGING, SCRCPY }
 
     // The USB-state broadcast constants are hidden in the public SDK, so the

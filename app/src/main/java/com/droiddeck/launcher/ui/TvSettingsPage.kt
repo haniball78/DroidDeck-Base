@@ -16,7 +16,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.droiddeck.launcher.R
-import com.droiddeck.launcher.core.TvHandoff
 import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
 import com.droiddeck.launcher.session.SessionPrefs
 
@@ -35,7 +34,6 @@ fun TvSettingsPage(onBack: () -> Unit) {
     var tvSurfaceEncodeTest by remember { mutableStateOf(SessionPrefs.tvSurfaceEncodeTest(ctx)) }
     var tvStreamTest by remember { mutableStateOf(SessionPrefs.tvStreamTest(ctx)) }
     var tvRender4k by remember { mutableStateOf(SessionPrefs.tvRender4k(ctx)) }
-    var computerState by remember { mutableStateOf(TvHandoff.computerState(ctx)) }
     var tvDiagnosticsEnabled by remember { mutableStateOf(TvDiagnosticsLog.isEnabled(ctx)) }
     var summary by remember { mutableStateOf(TvDiagnosticsLog.summary(ctx)) }
     var hasFile by remember { mutableStateOf(TvDiagnosticsLog.file(ctx) != null) }
@@ -103,56 +101,6 @@ fun TvSettingsPage(onBack: () -> Unit) {
                     tvRender4k = on
                     SessionPrefs.setTvRender4k(ctx, on)
                 })
-            }
-        }
-
-        // ── Computer (scrcpy) ─────────────────────────────────────
-        SettingsGroup("Computer") {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    "The computer drives the game through scrcpy: the phone sees its mouse and keyboard as real hardware, so the app treats the computer as a controller and the on-screen pad hands over to it. Stop scrcpy and the pad comes back.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "Install first: scrcpy 2.4 or newer on the computer (check with scrcpy --version). Windows: winget install Genymobile.scrcpy, or the release zip from GitHub — adb is bundled. macOS: brew install scrcpy. Linux: the official release, not the distro package (Ubuntu 24.04 ships 1.25, too old). Nothing else is needed — no Python.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "On the phone: turn on USB debugging in Developer options, plug in the USB cable and accept the Allow USB debugging? prompt.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "Wireless instead: turn on Wireless debugging in Developer options, tap Pair device with pairing code, then on the computer run adb pair <phone-ip>:<pair-port> and adb connect <phone-ip>:<port>, then the same scrcpy command (or scrcpy --tcpip=<phone-ip>:<port>).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "Screen off (phone screen off, mirror stays on the computer): scrcpy --mouse=uhid --keyboard=uhid --turn-screen-off --stay-awake -f",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "Screen on: scrcpy --mouse=uhid --keyboard=uhid --stay-awake -f",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    when (computerState) {
-                        TvHandoff.ComputerState.SCRCPY -> "Computer connected — scrcpy is running, mouse and keyboard recognized as a controller."
-                        TvHandoff.ComputerState.DEBUGGING -> "Computer connected over USB with debugging on, but scrcpy is not running."
-                        TvHandoff.ComputerState.NONE -> "No computer connected."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Actions {
-                SecondaryButton(stringResource(R.string.setup_check_again), compact = true) {
-                    computerState = TvHandoff.computerState(ctx)
-                }
             }
         }
 

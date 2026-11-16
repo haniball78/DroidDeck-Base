@@ -405,7 +405,9 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var tvCompanionTickerRunning = false
     private var tvCompanionInfoOn by mutableStateOf(false)
     private var tvPhoneMouseMode by mutableStateOf(false)
+    private var computerPadOverride by mutableStateOf(false)
     private var tvEdgeButton: Button? = null
+    private var computerPadButton: Button? = null
     private var tvMousePad: TvPhoneMousePad? = null
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
@@ -2980,9 +2982,9 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             SessionPrefs.OSC_STEAM_QAM -> true
             SessionPrefs.OSC_NEVER -> false
             SessionPrefs.OSC_STEAM_TOUCH -> SessionState.mode == SessionService.MODE_STEAM ||
-                (!PadBridge.anyControllerConnected() && !TvHandoff.hasComputerController() && SessionState.mode != SessionService.MODE_DESKTOP)
+                (!PadBridge.anyControllerConnected() && !TvHandoff.computerHidesPad(TvHandoff.hasComputerController(), computerPadOverride) && SessionState.mode != SessionService.MODE_DESKTOP)
             else -> !PadBridge.anyControllerConnected() && !SteamControllerBle.connected &&
-                !TvHandoff.hasComputerController() && SessionState.mode != SessionService.MODE_DESKTOP
+                !TvHandoff.computerHidesPad(TvHandoff.hasComputerController(), computerPadOverride) && SessionState.mode != SessionService.MODE_DESKTOP
         }
         onScreenButtonsVisible = show
         val drawn = show && !keyboardCoversPad()
@@ -3667,6 +3669,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         tvScreen = null
         tvOutputActive = false
         tvPhoneMouseMode = false
+        computerPadOverride = false
         tvMousePad?.releaseAll()
         stopTvCompanionTicker()
         surfaceW = 0
@@ -3692,6 +3695,9 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         updateTvPanelDim(physical && !want)
         ensureTvEdgeButton()
         tvEdgeButton?.visibility = if (tvOutputActive) View.VISIBLE else View.GONE
+        if (!TvHandoff.hasComputerController()) computerPadOverride = false
+        ensureComputerPadButton()
+        updateComputerPadButton()
         // No input channel left: freeze the game until a controller comes back.
         // The phone mouse is an input channel like the phone pad.
         val freeze = TvHandoff.shouldFreezeOnInputLoss(tvOutputActive, SessionState.running, physical, toggleOn || tvPhoneMouseMode)
@@ -3811,6 +3817,44 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             ),
         )
         tvEdgeButton = button
+    }
+
+    // Small "Phone pad" button, top-right, visible only while a computer is
+    // recognized as a controller: one tap brings the phone pad back without
+    // un-recognizing the computer; a second tap returns to automatic.
+    private fun ensureComputerPadButton() {
+        if (computerPadButton != null || !::sessionRoot.isInitialized) return
+        val density = resources.displayMetrics.density
+        val button = Button(this).apply {
+            text = "Phone pad"
+            alpha = 0.85f
+            setOnClickListener {
+                computerPadOverride = !computerPadOverride
+                updateOnScreenControls()
+                updateComputerPadButton()
+            }
+        }
+        button.visibility = View.GONE
+        sessionRoot.addView(
+            button,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                (48 * density).toInt(),
+                Gravity.END or Gravity.TOP,
+            ).apply {
+                topMargin = (8 * density).toInt()
+                marginEnd = (8 * density).toInt()
+            },
+        )
+        computerPadButton = button
+    }
+
+    private fun updateComputerPadButton() {
+        val button = computerPadButton ?: return
+        val osc = SessionPrefs.oscMode(this)
+        val useful = osc == SessionPrefs.OSC_AUTO || osc == SessionPrefs.OSC_STEAM_TOUCH
+        button.visibility = if (TvHandoff.hasComputerController() && useful) View.VISIBLE else View.GONE
+        button.text = if (computerPadOverride) "PC control" else "Phone pad"
     }
 
     private fun showTvEdgeMenu() {

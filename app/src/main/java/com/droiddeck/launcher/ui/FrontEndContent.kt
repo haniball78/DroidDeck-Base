@@ -249,6 +249,10 @@ private fun Content(
         TvSettingsPage(onBack = { onSelect("setup") })
         return
     }
+    if (selected == "computer") {
+        ComputerSettingsPage(onBack = { onSelect("setup") })
+        return
+    }
     if (selected == "updates") {
         UpdatesPage(s, a, modifier.padding(horizontal = padH, vertical = padV))
         return

@@ -231,4 +231,20 @@ class TvHandoffTest {
         assertFalse(TvHandoff.isComputerControllerDevice(null, InputDevice.SOURCE_MOUSE, false))
         assertFalse(TvHandoff.isComputerControllerDevice("", InputDevice.SOURCE_MOUSE, false))
     }
+
+    @Test fun computerHidesPadWhenConnected() {
+        assertTrue(TvHandoff.computerHidesPad(true, false))
+    }
+
+    @Test fun computerPadOverrideShowsPad() {
+        assertFalse(TvHandoff.computerHidesPad(true, true))
+    }
+
+    @Test fun computerPadOverrideWithoutComputerChangesNothing() {
+        assertFalse(TvHandoff.computerHidesPad(false, true))
+    }
+
+    @Test fun noComputerNoOverrideShowsPad() {
+        assertFalse(TvHandoff.computerHidesPad(false, false))
+    }
 }

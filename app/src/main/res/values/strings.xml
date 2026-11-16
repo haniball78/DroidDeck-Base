@@ -790,6 +790,8 @@
     <string name="setup_adv_privileged_settings_hint">Configure embedded ADB daemon, wireless debugging, and Shizuku bridge</string>
     <string name="tv_settings">TV settings</string>
     <string name="tv_settings_hint">TV handoff test and TV diagnostics log</string>
+    <string name="computer_settings">Computer settings</string>
+    <string name="computer_settings_hint">The computer as a controller via scrcpy: install, commands and status.</string>
     <string name="setup_adv_configure">Configure</string>
     <string name="setup_tab_controller">Controller</string>
     <string name="setup_tab_session">Session</string>
