@@ -736,14 +736,14 @@ class SessionService : Service() {
         components.add(networkLink)
         val controllerMode = SessionPrefs.receiverMode(this) == SessionPrefs.RECEIVER_MODE_CONTROLLER
         if (controllerMode || SessionPrefs.secondPlayer(this)) {
-            val padServer = P2pPadServer().also { it.attach(this) }
+            val padServer = P2pPadServer(UsbTether.USB_PAD_PORT).also { it.attach(this) }
             components.add(padServer)
             components.add(P2pGroup(padServer).also { it.attach(this) })
         }
         if (controllerMode) {
             val streamFile = File(filesDir, "venc/surface.h264")
             components.add(TvSurfaceEncode(streamFile).also { it.attach(this) })
-            components.add(TvStreamServer(streamFile).also { it.attach(this) })
+            components.add(TvStreamServer(streamFile, UsbTether.USB_STREAM_PORT).also { it.attach(this) })
         }
         if (gen != sessionGen || !SessionState.running) {
             Log.i(TAG, "session stopped while it was starting; not launching it")

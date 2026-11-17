@@ -109,6 +109,36 @@ class P2pPadServerTest {
     }
 
     @Test
+    fun `begin binds the fixed USB pad port and answers on loopback`() {
+        val server = P2pPadServer(UsbTether.USB_PAD_PORT)
+        server.attach(RuntimeEnvironment.getApplication())
+        val received = ArrayList<Pair<Int, PadState>>()
+        val gotState = CountDownLatch(1)
+        server.onState = { slot, state ->
+            received += slot to state
+            gotState.countDown()
+        }
+        try {
+            assertNull(server.begin())
+            assertEquals(UsbTether.USB_PAD_PORT, server.port)
+            val socket = Socket()
+            socket.connect(InetSocketAddress("127.0.0.1", server.port), 5_000)
+            val out = DataOutputStream(socket.getOutputStream())
+            val bytes = PadWire.encode(PadState().apply { press(PadState.A, true) }, 1)
+            out.writeInt(bytes.size)
+            out.write(bytes)
+            out.flush()
+            assertTrue(gotState.await(5, TimeUnit.SECONDS))
+            assertEquals(1, received.size)
+            assertEquals(1, received[0].first)
+            assertTrue(received[0].second.isDown(PadState.A))
+            socket.close()
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
     fun `stop is safe without begin`() {
         P2pPadServer().stop()
     }

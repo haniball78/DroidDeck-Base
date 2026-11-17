@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicLong
  * bytes, start code included) to one connected TV receiver at a time. It is a
  * proof slice only: no PIN, no input return channel, no audio.
  */
-class TvStreamServer(private val sourceFile: File) : SessionPart() {
+class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0) : SessionPart() {
     override fun start() {
         begin()
     }
@@ -55,7 +55,7 @@ class TvStreamServer(private val sourceFile: File) : SessionPart() {
         val address = wifi?.let { wifiAddress(it) }
         // Wildcard bind: the receiver reaches this server over the P2P group
         // address (192.168.49.1), not the router Wi-Fi address.
-        val server = runCatching { ServerSocket(0, 1, null) }.getOrNull() ?: run {
+        val server = runCatching { ServerSocket(bindPort, 1, null) }.getOrNull() ?: run {
             startReason = "bind-failed"
             return startReason
         }

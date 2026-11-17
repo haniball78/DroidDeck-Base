@@ -6,11 +6,14 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
+import java.net.InetSocketAddress
+import java.net.Socket
 
 @RunWith(RobolectricTestRunner::class)
 class TvStreamServerTest {
@@ -93,5 +96,20 @@ class TvStreamServerTest {
         val server = TvStreamServer(File(context.filesDir, "venc/surface.h264"))
         assertNotNull(server.begin())
         server.stop()
+    }
+
+    @Test
+    fun `stream server binds the fixed USB stream port`() {
+        val server = TvStreamServer(File(context.filesDir, "venc/surface.h264"), UsbTether.USB_STREAM_PORT)
+        server.attach(context)
+        try {
+            assertNull(server.begin())
+            val socket = Socket()
+            socket.connect(InetSocketAddress("127.0.0.1", UsbTether.USB_STREAM_PORT), 5_000)
+            assertTrue(socket.isConnected)
+            socket.close()
+        } finally {
+            server.stop()
+        }
     }
 }

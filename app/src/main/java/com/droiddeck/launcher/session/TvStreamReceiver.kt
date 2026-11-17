@@ -29,6 +29,8 @@ class TvStreamReceiver(
     private val height: Int = 1080,
     // The P2P group-owner address (authoritative); NSD is then used for the port only.
     private val hostOverride: String? = null,
+    // Set for a transport with no discovery (USB cable): connect straight to this host:port.
+    private val fixedEndpoint: Pair<String, Int>? = null,
     private val onStatus: ((String) -> Unit)? = null,
 ) {
     val framesDecoded = AtomicLong(0)
@@ -49,7 +51,7 @@ class TvStreamReceiver(
 
     private fun runLoop() {
         while (!destroyed.get()) {
-            val endpoint = discover()
+            val endpoint = fixedEndpoint ?: discover()
             if (endpoint == null) {
                 sleepQuietly(RETRY_MS)
                 continue

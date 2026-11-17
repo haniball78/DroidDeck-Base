@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong
  * "pad") and injects its pad state into the ring slot the phone chose
  * (0 = player 1, 1 = player 2). The controller phone's own touch pad stays slot 0.
  */
-class P2pPadServer : SessionPart() {
+class P2pPadServer(private val bindPort: Int = 0) : SessionPart() {
     override fun start() {
         begin()
     }
@@ -35,7 +35,7 @@ class P2pPadServer : SessionPart() {
             begun = true
         }
         val ctx = app() ?: return "no-context".also { startReason = it }
-        val server = runCatching { ServerSocket(0, 1, null) }.getOrNull() ?: run {
+        val server = runCatching { ServerSocket(bindPort, 1, null) }.getOrNull() ?: run {
             startReason = "bind-failed"
             return startReason
         }

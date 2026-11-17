@@ -39,6 +39,7 @@ import com.droiddeck.launcher.session.P2pPadClient
 import com.droiddeck.launcher.session.P2pReceiver
 import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.session.TvStreamReceiver
+import com.droiddeck.launcher.session.UsbTether
 import java.io.File
 import kotlinx.coroutines.delay
 
@@ -68,6 +69,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
     var padRef by remember { mutableStateOf<P2pPadClient?>(null) }
     var padP2pRef by remember { mutableStateOf<P2pReceiver?>(null) }
     var gamepadSlot by remember { mutableStateOf(1) }
+    var useUsb by remember { mutableStateOf(false) }
 
     // Local touch pad for Gamepad mode: its state is routed to the controller
     // phone instead of a guest, so no session runs on this device.
@@ -96,6 +98,23 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         padRunning = true
         padStatus = "Searching for a controller…"
         Thread({
+            if (useUsb) {
+                val host = UsbTether.systemGateway() ?: UsbTether.DEFAULT_GATEWAY
+                val client = P2pPadClient(gamepadSlot)
+                if (!client.connect(host, UsbTether.USB_PAD_PORT)) {
+                    padStatus = "Could not reach the controller over USB — check the cable and USB tethering on the game phone."
+                    padRunning = false
+                    return@Thread
+                }
+                padRef = client
+                padBridge?.let { GamepadInput.install(it, client) }
+                padStatus = "Connected as player ${gamepadSlot + 1} over USB — use the touch pad below."
+                padBridge?.setTouchRoute(object : PadBridge.TouchRoute {
+                    override fun active() = padRunning
+                    override fun accept(state: PadState) = GamepadInput.onTouchState(state)
+                })
+                return@Thread
+            }
             val p2p = P2pReceiver(ctx)
             padP2pRef = p2p
             val error = p2p.begin()
@@ -141,6 +160,13 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         p2pRef = null
     }
 
+    fun switchTransport(usb: Boolean) {
+        if (usb == useUsb) return
+        if (receiverRunning) stopReceiver()
+        if (padRunning) stopPad()
+        useUsb = usb
+    }
+
     fun startReceiver() {
         if (receiverRunning) return
         receiverRunning = true
@@ -148,6 +174,24 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         frames = 0
         firstFrameMs = -1
         Thread({
+            if (useUsb) {
+                val surf = surface
+                if (surf == null) {
+                    status = "No video surface yet — wait a moment and try again."
+                    receiverRunning = false
+                    return@Thread
+                }
+                val host = UsbTether.systemGateway() ?: UsbTether.DEFAULT_GATEWAY
+                val recv = TvStreamReceiver(
+                    ctx, surf,
+                    fixedEndpoint = host to UsbTether.USB_STREAM_PORT,
+                    onStatus = { status = it },
+                )
+                recvRef = recv
+                status = "Connecting to the game phone over USB ($host)…"
+                recv.start()
+                return@Thread
+            }
             val p2p = P2pReceiver(ctx)
             p2pRef = p2p
             val error = p2p.begin()
@@ -301,7 +345,29 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         // ── Receiver ──────────────────────────────────────────────
         if (mode == SessionPrefs.RECEIVER_MODE_RECEIVER) {
             SettingsGroup("Receiver") {
+                SettingsRow(
+                    label = stringResource(R.string.receiver_transport_wifi),
+                    hint = "Find the controller phone over Wi-Fi Direct.",
+                ) {
+                    ToggleSwitch(checked = !useUsb, onChange = { on -> if (on) switchTransport(false) })
+                }
+                SettingsRow(
+                    label = stringResource(R.string.receiver_transport_usb),
+                    hint = "Play over a USB cable instead of Wi-Fi.",
+                ) {
+                    ToggleSwitch(checked = useUsb, onChange = { on -> if (on) switchTransport(true) })
+                }
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (useUsb) {
+                        Text(
+                            "Connect the cable, then turn on USB tethering on the game phone (Settings → Hotspot → " +
+                            "USB tethering — the app cannot turn it on itself). This tablet must be the USB host: with a " +
+                            "C-to-C cable the roles negotiate — if it does not connect, switch \"USB controlled by\" to this " +
+                            "device, or use a C-to-A cable + A-to-C adapter, which fixes this device as host.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     AndroidView(
                         factory = { context ->
                             SurfaceView(context).apply {
@@ -333,7 +399,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                         if (receiverRunning) {
                             SecondaryButton("Stop", compact = true) { stopReceiver() }
                         } else {
-                            SecondaryButton("Start", compact = true) { ensurePermissionsAndStart() }
+                            SecondaryButton("Start", compact = true) { if (useUsb) startReceiver() else ensurePermissionsAndStart() }
                         }
                     }
                 }
@@ -343,6 +409,18 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         // ── Gamepad ───────────────────────────────────────────────
         if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD) {
             SettingsGroup("Gamepad") {
+                SettingsRow(
+                    label = stringResource(R.string.receiver_transport_wifi),
+                    hint = "Find the controller phone over Wi-Fi Direct.",
+                ) {
+                    ToggleSwitch(checked = !useUsb, onChange = { on -> if (on) switchTransport(false) })
+                }
+                SettingsRow(
+                    label = stringResource(R.string.receiver_transport_usb),
+                    hint = "Join over a USB cable instead of Wi-Fi.",
+                ) {
+                    ToggleSwitch(checked = useUsb, onChange = { on -> if (on) switchTransport(true) })
+                }
                 SettingsRow(
                     label = "Player 1 — this phone is the first controller",
                     hint = "Use when the controller phone's USB port is busy with the TV cable: a gamepad plugged into this phone drives player 1.",
@@ -366,6 +444,16 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                     })
                 }
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (useUsb) {
+                        Text(
+                            "Connect the cable, then turn on USB tethering on the game phone (Settings → Hotspot → " +
+                            "USB tethering — the app cannot turn it on itself). This phone must be the USB host: with a " +
+                            "C-to-C cable the roles negotiate — if it does not connect, switch \"USB controlled by\" to this " +
+                            "device, or use a C-to-A cable + A-to-C adapter, which fixes this device as host.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (padBridge != null) {
                         AndroidView(
                             factory = { context -> OnScreenControls(context, padBridge) },
@@ -381,7 +469,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                         if (padRunning) {
                             SecondaryButton("Stop", compact = true) { stopPad() }
                         } else {
-                            SecondaryButton("Start", compact = true) { ensurePermissionsAndStartPad() }
+                            SecondaryButton("Start", compact = true) { if (useUsb) startPad() else ensurePermissionsAndStartPad() }
                         }
                     }
                 }
