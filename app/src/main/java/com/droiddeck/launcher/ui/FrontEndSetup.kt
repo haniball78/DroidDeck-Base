@@ -397,6 +397,12 @@ internal fun SetupPanel(
                         val controller = s.controller
                         if (controller != null && a.controller != null) SettingsGroup(stringResource(R.string.setup_controller)) {
                             ControllerRows(host, s.oscMode, controller, a.controller)
+                            val ctx = androidx.compose.ui.platform.LocalContext.current
+                            var secondPlayer by remember { mutableStateOf(SessionPrefs.secondPlayer(ctx)) }
+                            ToggleRow(host, "controller-second-player", stringResource(R.string.second_player), stringResource(R.string.second_player_hint), secondPlayer) { on ->
+                                secondPlayer = on
+                                SessionPrefs.setSecondPlayer(ctx, on)
+                            }
                         }
                         if (s.controller == null || a.controller == null) Note(stringResource(R.string.setup_controller_unavailable))
                     }
@@ -2237,6 +2243,7 @@ internal fun LaunchSettings(s: FrontEndState, a: FrontEndActions, host: MenuHost
     val columns = if (LocalNarrowPane.current) 2 else 3
     val controller = a.controller
     val context = androidx.compose.ui.platform.LocalContext.current
+    var secondPlayer by remember { mutableStateOf(SessionPrefs.secondPlayer(context)) }
     val inputMode = androidx.compose.ui.platform.LocalInputModeManager.current
     val wincompKey = game?.takeIf { it.library == com.droiddeck.launcher.frontend.Library.ADDED || it.appId > 0 }?.profileKey
     var wincompOpen by remember(wincompKey) { mutableStateOf<Boolean?>(null) }
@@ -2264,6 +2271,16 @@ internal fun LaunchSettings(s: FrontEndState, a: FrontEndActions, host: MenuHost
             }
         }
         if (controller != null) add { m -> SettingCard(stringResource(R.string.setup_card_controls), stringResource(R.string.setup_card_controls_hint), "card:controls", m, controller.onMapping) }
+        add { m ->
+            SettingCard(
+                stringResource(R.string.second_player),
+                if (secondPlayer) stringResource(R.string.second_player_on) else stringResource(R.string.second_player_add),
+                "card:second-player", m,
+            ) {
+                secondPlayer = !secondPlayer
+                SessionPrefs.setSecondPlayer(context, secondPlayer)
+            }
+        }
         if (steamCard != null) add(steamCard)
         val cardStore = com.droiddeck.launcher.stores.Store.byId(game?.source.orEmpty())?.takeIf { it == com.droiddeck.launcher.stores.Store.EPIC || it == com.droiddeck.launcher.stores.Store.GOG }
         if (cardStore != null && game?.gameFiles != null) add { m ->

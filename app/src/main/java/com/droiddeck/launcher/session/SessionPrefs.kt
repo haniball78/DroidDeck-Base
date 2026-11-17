@@ -111,6 +111,13 @@ object SessionPrefs {
         prefs(context).edit().putString("receiverMode", mode).apply()
     }
 
+    /** A second phone may join as player 2 in any session, not just Controller mode: the phone creates the DroidDeck-TV group at session start. */
+    fun secondPlayer(context: Context): Boolean = prefs(context).getBoolean("secondPlayer", false)
+
+    fun setSecondPlayer(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("secondPlayer", on).apply()
+    }
+
     fun tvRender4k(context: Context): Boolean = prefs(context).getBoolean("tvRender4k", false)
 
     fun setTvRender4k(context: Context, on: Boolean) {

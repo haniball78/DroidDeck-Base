@@ -734,11 +734,14 @@ class SessionService : Service() {
         networkLink.attach(this)
         networkLink.publish()
         components.add(networkLink)
-        if (SessionPrefs.receiverMode(this) == SessionPrefs.RECEIVER_MODE_CONTROLLER) {
-            val streamFile = File(filesDir, "venc/surface.h264")
+        val controllerMode = SessionPrefs.receiverMode(this) == SessionPrefs.RECEIVER_MODE_CONTROLLER
+        if (controllerMode || SessionPrefs.secondPlayer(this)) {
             val padServer = P2pPadServer().also { it.attach(this) }
             components.add(padServer)
             components.add(P2pGroup(padServer).also { it.attach(this) })
+        }
+        if (controllerMode) {
+            val streamFile = File(filesDir, "venc/surface.h264")
             components.add(TvSurfaceEncode(streamFile).also { it.attach(this) })
             components.add(TvStreamServer(streamFile).also { it.attach(this) })
         }

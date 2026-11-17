@@ -62,13 +62,17 @@ class P2pGroup(private val padServer: P2pPadServer? = null) : SessionPart() {
                 if (stopped.get()) return
                 if (config != null) {
                     // 5 GHz config rejected: retry with no band request.
-                    mgr.createGroup(ch, plainListener())
+                    runCatching { mgr.createGroup(ch, plainListener()) }
+                        .onFailure { if (!stopped.get()) fail("create-group-failed") }
                 } else {
                     fail("create-group-failed")
                 }
             }
         }
-        if (config != null) mgr.createGroup(ch, config, listener) else mgr.createGroup(ch, listener)
+        // createGroup throws synchronously when the P2P permission is missing;
+        // that must fail the group honestly, never the session.
+        runCatching { if (config != null) mgr.createGroup(ch, config, listener) else mgr.createGroup(ch, listener) }
+            .onFailure { if (!stopped.get()) fail("create-group-failed") }
         return null
     }
 

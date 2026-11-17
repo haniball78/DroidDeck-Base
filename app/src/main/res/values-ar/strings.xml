@@ -760,6 +760,10 @@
     <string name="computer_settings_hint">الكمبيوتر كأداة تحكم عبر scrcpy: التثبيت والأوامر والحالة.</string>
     <string name="receiver_settings">إعدادات المستقبل</string>
     <string name="receiver_settings_hint">اللعب على شاشة أخرى: هذا الهاتف يبث اللعبة، أو يعرض بثاً من هاتف آخر.</string>
+    <string name="second_player">لاعب ثانٍ</string>
+    <string name="second_player_hint">هاتف آخر ينضم كلاعب ثانٍ — يعمل مع اللعب العادي والتلفاز والكمبيوتر.</string>
+    <string name="second_player_add">أضف لاعباً آخر</string>
+    <string name="second_player_on">مفعّل — يمكن لهاتف آخر الانضمام كلاعب ثانٍ</string>
     <string name="setup_adv_configure">ضبط</string>
     <string name="setup_tab_controller">وحدة التحكم</string>
     <string name="setup_tab_session">الجلسة</string>

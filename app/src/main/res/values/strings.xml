@@ -794,6 +794,10 @@
     <string name="computer_settings_hint">The computer as a controller via scrcpy: install, commands and status.</string>
     <string name="receiver_settings">Receiver settings</string>
     <string name="receiver_settings_hint">Play on another screen: this phone streams the game, or shows a stream from another phone.</string>
+    <string name="second_player">Second player</string>
+    <string name="second_player_hint">Another phone joins as player 2 — works for normal play, TV and computer.</string>
+    <string name="second_player_add">Add another player</string>
+    <string name="second_player_on">On — a second phone can join as player 2</string>
     <string name="setup_adv_configure">Configure</string>
     <string name="setup_tab_controller">Controller</string>
     <string name="setup_tab_session">Session</string>
