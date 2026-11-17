@@ -1,5 +1,7 @@
 package com.droiddeck.launcher.ui
 
+import android.content.Context
+import android.hardware.display.DisplayManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -17,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.droiddeck.launcher.R
 import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
+import com.droiddeck.launcher.input.SecondScreenDisplay
+import com.droiddeck.launcher.input.SecondScreenDisplays
 import com.droiddeck.launcher.session.SessionPrefs
 
 // ─────────────────────────────────────────────────────────────
@@ -30,10 +34,8 @@ fun TvSettingsPage(onBack: () -> Unit) {
     val host = rememberMenuHost()
     var tvHandoffTest by remember { mutableStateOf(SessionPrefs.tvHandoffTest(ctx)) }
     var tvControllerMode by remember { mutableStateOf(SessionPrefs.tvControllerMode(ctx)) }
-    var tvStreamLoopbackTest by remember { mutableStateOf(SessionPrefs.tvStreamLoopbackTest(ctx)) }
-    var tvSurfaceEncodeTest by remember { mutableStateOf(SessionPrefs.tvSurfaceEncodeTest(ctx)) }
-    var tvStreamTest by remember { mutableStateOf(SessionPrefs.tvStreamTest(ctx)) }
     var tvRender4k by remember { mutableStateOf(SessionPrefs.tvRender4k(ctx)) }
+    var detectedDisplays by remember { mutableStateOf(readDetectedDisplays(ctx)) }
     var tvDiagnosticsEnabled by remember { mutableStateOf(TvDiagnosticsLog.isEnabled(ctx)) }
     var summary by remember { mutableStateOf(TvDiagnosticsLog.summary(ctx)) }
     var hasFile by remember { mutableStateOf(TvDiagnosticsLog.file(ctx) != null) }
@@ -50,8 +52,8 @@ fun TvSettingsPage(onBack: () -> Unit) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     "While the handoff is on, a running game moves to a connected " +
-                    "TV at 1080p (or 4K when the 4K render toggle below is on) when the TV is plugged in. Turning it off, or unplugging " +
-                    "the TV, moves the game back to the phone.",
+                    "TV at 1080p (or 4K when the 4K render toggle below is on) when a TV is connected — by HDMI cable or wirelessly " +
+                    "with Samsung DeX. Turning it off, or disconnecting the TV, moves the game back to the phone.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -69,7 +71,7 @@ fun TvSettingsPage(onBack: () -> Unit) {
         SettingsGroup("TV handoff") {
             SettingsRow(
                 label = "TV handoff",
-                hint = "While on, a running game moves to a connected TV at 1080p when the TV is plugged in. Turn off to move it back to the phone.",
+                hint = "While on, a running game moves to the TV at 1080p when one is connected, by HDMI cable or wirelessly with Samsung DeX. Turn off to move it back to the phone.",
             ) {
                 ToggleSwitch(checked = tvHandoffTest, onChange = { on ->
                     tvHandoffTest = on
@@ -95,7 +97,7 @@ fun TvSettingsPage(onBack: () -> Unit) {
         SettingsGroup("TV 4K render") {
             SettingsRow(
                 label = "TV 4K render",
-                hint = "Off by default: while on, the game renders at the TV's native 4K (3840x2160) instead of 1080p. Sharper picture, but much heavier on the phone: more heat and battery drain. Applies the next time the game moves to the TV.",
+                hint = "Off by default: while on, the game renders at the TV's native 4K (3840x2160) instead of 1080p. Sharper picture, but much heavier on the phone: more heat and battery drain. Applies the next time the game moves to the TV. Wireless displays always stay at 1080p.",
             ) {
                 ToggleSwitch(checked = tvRender4k, onChange = { on ->
                     tvRender4k = on
@@ -104,42 +106,36 @@ fun TvSettingsPage(onBack: () -> Unit) {
             }
         }
 
-        // ── TV stream loopback (P3 slice A1) ─────────────────────
-        SettingsGroup("TV stream loopback") {
-            SettingsRow(
-                label = "TV stream loopback test",
-                hint = "Test only: while on, a running session taps the encoded video bitstream into filesDir/venc/loopback.h264 (capped at 8 MB) and counts frames in the TV diagnostics log. No network, no receiver yet — it only proves whether frames reach an encoder at all.",
-            ) {
-                ToggleSwitch(checked = tvStreamLoopbackTest, onChange = { on ->
-                    tvStreamLoopbackTest = on
-                    SessionPrefs.setTvStreamLoopbackTest(ctx, on)
-                })
-            }
-        }
-
-        // ── TV surface encode (P3 slice A2) ─────────────────────
-        SettingsGroup("TV surface encode") {
-            SettingsRow(
-                label = "TV surface encode test",
-                hint = "Test only: while on, a running session encodes the live game frames to filesDir/venc/surface.h264 (capped at 8 MB) and counts frames in the TV diagnostics log. No network, no receiver yet — it only proves whether live frames reach a hardware encoder.",
-            ) {
-                ToggleSwitch(checked = tvSurfaceEncodeTest, onChange = { on ->
-                    tvSurfaceEncodeTest = on
-                    SessionPrefs.setTvSurfaceEncodeTest(ctx, on)
-                })
-            }
-        }
-
-        // ── TV stream (P3 slice A3) ─────────────────────────────
-        SettingsGroup("TV stream") {
-            SettingsRow(
-                label = "TV stream test",
-                hint = "Test only: while on, a running session serves the encoded game frames over raw TCP on the Wi-Fi network (advertised as _droiddeck-tv._tcp) for the DroidDeck TV receiver app. It reads filesDir/venc/surface.h264, so turn the surface encode test on too — without it the stream carries zero frames.",
-            ) {
-                ToggleSwitch(checked = tvStreamTest, onChange = { on ->
-                    tvStreamTest = on
-                    SessionPrefs.setTvStreamTest(ctx, on)
-                })
+        // ── Wireless display (DeX) ───────────────────────────────
+        SettingsGroup("Wireless display (DeX)") {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "To play on the TV without a cable: on the phone, open Samsung DeX and connect wirelessly to the TV. " +
+                    "The same handoff then moves the game to the TV, and the phone becomes the controller. No app is needed " +
+                    "on the TV. Wireless stays at 1080p and adds a short delay, so fast games are better on the cable.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (detectedDisplays.isEmpty()) {
+                    Text(
+                        "No external display detected — connect DeX first.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    detectedDisplays.forEach { display ->
+                        Text(
+                            display.label,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Actions {
+                    SecondaryButton(stringResource(R.string.setup_check_again), compact = true) {
+                        detectedDisplays = readDetectedDisplays(ctx)
+                    }
+                }
             }
         }
 
@@ -191,4 +187,9 @@ fun TvSettingsPage(onBack: () -> Unit) {
             }
         }
     }
+}
+
+private fun readDetectedDisplays(ctx: Context): List<SecondScreenDisplay> {
+    val displayManager = ctx.getSystemService(DisplayManager::class.java) ?: return emptyList()
+    return SecondScreenDisplays.available(displayManager)
 }

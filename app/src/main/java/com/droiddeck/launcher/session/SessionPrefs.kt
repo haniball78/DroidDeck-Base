@@ -83,24 +83,6 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("tvControllerMode", on).apply()
     }
 
-    fun tvStreamLoopbackTest(context: Context): Boolean = prefs(context).getBoolean("tvStreamLoopbackTest", false)
-
-    fun setTvStreamLoopbackTest(context: Context, on: Boolean) {
-        prefs(context).edit().putBoolean("tvStreamLoopbackTest", on).apply()
-    }
-
-    fun tvSurfaceEncodeTest(context: Context): Boolean = prefs(context).getBoolean("tvSurfaceEncodeTest", false)
-
-    fun setTvSurfaceEncodeTest(context: Context, on: Boolean) {
-        prefs(context).edit().putBoolean("tvSurfaceEncodeTest", on).apply()
-    }
-
-    fun tvStreamTest(context: Context): Boolean = prefs(context).getBoolean("tvStreamTest", false)
-
-    fun setTvStreamTest(context: Context, on: Boolean) {
-        prefs(context).edit().putBoolean("tvStreamTest", on).apply()
-    }
-
     fun tvRender4k(context: Context): Boolean = prefs(context).getBoolean("tvRender4k", false)
 
     fun setTvRender4k(context: Context, on: Boolean) {

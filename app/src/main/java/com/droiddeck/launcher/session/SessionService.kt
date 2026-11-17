@@ -613,54 +613,6 @@ class SessionService : Service() {
             encoder.attach(this)
             components.add(encoder)
             guest.add("BL_VENC_SOCKET=" + encoder.socket.absolutePath)
-            if (SessionPrefs.tvStreamLoopbackTest(this)) {
-                val tapFile = File(filesDir, "venc/loopback.h264")
-                if (encoder.startTap(tapFile.absolutePath)) {
-                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
-                        this, "tv", "stream-loopback",
-                        fields = mapOf("step" to "started", "file" to "venc/loopback.h264"),
-                    )
-                } else {
-                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
-                        this, "tv", "stream-loopback",
-                        fields = mapOf("step" to "start-failed"),
-                    )
-                }
-            }
-            if (SessionPrefs.tvSurfaceEncodeTest(this)) {
-                val surfaceEncode = TvSurfaceEncode(File(filesDir, "venc/surface.h264"))
-                surfaceEncode.attach(this)
-                components.add(surfaceEncode)
-                val reason = surfaceEncode.begin()
-                if (reason == null) {
-                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
-                        this, "tv", "surface-encode",
-                        fields = mapOf("step" to "started", "file" to "venc/surface.h264"),
-                    )
-                } else {
-                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
-                        this, "tv", "surface-encode",
-                        fields = mapOf("step" to "start-failed", "reason" to reason),
-                    )
-                }
-            }
-            if (SessionPrefs.tvStreamTest(this)) {
-                val streamServer = TvStreamServer(File(filesDir, "venc/surface.h264"))
-                streamServer.attach(this)
-                components.add(streamServer)
-                val reason = streamServer.begin()
-                if (reason == null) {
-                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
-                        this, "tv", "stream",
-                        fields = mapOf("step" to "started", "file" to "venc/surface.h264"),
-                    )
-                } else {
-                    com.droiddeck.launcher.core.privileged.TvDiagnosticsLog.log(
-                        this, "tv", "stream",
-                        fields = mapOf("step" to "start-failed", "reason" to reason),
-                    )
-                }
-            }
         }
 
         guest.add("BL_WIDTH=" + size.first)

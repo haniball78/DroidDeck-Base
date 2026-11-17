@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import com.droiddeck.launcher.core.TvHandoff
+import com.droiddeck.launcher.input.isWifiDisplay
 import com.droiddeck.launcher.session.SessionPrefs
 
 class TvHandoffScreen(
@@ -42,7 +43,8 @@ class TvHandoffScreen(
         val modes = display.supportedModes.map {
             TvHandoff.TvMode(it.physicalWidth, it.physicalHeight, it.refreshRate, it.modeId)
         }
-        val render4k = SessionPrefs.tvRender4k(context)
+        // Wireless (DeX/Miracast) stays at 1080p: the link cannot carry 4K.
+        val render4k = SessionPrefs.tvRender4k(context) && !display.isWifiDisplay()
         val maxWidth = if (render4k) 3840 else 1920
         val maxHeight = if (render4k) 2160 else 1080
         val best = TvHandoff.selectMode(modes, wantWidth = maxWidth, wantHeight = maxHeight, wantHz = refreshHz.toFloat())
