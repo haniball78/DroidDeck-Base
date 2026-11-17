@@ -611,6 +611,10 @@
     <string name="drawer_hud_color_amber">كهرماني</string>
     <string name="drawer_hud_color_violet">بنفسجي</string>
     <string name="drawer_hud_opacity">العتامة</string>
+    <string name="tv_phone_mouse">الهاتف كفأرة</string>
+    <string name="tv_phone_mouse_hint">أثناء التشغيل، يعمل الهاتف كفأرة بينما اللعبة على التلفاز.</string>
+    <string name="drawer_tv_info">شريط معلومات التلفاز</string>
+    <string name="drawer_tv_info_hint">إظهار الفريمات والحرارة والبطارية على الهاتف أثناء عرض اللعبة على التلفاز.</string>
     <string name="drawer_scaling">وضع التحجيم</string>
     <string name="drawer_scaling_sharpness">حدة التحجيم</string>
     <string name="drawer_effects">مؤثرات الشاشة</string>
@@ -770,6 +774,12 @@
     <string name="receiver_transport_wifi">Wi-Fi Direct</string>
     <string name="receiver_transport_usb">كبل USB</string>
     <string name="receiver_send_input">التحكم باللعبة من هذا الجهاز</string>
+    <string name="receiver_role_controller">المتحكم</string>
+    <string name="receiver_role_controller_hint">هذا الهاتف يشغّل اللعبة ويبثها.</string>
+    <string name="receiver_role_receiver">المستقبل</string>
+    <string name="receiver_role_receiver_hint">اعرض لعبة هاتف آخر على هذا الجهاز.</string>
+    <string name="receiver_role_gamepad">قبضة</string>
+    <string name="receiver_role_gamepad_hint">انضم كلاعب أول أو ثانٍ من هذا الهاتف.</string>
     <string name="setup_adv_configure">ضبط</string>
     <string name="setup_tab_controller">وحدة التحكم</string>
     <string name="setup_tab_session">الجلسة</string>

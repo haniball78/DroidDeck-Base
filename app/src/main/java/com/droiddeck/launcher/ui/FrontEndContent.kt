@@ -254,7 +254,7 @@ private fun Content(
         return
     }
     if (selected == "receiver") {
-        ReceiverSettingsPage(onBack = { onSelect("setup") })
+        ReceiverSettingsPage(onBack = { onSelect("setup") }, onGoToGames = { onSelect("games") })
         return
     }
     if (selected == "connections") {

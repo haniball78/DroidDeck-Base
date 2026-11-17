@@ -8,11 +8,23 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.DesktopWindows
+import androidx.compose.material.icons.outlined.ScreenShare
+import androidx.compose.material.icons.outlined.SportsEsports
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,9 +34,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -48,7 +65,7 @@ import kotlinx.coroutines.delay
 // ─────────────────────────────────────────────────────────────
 
 @Composable
-fun ReceiverSettingsPage(onBack: () -> Unit) {
+fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) {
     val ctx = LocalContext.current
     val colors = MaterialTheme.colorScheme
     val host = rememberMenuHost()
@@ -248,8 +265,26 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         useUsb = usb
     }
 
+    // Per-session choices (transport, player role, control-from-device)
+    // are page-local; Start persists the control choice so the next
+    // session defaults to the last one.
+    fun saveReceiverChoices() {
+        SessionPrefs.setReceiverSendInput(ctx, receiverSendInput)
+    }
+
+    // Tapping a role card selects it (tapping the selected one turns the
+    // role off) and stops the previous role's activity.
+    fun selectMode(newMode: String) {
+        val next = if (newMode == mode) SessionPrefs.RECEIVER_MODE_OFF else newMode
+        if (mode == SessionPrefs.RECEIVER_MODE_RECEIVER && next != SessionPrefs.RECEIVER_MODE_RECEIVER) stopReceiver()
+        if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD && next != SessionPrefs.RECEIVER_MODE_GAMEPAD) stopPad()
+        mode = next
+        SessionPrefs.setReceiverMode(ctx, mode)
+    }
+
     fun startReceiver() {
         if (receiverRunning) return
+        saveReceiverChoices()
         receiverRunning = true
         status = "Searching for a controller…"
         frames = 0
@@ -365,8 +400,12 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
     // is in Receiver mode, the toggle is on, and the video is connected.
     LaunchedEffect(receiverRunning, receiverSendInput, mode) {
         if (mode == SessionPrefs.RECEIVER_MODE_RECEIVER && receiverSendInput && receiverRunning) {
-            if (!receiverInputRunning) startReceiverInput()
+            if (!receiverInputRunning) {
+                saveReceiverChoices()
+                startReceiverInput()
+            }
         } else if (receiverInputRunning) {
+            saveReceiverChoices()
             stopReceiverInput()
         }
     }
@@ -399,47 +438,60 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         SettingsGroup("What is this?") {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    "One device runs the game, another shows it. Controller: this phone runs the game " +
-                    "and streams it over its own Wi-Fi Direct group — the phone keeps its router Wi-Fi " +
-                    "for the game itself. Receiver: this device finds a controller phone and shows its " +
-                    "game full-screen. Turn on 'Control the game from this device' below to also drive the game from here. Gamepad: this phone joins a controller phone as player 1 or 2 — its touch pad, " +
-                    "or a gamepad plugged into this phone, drives the chosen player while you watch on the TV or a receiver. The Vestel TV cannot be a receiver (it runs Vestel Smart OS, not Android).",
+                    "One device runs the game, another shows it. Controller streams the game over its own " +
+                    "Wi-Fi Direct group, while the phone keeps its router Wi-Fi for the game itself. Receiver " +
+                    "finds a controller phone and shows its game full-screen — turn on the control toggle below " +
+                    "to also drive the game from here. Gamepad joins a controller phone as player 1 or 2. " +
+                    "The Vestel TV cannot be a receiver (it runs Vestel Smart OS, not Android).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
 
-        // ── Mode ──────────────────────────────────────────────────
-        SettingsGroup("Mode") {
-            SettingsRow(
-                label = "Controller — stream this phone's game",
-                hint = "Start a game while this is on: the phone creates the DroidDeck-TV group (5 GHz) and streams the game to any receiver.",
-            ) {
-                ToggleSwitch(checked = mode == SessionPrefs.RECEIVER_MODE_CONTROLLER, onChange = { on ->
-                    mode = if (on) SessionPrefs.RECEIVER_MODE_CONTROLLER else SessionPrefs.RECEIVER_MODE_OFF
-                    SessionPrefs.setReceiverMode(ctx, mode)
-                })
+        // ── Your role ─────────────────────────────────────────────
+        SettingsGroup("Your role") {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                RoleCard(
+                    icon = Icons.Outlined.ScreenShare,
+                    title = stringResource(R.string.receiver_role_controller),
+                    hint = stringResource(R.string.receiver_role_controller_hint),
+                    selected = mode == SessionPrefs.RECEIVER_MODE_CONTROLLER,
+                ) { selectMode(SessionPrefs.RECEIVER_MODE_CONTROLLER) }
+                RoleCard(
+                    icon = Icons.Outlined.DesktopWindows,
+                    title = stringResource(R.string.receiver_role_receiver),
+                    hint = stringResource(R.string.receiver_role_receiver_hint),
+                    selected = mode == SessionPrefs.RECEIVER_MODE_RECEIVER,
+                ) { selectMode(SessionPrefs.RECEIVER_MODE_RECEIVER) }
+                RoleCard(
+                    icon = Icons.Outlined.SportsEsports,
+                    title = stringResource(R.string.receiver_role_gamepad),
+                    hint = stringResource(R.string.receiver_role_gamepad_hint),
+                    selected = mode == SessionPrefs.RECEIVER_MODE_GAMEPAD,
+                ) { selectMode(SessionPrefs.RECEIVER_MODE_GAMEPAD) }
             }
-            SettingsRow(
-                label = "Receiver — show another phone's game",
-                hint = "This device finds a controller phone and shows its game below. No game runs on this device.",
-            ) {
-                ToggleSwitch(checked = mode == SessionPrefs.RECEIVER_MODE_RECEIVER, onChange = { on ->
-                    mode = if (on) SessionPrefs.RECEIVER_MODE_RECEIVER else SessionPrefs.RECEIVER_MODE_OFF
-                    SessionPrefs.setReceiverMode(ctx, mode)
-                    if (!on) stopReceiver()
-                })
-            }
-            SettingsRow(
-                label = "Gamepad — second controller for two-player games",
-                hint = "This phone joins a controller phone as player 1 or 2 — its touch pad, or a gamepad plugged into this phone, drives the chosen player. A keyboard or mouse plugged into this phone also drives the game. Pick the role below. Watch the game on the TV or a receiver.",
-            ) {
-                ToggleSwitch(checked = mode == SessionPrefs.RECEIVER_MODE_GAMEPAD, onChange = { on ->
-                    mode = if (on) SessionPrefs.RECEIVER_MODE_GAMEPAD else SessionPrefs.RECEIVER_MODE_OFF
-                    SessionPrefs.setReceiverMode(ctx, mode)
-                    if (!on) stopPad()
-                })
+        }
+
+        // ── Controller ────────────────────────────────────────────
+        if (mode == SessionPrefs.RECEIVER_MODE_CONTROLLER) {
+            SettingsGroup("Controller") {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Waiting for a receiver — start a game and the tablet will find this phone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (onGoToGames != null) {
+                        PrimaryButton("Start a game", fill = true, large = true, modifier = Modifier.fillMaxWidth()) { onGoToGames() }
+                    } else {
+                        Text(
+                            "Start any game from Games — the stream starts automatically.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
 
@@ -464,7 +516,6 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                 ) {
                     ToggleSwitch(checked = receiverSendInput, onChange = { on ->
                         receiverSendInput = on
-                        SessionPrefs.setReceiverSendInput(ctx, on)
                     })
                 }
                 if (receiverSendInput) {
@@ -533,12 +584,10 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Actions {
-                        if (receiverRunning) {
-                            SecondaryButton("Stop", compact = true) { stopReceiver() }
-                        } else {
-                            SecondaryButton("Start", compact = true) { if (useUsb) startReceiver() else ensurePermissionsAndStart() }
-                        }
+                    if (receiverRunning) {
+                        SecondaryButton("Stop", modifier = Modifier.fillMaxWidth()) { stopReceiver() }
+                    } else {
+                        PrimaryButton("Start", fill = true, large = true, modifier = Modifier.fillMaxWidth()) { if (useUsb) startReceiver() else ensurePermissionsAndStart() }
                     }
                     if (receiverSendInput && padBridge != null) {
                         AndroidView(
@@ -616,12 +665,10 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Actions {
-                        if (padRunning) {
-                            SecondaryButton("Stop", compact = true) { stopPad() }
-                        } else {
-                            SecondaryButton("Start", compact = true) { if (useUsb) startPad() else ensurePermissionsAndStartPad() }
-                        }
+                    if (padRunning) {
+                        SecondaryButton("Stop", modifier = Modifier.fillMaxWidth()) { stopPad() }
+                    } else {
+                        PrimaryButton("Start", fill = true, large = true, modifier = Modifier.fillMaxWidth()) { if (useUsb) startPad() else ensurePermissionsAndStartPad() }
                     }
                 }
             }
@@ -664,5 +711,32 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RoleCard(icon: ImageVector, title: String, hint: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val pal = LocalPalette.current
+    Row(
+        Modifier.fillMaxWidth().clip(Shape14)
+            .background(if (selected) colors.primary.copy(alpha = 0.12f) else colors.surface)
+            .border(if (selected) 2.dp else 1.dp, if (selected) colors.primary else pal.line, Shape14)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = colors.primary, modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = colors.onBackground)
+            Text(hint, fontSize = 12.5.sp, color = colors.onSurfaceVariant)
+        }
+        Icon(
+            if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.ChevronRight,
+            contentDescription = null,
+            tint = if (selected) colors.primary else colors.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }

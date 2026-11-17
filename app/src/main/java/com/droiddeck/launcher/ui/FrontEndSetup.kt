@@ -417,6 +417,11 @@ internal fun SetupPanel(
                                     bridge.setPhysicalBaseSlot(PadSlotMap.computeBaseSlot(on, bridge.isBuiltinPad(), SessionState.hiddenPad))
                                 }
                             }
+                            var tvPhoneMouse by remember { mutableStateOf(SessionPrefs.tvPhoneMouseMode(ctx)) }
+                            ToggleRow(host, "controller-tv-phone-mouse", stringResource(R.string.tv_phone_mouse), stringResource(R.string.tv_phone_mouse_hint), tvPhoneMouse) { on ->
+                                tvPhoneMouse = on
+                                SessionPrefs.setTvPhoneMouseMode(ctx, on)
+                            }
                             var padStatus by remember { mutableStateOf("") }
                             LaunchedEffect(Unit) {
                                 while (isActive) {

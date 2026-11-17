@@ -202,6 +202,7 @@ class DrawerActions(
     val hudGraph: Boolean = true,
     val hudColor: String = SessionPrefs.HUD_COLOR_MINT,
     val hudOpacity: Int = SessionPrefs.HUD_OPACITY_DEFAULT,
+    val tvCompanionInfo: Boolean = false,
     val frameGen: FrameGen.Mode,
     val lossless: Lossless.State,
     val oscMode: String,
@@ -234,6 +235,7 @@ class DrawerActions(
     val onHudGraph: (Boolean) -> Unit = {},
     val onHudColor: (String) -> Unit = {},
     val onHudOpacity: (Int) -> Unit = {},
+    val onTvCompanionInfo: (Boolean) -> Unit = {},
     val onFrameGenPick: (FrameGen.Mode) -> Unit,
     val onImportLossless: () -> Unit,
     val onKeyboard: () -> Unit,
@@ -505,6 +507,8 @@ internal fun SessionDrawer(open: Boolean, requestedPage: SessionDrawerPage, cont
                                         modifier = focus.track(page, "hud-opacity"), onChange = a.onHudOpacity,
                                     )
                                 }
+                                ToggleRow(host, "tv-info", stringResource(R.string.drawer_tv_info), stringResource(R.string.drawer_tv_info_hint), a.tvCompanionInfo,
+                                    chipModifier = focus.track(page, "tv-info"), onChange = a.onTvCompanionInfo)
                                 val fgOpen = host.open == "fg"
                                 val fgLabel = FrameGen.label(LocalContext.current, a.frameGen)
                                 SettingsRow(stringResource(R.string.frame_gen_title), null, highlighted = fgOpen) {
