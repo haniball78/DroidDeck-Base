@@ -49,7 +49,10 @@ class P2pReceiver(private val context: Context) {
                 if (registrationType == SERVICE_TYPE) {
                     controllerDevice = device
                     controllerName = device.deviceName
-                    txtByDevice[device.deviceAddress]?.let { videoSize = parseVideoSize(it) }
+                    txtByDevice[device.deviceAddress]?.let {
+                        videoSize = parseVideoSize(it)
+                        padPort = parsePadPort(it)
+                    }
                     if (videoSize != null) txtReady.countDown()
                     found.countDown()
                 }
@@ -58,6 +61,7 @@ class P2pReceiver(private val context: Context) {
                 txtByDevice[device.deviceAddress] = record
                 if (device.deviceAddress == controllerDevice?.deviceAddress) {
                     videoSize = parseVideoSize(record)
+                    padPort = parsePadPort(record)
                     txtReady.countDown()
                 }
             },
@@ -192,6 +196,11 @@ class P2pReceiver(private val context: Context) {
     var videoSize: Pair<Int, Int>? = null
         private set
 
+    /** The controller's pad-server port from the TXT record ("pad"); null when the controller has no gamepad input. */
+    @Volatile
+    var padPort: Int? = null
+        private set
+
     @Volatile
     var controllerName: String? = null
         private set
@@ -214,4 +223,11 @@ internal fun parseVideoSize(record: Map<String, String>): Pair<Int, Int>? {
     val h = record["h"]?.toIntOrNull() ?: return null
     if (w <= 0 || h <= 0) return null
     return w to h
+}
+
+/** Pad-server port from the controller's TXT record ("pad"); null when absent or invalid. */
+internal fun parsePadPort(record: Map<String, String>): Int? {
+    val port = record["pad"]?.toIntOrNull() ?: return null
+    if (port < 1 || port > 65535) return null
+    return port
 }

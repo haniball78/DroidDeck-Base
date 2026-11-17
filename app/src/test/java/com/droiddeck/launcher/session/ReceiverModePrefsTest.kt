@@ -26,7 +26,7 @@ class ReceiverModePrefsTest {
 
     @Test
     fun receiverModeRoundTrips() {
-        for (mode in listOf(SessionPrefs.RECEIVER_MODE_CONTROLLER, SessionPrefs.RECEIVER_MODE_RECEIVER)) {
+        for (mode in listOf(SessionPrefs.RECEIVER_MODE_CONTROLLER, SessionPrefs.RECEIVER_MODE_RECEIVER, SessionPrefs.RECEIVER_MODE_GAMEPAD)) {
             SessionPrefs.setReceiverMode(context, mode)
             assertEquals(mode, SessionPrefs.receiverMode(context))
         }

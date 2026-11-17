@@ -98,15 +98,16 @@ object SessionPrefs {
     const val RECEIVER_MODE_OFF = "off"
     const val RECEIVER_MODE_CONTROLLER = "controller"
     const val RECEIVER_MODE_RECEIVER = "receiver"
+    const val RECEIVER_MODE_GAMEPAD = "gamepad"
 
-    /** Which side of Receiver mode this device plays: off, controller (runs the game and streams it), or receiver (shows a stream). */
+    /** Which side of Receiver mode this device plays: off, controller (runs the game and streams it), receiver (shows a stream), or gamepad (second controller for a controller phone). */
     fun receiverMode(context: Context): String =
         prefs(context).getString("receiverMode", RECEIVER_MODE_OFF)
-            .takeIf { it == RECEIVER_MODE_CONTROLLER || it == RECEIVER_MODE_RECEIVER }
+            .takeIf { it == RECEIVER_MODE_CONTROLLER || it == RECEIVER_MODE_RECEIVER || it == RECEIVER_MODE_GAMEPAD }
             ?: RECEIVER_MODE_OFF
 
     fun setReceiverMode(context: Context, mode: String) {
-        require(mode == RECEIVER_MODE_OFF || mode == RECEIVER_MODE_CONTROLLER || mode == RECEIVER_MODE_RECEIVER)
+        require(mode == RECEIVER_MODE_OFF || mode == RECEIVER_MODE_CONTROLLER || mode == RECEIVER_MODE_RECEIVER || mode == RECEIVER_MODE_GAMEPAD)
         prefs(context).edit().putString("receiverMode", mode).apply()
     }
 

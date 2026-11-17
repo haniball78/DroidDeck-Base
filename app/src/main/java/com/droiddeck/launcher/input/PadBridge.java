@@ -454,14 +454,30 @@ public final class PadBridge {
     }
 
     public synchronized void applyExternal(java.util.function.Consumer<PadState> mutation, boolean changed) {
-        mutation.accept(state);
+        applyExternalForSlot(0, mutation, changed);
+    }
+
+    /** Same as applyExternal, but into a player slot (1..3): the second phone's touch pad drives slot 1. */
+    public synchronized void applyExternalForSlot(int slot, java.util.function.Consumer<PadState> mutation, boolean changed) {
+        if (slot == 0) {
+            mutation.accept(state);
+            if (changed) {
+                activeControllerId = NO_CONTROLLER;
+                notePlayerInput();
+                statButtons++;
+                scheduleStats();
+            }
+            publish();
+            return;
+        }
+        if (slot < 1 || slot >= SLOTS || playerStates[slot] == null) return;
+        mutation.accept(playerStates[slot]);
         if (changed) {
-            activeControllerId = NO_CONTROLLER;
             notePlayerInput();
             statButtons++;
             scheduleStats();
         }
-        publish();
+        publish(slot);
     }
 
     public synchronized void setSystemButtons(boolean guidePressed, boolean qamPressed) {

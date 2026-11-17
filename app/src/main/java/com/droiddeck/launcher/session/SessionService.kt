@@ -736,7 +736,9 @@ class SessionService : Service() {
         components.add(networkLink)
         if (SessionPrefs.receiverMode(this) == SessionPrefs.RECEIVER_MODE_CONTROLLER) {
             val streamFile = File(filesDir, "venc/surface.h264")
-            components.add(P2pGroup().also { it.attach(this) })
+            val padServer = P2pPadServer().also { it.attach(this) }
+            components.add(padServer)
+            components.add(P2pGroup(padServer).also { it.attach(this) })
             components.add(TvSurfaceEncode(streamFile).also { it.attach(this) })
             components.add(TvStreamServer(streamFile).also { it.attach(this) })
         }

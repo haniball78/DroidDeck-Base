@@ -137,6 +137,23 @@ fun ComputerSettingsPage(onBack: () -> Unit) {
             }
         }
 
+        // ── Gamepad — wired to the computer ───────────────────────
+        SettingsGroup("Gamepad — wired to the computer") {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Plug the gamepad into the computer with a USB cable and add --gamepad=uhid to the scrcpy command: the phone then sees it as a real gamepad (first pad is player 1, a second pad is player 2). Needs scrcpy 3.x or newer; several wired pads work at once.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "A Bluetooth gamepad is better paired to the phone directly instead — no computer in the middle, and the app sees it the same way.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            CommandRow("With gamepad", "scrcpy --mouse=uhid --keyboard=uhid --gamepad=uhid --stay-awake -f")
+        }
+
         // ── Step 4: check ─────────────────────────────────────────
         SettingsGroup("Step 4: Check") {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

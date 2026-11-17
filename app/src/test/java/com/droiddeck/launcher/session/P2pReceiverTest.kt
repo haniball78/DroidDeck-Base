@@ -35,6 +35,19 @@ class P2pReceiverTest {
     }
 
     @Test
+    fun `pad port parses from the TXT record`() {
+        assertEquals(54321, parsePadPort(mapOf("role" to "controller", "pad" to "54321")))
+    }
+
+    @Test
+    fun `pad port is null when absent or invalid`() {
+        assertNull(parsePadPort(mapOf("role" to "controller")))
+        assertNull(parsePadPort(mapOf("pad" to "not-a-port")))
+        assertNull(parsePadPort(mapOf("pad" to "0")))
+        assertNull(parsePadPort(mapOf("pad" to "70000")))
+    }
+
+    @Test
     fun `stop is safe without begin`() {
         P2pReceiver(context).stop()
     }

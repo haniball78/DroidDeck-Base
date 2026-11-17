@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * begin() returns after kicking off group creation; formation and advertising
  * finish asynchronously (the session must not wait on P2P), failures are logged.
  */
-class P2pGroup : SessionPart() {
+class P2pGroup(private val padServer: P2pPadServer? = null) : SessionPart() {
     override fun start() {
         begin()
     }
@@ -121,11 +121,16 @@ class P2pGroup : SessionPart() {
     private fun advertiseService() {
         if (stopped.get()) return
         // The TXT record carries the video size so the receiver can configure
-        // its decoder before the first frame arrives.
+        // its decoder before the first frame arrives, and the pad-server port
+        // so a second phone can join as player 2.
         val size = SessionState.outputSize
+        val record = mutableMapOf(
+            "role" to "controller", "w" to size.first.toString(), "h" to size.second.toString(),
+        )
+        val padPort = padServer?.port ?: -1
+        if (padPort > 0) record["pad"] = padPort.toString()
         val info = WifiP2pDnsSdServiceInfo.newInstance(
-            SERVICE_INSTANCE, SERVICE_TYPE,
-            mapOf("role" to "controller", "w" to size.first.toString(), "h" to size.second.toString()),
+            SERVICE_INSTANCE, SERVICE_TYPE, record,
         )
         manager?.addLocalService(channel, info, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {

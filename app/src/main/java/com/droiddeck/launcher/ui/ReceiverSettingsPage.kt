@@ -31,9 +31,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.droiddeck.launcher.R
 import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
+import com.droiddeck.launcher.input.OnScreenControls
+import com.droiddeck.launcher.input.PadBridge
+import com.droiddeck.launcher.input.PadState
+import com.droiddeck.launcher.session.P2pPadClient
 import com.droiddeck.launcher.session.P2pReceiver
 import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.session.TvStreamReceiver
+import java.io.File
 import kotlinx.coroutines.delay
 
 // ─────────────────────────────────────────────────────────────
@@ -56,6 +61,73 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
     var firstFrameMs by remember { mutableStateOf(-1L) }
     var p2pRef by remember { mutableStateOf<P2pReceiver?>(null) }
     var recvRef by remember { mutableStateOf<TvStreamReceiver?>(null) }
+
+    var padRunning by remember { mutableStateOf(false) }
+    var padStatus by remember { mutableStateOf("Idle — pick Gamepad below, then Start.") }
+    var padRef by remember { mutableStateOf<P2pPadClient?>(null) }
+    var padP2pRef by remember { mutableStateOf<P2pReceiver?>(null) }
+
+    // Local touch pad for Gamepad mode: its state is routed to the controller
+    // phone instead of a guest, so no session runs on this device.
+    val padBridge = remember(mode) {
+        if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD) {
+            PadBridge(File(ctx.cacheDir, "droiddeck-pad")).also { it.setBuiltinPad(true) }
+        } else null
+    }
+    DisposableEffect(padBridge) {
+        onDispose { runCatching { padBridge?.stop() } }
+    }
+
+    fun stopPad() {
+        padRunning = false
+        runCatching { padBridge?.setTouchRoute(null) }
+        runCatching { padRef?.close() }
+        runCatching { padP2pRef?.stop() }
+        runCatching { padBridge?.stop() }
+        padRef = null
+        padP2pRef = null
+    }
+
+    fun startPad() {
+        if (padRunning) return
+        padRunning = true
+        padStatus = "Searching for a controller…"
+        Thread({
+            val p2p = P2pReceiver(ctx)
+            padP2pRef = p2p
+            val error = p2p.begin()
+            if (!padRunning) {
+                p2p.stop()
+                return@Thread
+            }
+            if (error != null) {
+                padStatus = "Controller not found ($error)"
+                padRunning = false
+                return@Thread
+            }
+            val port = p2p.padPort
+            val host = p2p.controllerAddress?.hostAddress
+            if (port == null || host == null) {
+                padStatus = "This controller has no gamepad input — start a game on the controller phone with Controller mode on."
+                p2p.stop()
+                padRunning = false
+                return@Thread
+            }
+            val client = P2pPadClient()
+            if (!client.connect(host, port)) {
+                padStatus = "Could not reach the controller's gamepad input."
+                p2p.stop()
+                padRunning = false
+                return@Thread
+            }
+            padRef = client
+            padStatus = "Connected as player 2 — use the touch pad below."
+            padBridge?.setTouchRoute(object : PadBridge.TouchRoute {
+                override fun active() = padRunning
+                override fun accept(state: PadState) = client.send(state)
+            })
+        }, "gamepad-start").start()
+    }
 
     fun stopReceiver() {
         receiverRunning = false
@@ -105,8 +177,13 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grants ->
-        if (grants.values.all { it }) startReceiver()
-        else status = "Wi-Fi Direct needs location permission to find the controller."
+        if (grants.values.all { it }) {
+            if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD) startPad() else startReceiver()
+        } else if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD) {
+            padStatus = "Wi-Fi Direct needs location permission to find the controller."
+        } else {
+            status = "Wi-Fi Direct needs location permission to find the controller."
+        }
     }
 
     fun ensurePermissionsAndStart() {
@@ -122,6 +199,19 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         if (needed.isEmpty()) startReceiver() else permissionLauncher.launch(needed.toTypedArray())
     }
 
+    fun ensurePermissionsAndStartPad() {
+        val needed = ArrayList<String>()
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            needed += Manifest.permission.ACCESS_FINE_LOCATION
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed += Manifest.permission.NEARBY_WIFI_DEVICES
+        }
+        if (needed.isEmpty()) startPad() else permissionLauncher.launch(needed.toTypedArray())
+    }
+
     LaunchedEffect(receiverRunning) {
         while (receiverRunning) {
             recvRef?.let {
@@ -132,8 +222,21 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         }
     }
 
+    LaunchedEffect(padRunning) {
+        while (padRunning) {
+            if (padRef != null && padRef?.connected?.get() == false) {
+                padStatus = "Lost the controller — Start again."
+                stopPad()
+            }
+            delay(1000)
+        }
+    }
+
     DisposableEffect(Unit) {
-        onDispose { stopReceiver() }
+        onDispose {
+            stopReceiver()
+            stopPad()
+        }
     }
 
     SettingsPage(
@@ -150,7 +253,8 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                     "One device runs the game, another shows it. Controller: this phone runs the game " +
                     "and streams it over its own Wi-Fi Direct group — the phone keeps its router Wi-Fi " +
                     "for the game itself. Receiver: this device finds a controller phone and shows its " +
-                    "game full-screen. The Vestel TV cannot be a receiver (it runs Vestel Smart OS, not Android).",
+                    "game full-screen. Gamepad: this phone joins a controller phone as player 2 — its touch pad " +
+                    "drives the game while you watch on the TV or a receiver. The Vestel TV cannot be a receiver (it runs Vestel Smart OS, not Android).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -176,6 +280,16 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                     mode = if (on) SessionPrefs.RECEIVER_MODE_RECEIVER else SessionPrefs.RECEIVER_MODE_OFF
                     SessionPrefs.setReceiverMode(ctx, mode)
                     if (!on) stopReceiver()
+                })
+            }
+            SettingsRow(
+                label = "Gamepad — second controller for two-player games",
+                hint = "This phone joins a controller phone and its touch pad drives player 2. Watch the game on the TV or a receiver.",
+            ) {
+                ToggleSwitch(checked = mode == SessionPrefs.RECEIVER_MODE_GAMEPAD, onChange = { on ->
+                    mode = if (on) SessionPrefs.RECEIVER_MODE_GAMEPAD else SessionPrefs.RECEIVER_MODE_OFF
+                    SessionPrefs.setReceiverMode(ctx, mode)
+                    if (!on) stopPad()
                 })
             }
         }
@@ -216,6 +330,32 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                             SecondaryButton("Stop", compact = true) { stopReceiver() }
                         } else {
                             SecondaryButton("Start", compact = true) { ensurePermissionsAndStart() }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Gamepad ───────────────────────────────────────────────
+        if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD) {
+            SettingsGroup("Gamepad") {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (padBridge != null) {
+                        AndroidView(
+                            factory = { context -> OnScreenControls(context, padBridge) },
+                            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                        )
+                    }
+                    Text(
+                        padStatus,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Actions {
+                        if (padRunning) {
+                            SecondaryButton("Stop", compact = true) { stopPad() }
+                        } else {
+                            SecondaryButton("Start", compact = true) { ensurePermissionsAndStartPad() }
                         }
                     }
                 }
