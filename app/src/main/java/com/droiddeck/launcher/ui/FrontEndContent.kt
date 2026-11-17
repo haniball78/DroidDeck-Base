@@ -257,6 +257,10 @@ private fun Content(
         ReceiverSettingsPage(onBack = { onSelect("setup") })
         return
     }
+    if (selected == "connections") {
+        ConnectionsPage(onSelect, modifier.padding(horizontal = padH, vertical = padV))
+        return
+    }
     if (selected == "updates") {
         UpdatesPage(s, a, modifier.padding(horizontal = padH, vertical = padV))
         return

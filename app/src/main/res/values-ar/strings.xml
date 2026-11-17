@@ -764,6 +764,8 @@
     <string name="second_player_hint">هاتف آخر ينضم كلاعب ثانٍ — يعمل مع اللعب العادي والتلفاز والكمبيوتر.</string>
     <string name="second_player_add">أضف لاعباً آخر</string>
     <string name="second_player_on">مفعّل — يمكن لهاتف آخر الانضمام كلاعب ثانٍ</string>
+    <string name="receiver_transport_wifi">Wi-Fi Direct</string>
+    <string name="receiver_transport_usb">كبل USB</string>
     <string name="setup_adv_configure">ضبط</string>
     <string name="setup_tab_controller">وحدة التحكم</string>
     <string name="setup_tab_session">الجلسة</string>
@@ -1229,6 +1231,9 @@
     <string name="rail_apps">التطبيقات</string>
     <string name="rail_setup">الإعداد</string>
     <string name="rail_updates">التحديثات</string>
+    <string name="rail_connections">الاتصالات</string>
+    <string name="connections_second_player">لاعب ثانٍ</string>
+    <string name="connections_second_player_hint">هاتف ثانٍ ينضم كلاعب أول أو ثانٍ — لوحة اللمس فيه، أو قبضة موصولة به، تتحكم باللعبة.</string>
     <string name="rail_percent">%1$d%%</string>
     <string name="rail_resume_named">استئناف %1$s</string>
     <string name="roms_text">يظهر باسم /root/ROMs في كل جلسة. مساحة التخزين الداخلية متاحة في /root/Storage.</string>

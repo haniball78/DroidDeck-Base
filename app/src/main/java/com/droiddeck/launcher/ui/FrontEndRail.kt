@@ -47,9 +47,9 @@ import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocalMall
+import androidx.compose.material.icons.outlined.ScreenShare
 import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material.icons.outlined.Storefront
-import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -106,12 +106,12 @@ internal fun SideRail(
         val fit = (maxHeight / count - 4.dp).coerceIn(44.dp, if (iconOnly) 48.dp else if (compact) 52.dp else 60.dp)
         val shown = Hops.railPreview ?: selected
         val keys = buildList {
-            add("steam"); add("games")
+            add("steam"); add("games"); add("connections")
             if (s.gameStoresEnabled) add("stores")
             add("desktop")
             add("components")
             if (s.isHomeApp) add("android-apps")
-            add("setup"); add("updates")
+            add("setup")
         }
         val bounds = remember { androidx.compose.runtime.mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>() }
         val tint = androidx.compose.runtime.rememberUpdatedState(LocalPalette.current.signal)
@@ -131,12 +131,12 @@ internal fun SideRail(
             }
             RailItem(stringResource(R.string.rail_steam), Icons.Outlined.SportsEsports, "steam", shown == "steam", compact, iconOnly, fit, place = place, onFocus = { onFocusSelect("steam") }) { onSelect("steam") }
             RailItem(stringResource(R.string.rail_games), Icons.Outlined.VideoLibrary, "games", shown == "games", compact, iconOnly, fit, place = place, onFocus = { onFocusSelect("games") }) { onSelect("games") }
+            RailItem(stringResource(R.string.rail_connections), Icons.Outlined.ScreenShare, "connections", shown == "connections", compact, iconOnly, fit, place = place, onFocus = { onFocusSelect("connections") }) { onSelect("connections") }
             if (s.gameStoresEnabled) RailItem(stringResource(R.string.rail_stores), Icons.Outlined.LocalMall, "stores", shown == "stores", compact, iconOnly, fit, count = s.storeDownloadsActive, place = place, onFocus = { onFocusSelect("stores") }) { onSelect("stores") }
             RailItem(stringResource(R.string.rail_desktop), Icons.Outlined.DesktopWindows, "desktop", shown == "desktop", compact, iconOnly, fit, place = place, onFocus = { onFocusSelect("desktop") }) { onSelect("desktop") }
             RailItem(stringResource(R.string.rail_components), Icons.Outlined.Layers, "components", shown == "components", compact, iconOnly, fit, place = place, onFocus = { onFocusSelect("components") }) { onSelect("components") }
             if (s.isHomeApp) RailItem(stringResource(R.string.rail_apps), Icons.Outlined.Apps, "android-apps", shown == "android-apps", compact, iconOnly, fit, place = place, onFocus = { onFocusSelect("android-apps") }) { onSelect("android-apps") }
-            RailItem(stringResource(R.string.rail_setup), Icons.Outlined.Tune, "setup", shown == "setup", compact, iconOnly, fit, badge = setupNeedsAttention, place = place, onFocus = { onFocusSelect("setup") }) { onSelect("setup") }
-            RailItem(stringResource(R.string.rail_updates), Icons.Outlined.SystemUpdate, "updates", shown == "updates", compact, iconOnly, fit, badge = s.updates.hasUpdate, place = place, onFocus = { onFocusSelect("updates") }) { onSelect("updates") }
+            RailItem(stringResource(R.string.rail_setup), Icons.Outlined.Tune, "setup", shown == "setup", compact, iconOnly, fit, badge = setupNeedsAttention || s.updates.hasUpdate, place = place, onFocus = { onFocusSelect("setup") }) { onSelect("setup") }
         }
         }
         }

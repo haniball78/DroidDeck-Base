@@ -798,6 +798,8 @@
     <string name="second_player_hint">Another phone joins as player 2 — works for normal play, TV and computer.</string>
     <string name="second_player_add">Add another player</string>
     <string name="second_player_on">On — a second phone can join as player 2</string>
+    <string name="receiver_transport_wifi">Wi-Fi Direct</string>
+    <string name="receiver_transport_usb">USB cable</string>
     <string name="setup_adv_configure">Configure</string>
     <string name="setup_tab_controller">Controller</string>
     <string name="setup_tab_session">Session</string>
@@ -1254,6 +1256,9 @@
     <string name="rail_apps">Apps</string>
     <string name="rail_setup">Setup</string>
     <string name="rail_updates">Updates</string>
+    <string name="rail_connections">Connections</string>
+    <string name="connections_second_player">Second player</string>
+    <string name="connections_second_player_hint">A second phone joins as player 1 or 2 — its touch pad, or a gamepad plugged into it, drives the game.</string>
     <string name="rail_percent">%1$d%%</string>
     <string name="rail_resume_named">Resume %1$s</string>
     <string name="roms_text">Shows up as /root/ROMs in each session. Internal storage is at /root/Storage.</string>

@@ -2127,6 +2127,14 @@ private fun AdvancedSetupTab(
 
     val shortcutsGroup: @Composable () -> Unit = {
         SettingsGroup(stringResource(R.string.setup_adv_group_shortcuts)) {
+            SettingsRow(stringResource(R.string.rail_updates), null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (s.updates.hasUpdate) Box(
+                        Modifier.size(8.dp).clip(CircleShape).background(AttentionAmber),
+                    )
+                    SecondaryButton(stringResource(R.string.setup_adv_configure), onClick = { onSelect("updates") })
+                }
+            }
             ActionRow(
                 stringResource(R.string.setup_adv_debug_monitor),
                 stringResource(R.string.setup_adv_debug_monitor_hint),
