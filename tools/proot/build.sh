@@ -23,13 +23,24 @@ fi
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 fetch() {
-  curl -fsSL --retry 3 -o "$WORK/$1" "$2"
-  echo "$3  $WORK/$1" | shasum -a 256 -c -
-  mkdir -p "$WORK/${1%%.*}"
-  tar -xzf "$WORK/$1" -C "$WORK/${1%%.*}" --strip-components=1
+  local file="$1" sha="$2"; shift 2
+  local url
+  for url in "$@"; do
+    if curl -fsSL --retry 3 -o "$WORK/$file" "$url" && echo "$sha  $WORK/$file" | shasum -a 256 -c -; then
+      mkdir -p "$WORK/${file%%.*}"
+      tar -xzf "$WORK/$file" -C "$WORK/${file%%.*}" --strip-components=1
+      return 0
+    fi
+    echo "fetch: $url failed, trying next mirror" >&2
+  done
+  echo "fetch: all mirrors failed for $file" >&2
+  return 1
 }
-fetch proot.tar.gz "https://github.com/termux/proot/archive/${PROOT_COMMIT}.tar.gz" "$PROOT_SHA256"
-fetch talloc.tar.gz "https://www.samba.org/ftp/talloc/talloc-${TALLOC_VERSION}.tar.gz" "$TALLOC_SHA256"
+fetch proot.tar.gz "$PROOT_SHA256" "https://github.com/termux/proot/archive/${PROOT_COMMIT}.tar.gz"
+# samba.org went down mid-build before; the Wayback copy is byte-identical (same SHA-256).
+fetch talloc.tar.gz "$TALLOC_SHA256" \
+  "https://www.samba.org/ftp/talloc/talloc-${TALLOC_VERSION}.tar.gz" \
+  "https://web.archive.org/web/20240000000000id_/https://www.samba.org/ftp/talloc/talloc-${TALLOC_VERSION}.tar.gz"
 cp "$HERE/statx_mnt_id.h" "$WORK/proot/src/tracee/statx_mnt_id.h"
 for patch in "$HERE"/patches/*.patch; do
   patch -d "$WORK/proot" -p1 --forward --quiet < "$patch"
