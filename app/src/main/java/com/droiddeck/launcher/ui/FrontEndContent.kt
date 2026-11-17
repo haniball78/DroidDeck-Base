@@ -253,6 +253,10 @@ private fun Content(
         ComputerSettingsPage(onBack = { onSelect("setup") })
         return
     }
+    if (selected == "receiver") {
+        ReceiverSettingsPage(onBack = { onSelect("setup") })
+        return
+    }
     if (selected == "updates") {
         UpdatesPage(s, a, modifier.padding(horizontal = padH, vertical = padV))
         return

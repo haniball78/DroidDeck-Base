@@ -734,6 +734,12 @@ class SessionService : Service() {
         networkLink.attach(this)
         networkLink.publish()
         components.add(networkLink)
+        if (SessionPrefs.receiverMode(this) == SessionPrefs.RECEIVER_MODE_CONTROLLER) {
+            val streamFile = File(filesDir, "venc/surface.h264")
+            components.add(P2pGroup().also { it.attach(this) })
+            components.add(TvSurfaceEncode(streamFile).also { it.attach(this) })
+            components.add(TvStreamServer(streamFile).also { it.attach(this) })
+        }
         if (gen != sessionGen || !SessionState.running) {
             Log.i(TAG, "session stopped while it was starting; not launching it")
             if (gen == sessionGen) components.clear()

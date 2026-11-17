@@ -758,6 +758,8 @@
     <string name="tv_settings_hint">اختبار نقل اللعبة إلى التلفاز وسجل تشخيص التلفاز</string>
     <string name="computer_settings">إعدادات الكمبيوتر</string>
     <string name="computer_settings_hint">الكمبيوتر كأداة تحكم عبر scrcpy: التثبيت والأوامر والحالة.</string>
+    <string name="receiver_settings">إعدادات المستقبل</string>
+    <string name="receiver_settings_hint">اللعب على شاشة أخرى: هذا الهاتف يبث اللعبة، أو يعرض بثاً من هاتف آخر.</string>
     <string name="setup_adv_configure">ضبط</string>
     <string name="setup_tab_controller">وحدة التحكم</string>
     <string name="setup_tab_session">الجلسة</string>
