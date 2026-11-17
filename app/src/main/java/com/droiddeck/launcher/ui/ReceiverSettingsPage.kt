@@ -71,10 +71,18 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
     var gamepadSlot by remember { mutableStateOf(1) }
     var useUsb by remember { mutableStateOf(false) }
 
-    // Local touch pad for Gamepad mode: its state is routed to the controller
-    // phone instead of a guest, so no session runs on this device.
-    val padBridge = remember(mode) {
-        if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD) {
+    var receiverSendInput by remember { mutableStateOf(SessionPrefs.receiverSendInput(ctx)) }
+    var receiverInputRunning by remember { mutableStateOf(false) }
+    var receiverInputStatus by remember { mutableStateOf("") }
+    var receiverPadRef by remember { mutableStateOf<P2pPadClient?>(null) }
+
+    // Local touch pad: shared by the Gamepad section and the Receiver
+    // section's input. The sections are exclusive (one mode at a time), so
+    // only one of them uses it at a time; no session runs on this device.
+    val padBridge = remember(mode, receiverSendInput) {
+        if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD ||
+            (mode == SessionPrefs.RECEIVER_MODE_RECEIVER && receiverSendInput)
+        ) {
             PadBridge(File(ctx.cacheDir, "droiddeck-pad")).also { it.setBuiltinPad(true) }
         } else null
     }
@@ -91,6 +99,77 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         runCatching { padBridge?.stop() }
         padRef = null
         padP2pRef = null
+    }
+
+    fun stopReceiverInput() {
+        if (!receiverInputRunning) return
+        receiverInputRunning = false
+        GamepadInput.clear()
+        runCatching { padBridge?.setTouchRoute(null) }
+        runCatching { receiverPadRef?.close() }
+        runCatching { padBridge?.stop() }
+        receiverPadRef = null
+    }
+
+    fun startReceiverInput() {
+        if (receiverInputRunning) return
+        receiverInputRunning = true
+        receiverInputStatus = "Connecting input…"
+        Thread({
+            if (useUsb) {
+                val host = UsbTether.systemGateway() ?: UsbTether.DEFAULT_GATEWAY
+                val client = P2pPadClient(gamepadSlot)
+                if (!client.connect(host, UsbTether.USB_PAD_PORT)) {
+                    receiverInputStatus = "Could not reach the controller over USB — check the cable and USB tethering on the game phone."
+                    receiverInputRunning = false
+                    return@Thread
+                }
+                receiverPadRef = client
+                padBridge?.let { GamepadInput.install(it, client) }
+                receiverInputStatus = "Connected as player ${gamepadSlot + 1} over USB — use the touch pad below."
+                padBridge?.setTouchRoute(object : PadBridge.TouchRoute {
+                    override fun active() = receiverInputRunning
+                    override fun accept(state: PadState) = GamepadInput.onTouchState(state)
+                })
+                return@Thread
+            }
+            if (!receiverRunning) {
+                receiverInputStatus = "Start the video first."
+                receiverInputRunning = false
+                return@Thread
+            }
+            // The video's P2pReceiver is already up; wait for its input
+            // record (address + pad port) to arrive.
+            var waited = 0
+            var port: Int? = null
+            var host: String? = null
+            while (receiverInputRunning && waited < 10000) {
+                port = p2pRef?.padPort
+                host = p2pRef?.controllerAddress?.hostAddress
+                if (port != null && host != null) break
+                runCatching { Thread.sleep(200) }
+                waited += 200
+            }
+            if (!receiverInputRunning) return@Thread
+            if (port == null || host == null) {
+                receiverInputStatus = "This controller has no gamepad input — start a game on the controller phone with Controller mode on."
+                receiverInputRunning = false
+                return@Thread
+            }
+            val client = P2pPadClient(gamepadSlot)
+            if (!client.connect(host, port)) {
+                receiverInputStatus = "Could not reach the controller's gamepad input."
+                receiverInputRunning = false
+                return@Thread
+            }
+            receiverPadRef = client
+            padBridge?.let { GamepadInput.install(it, client) }
+            receiverInputStatus = "Connected as player ${gamepadSlot + 1} — use the touch pad below."
+            padBridge?.setTouchRoute(object : PadBridge.TouchRoute {
+                override fun active() = receiverInputRunning
+                override fun accept(state: PadState) = GamepadInput.onTouchState(state)
+            })
+        }, "receiver-input-start").start()
     }
 
     fun startPad() {
@@ -154,6 +233,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
 
     fun stopReceiver() {
         receiverRunning = false
+        stopReceiverInput()
         runCatching { recvRef?.stop() }
         runCatching { p2pRef?.stop() }
         recvRef = null
@@ -164,6 +244,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         if (usb == useUsb) return
         if (receiverRunning) stopReceiver()
         if (padRunning) stopPad()
+        if (receiverInputRunning) stopReceiverInput()
         useUsb = usb
     }
 
@@ -280,6 +361,26 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         }
     }
 
+    // The receiver input follows the video: it runs only while this device
+    // is in Receiver mode, the toggle is on, and the video is connected.
+    LaunchedEffect(receiverRunning, receiverSendInput, mode) {
+        if (mode == SessionPrefs.RECEIVER_MODE_RECEIVER && receiverSendInput && receiverRunning) {
+            if (!receiverInputRunning) startReceiverInput()
+        } else if (receiverInputRunning) {
+            stopReceiverInput()
+        }
+    }
+
+    LaunchedEffect(receiverInputRunning) {
+        while (receiverInputRunning) {
+            if (receiverPadRef != null && receiverPadRef?.connected?.get() == false) {
+                receiverInputStatus = "Lost the controller — input stopped."
+                stopReceiverInput()
+            }
+            delay(1000)
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             stopReceiver()
@@ -301,7 +402,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                     "One device runs the game, another shows it. Controller: this phone runs the game " +
                     "and streams it over its own Wi-Fi Direct group — the phone keeps its router Wi-Fi " +
                     "for the game itself. Receiver: this device finds a controller phone and shows its " +
-                    "game full-screen. Gamepad: this phone joins a controller phone as player 1 or 2 — its touch pad, " +
+                    "game full-screen. Turn on 'Control the game from this device' below to also drive the game from here. Gamepad: this phone joins a controller phone as player 1 or 2 — its touch pad, " +
                     "or a gamepad plugged into this phone, drives the chosen player while you watch on the TV or a receiver. The Vestel TV cannot be a receiver (it runs Vestel Smart OS, not Android).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -332,7 +433,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
             }
             SettingsRow(
                 label = "Gamepad — second controller for two-player games",
-                hint = "This phone joins a controller phone as player 1 or 2 — its touch pad, or a gamepad plugged into this phone, drives the chosen player. Pick the role below. Watch the game on the TV or a receiver.",
+                hint = "This phone joins a controller phone as player 1 or 2 — its touch pad, or a gamepad plugged into this phone, drives the chosen player. A keyboard or mouse plugged into this phone also drives the game. Pick the role below. Watch the game on the TV or a receiver.",
             ) {
                 ToggleSwitch(checked = mode == SessionPrefs.RECEIVER_MODE_GAMEPAD, onChange = { on ->
                     mode = if (on) SessionPrefs.RECEIVER_MODE_GAMEPAD else SessionPrefs.RECEIVER_MODE_OFF
@@ -356,6 +457,43 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                     hint = "Play over a USB cable instead of Wi-Fi.",
                 ) {
                     ToggleSwitch(checked = useUsb, onChange = { on -> if (on) switchTransport(true) })
+                }
+                SettingsRow(
+                    label = stringResource(R.string.receiver_send_input),
+                    hint = "Show the touch pad below the video and drive the game from this device — touch pad, plugged-in gamepad, keyboard or mouse.",
+                ) {
+                    ToggleSwitch(checked = receiverSendInput, onChange = { on ->
+                        receiverSendInput = on
+                        SessionPrefs.setReceiverSendInput(ctx, on)
+                    })
+                }
+                if (receiverSendInput) {
+                    SettingsRow(
+                        label = "Player 1 — this device is the first controller",
+                        hint = "A gamepad plugged into this device drives player 1.",
+                    ) {
+                        ToggleSwitch(checked = gamepadSlot == 0, onChange = { on ->
+                            if (on) {
+                                val wasRunning = receiverInputRunning
+                                if (wasRunning) stopReceiverInput()
+                                gamepadSlot = 0
+                                if (wasRunning && receiverRunning) startReceiverInput()
+                            }
+                        })
+                    }
+                    SettingsRow(
+                        label = "Player 2 — this device is the second controller",
+                        hint = "This device's touch pad drives player 2.",
+                    ) {
+                        ToggleSwitch(checked = gamepadSlot == 1, onChange = { on ->
+                            if (on) {
+                                val wasRunning = receiverInputRunning
+                                if (wasRunning) stopReceiverInput()
+                                gamepadSlot = 1
+                                if (wasRunning && receiverRunning) startReceiverInput()
+                            }
+                        })
+                    }
                 }
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (useUsb) {
@@ -400,6 +538,19 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                             SecondaryButton("Stop", compact = true) { stopReceiver() }
                         } else {
                             SecondaryButton("Start", compact = true) { if (useUsb) startReceiver() else ensurePermissionsAndStart() }
+                        }
+                    }
+                    if (receiverSendInput && padBridge != null) {
+                        AndroidView(
+                            factory = { context -> OnScreenControls(context, padBridge) },
+                            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                        )
+                        if (receiverInputStatus.isNotEmpty()) {
+                            Text(
+                                receiverInputStatus,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }

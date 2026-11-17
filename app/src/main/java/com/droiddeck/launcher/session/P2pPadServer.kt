@@ -2,6 +2,7 @@ package com.droiddeck.launcher.session
 
 import com.droiddeck.launcher.core.SessionPart
 import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
+import com.droiddeck.launcher.input.EvdevKeys
 import com.droiddeck.launcher.input.PadState
 import java.io.DataInputStream
 import java.net.ServerSocket
@@ -81,14 +82,26 @@ class P2pPadServer(private val bindPort: Int = 0) : SessionPart() {
                     ((lengthBuf[2].toInt() and 0xff) shl 8) or
                     (lengthBuf[3].toInt() and 0xff)
             }.getOrNull() ?: break
-            if (length != PadWire.PAYLOAD_BYTES) break
-            val payload = ByteArray(length)
-            runCatching { input.readFully(payload) }.getOrNull() ?: break
-            val (slot, state) = PadWire.decode(payload) ?: continue
-            lastSlot = slot
-            messagesReceived.incrementAndGet()
-            runCatching { onState?.invoke(slot, state) }
-            SessionState.padBridge?.applyExternalForSlot(slot, { it.copyFrom(state) }, true)
+            if (length <= 0 || length > MAX_MESSAGE_BYTES) break
+            val bytes = ByteArray(length)
+            runCatching { input.readFully(bytes) }.getOrNull() ?: break
+            when (val message = InputWire.parse(bytes)) {
+                is InputMessage.Pad -> {
+                    val (slot, state) = PadWire.decode(message.payload) ?: continue
+                    lastSlot = slot
+                    messagesReceived.incrementAndGet()
+                    runCatching { onState?.invoke(slot, state) }
+                    SessionState.padBridge?.applyExternalForSlot(slot, { it.copyFrom(state) }, true)
+                }
+                is InputMessage.Key -> {
+                    val evdev = EvdevKeys.fromKeyEvent(message.keyCode, message.unicodeChar, message.scanCode)
+                    if (evdev > 0) SessionState.guestInput?.sendKey(evdev, message.down)
+                }
+                is InputMessage.Mouse -> SessionState.guestInput?.sendMouse(
+                    message.dx, message.dy, message.buttons, message.wheel,
+                )
+                null -> continue
+            }
         }
         runCatching { socket.close() }
     }
@@ -130,5 +143,7 @@ class P2pPadServer(private val bindPort: Int = 0) : SessionPart() {
 
     private companion object {
         const val STOP_JOIN_MS = 2_000L
+        // Pad message is 29 bytes (kind + 28); key/mouse are 14. Anything larger is garbage.
+        const val MAX_MESSAGE_BYTES = 64
     }
 }

@@ -764,8 +764,12 @@
     <string name="second_player_hint">هاتف آخر ينضم كلاعب ثانٍ — يعمل مع اللعب العادي والتلفاز والكمبيوتر.</string>
     <string name="second_player_add">أضف لاعباً آخر</string>
     <string name="second_player_on">مفعّل — يمكن لهاتف آخر الانضمام كلاعب ثانٍ</string>
+    <string name="physical_pad_player2">القبضة الأولى هي اللاعب الثاني</string>
+    <string name="physical_pad_player2_hint">لوحة اللمس تبقى اللاعب الأول؛ والقبضة الموصولة تصبح اللاعب الثاني. أطفئه لتكون القبضة هي اللاعب الأول.</string>
+    <string name="physical_pad_none">لا توجد قبضة موصولة</string>
     <string name="receiver_transport_wifi">Wi-Fi Direct</string>
     <string name="receiver_transport_usb">كبل USB</string>
+    <string name="receiver_send_input">التحكم باللعبة من هذا الجهاز</string>
     <string name="setup_adv_configure">ضبط</string>
     <string name="setup_tab_controller">وحدة التحكم</string>
     <string name="setup_tab_session">الجلسة</string>

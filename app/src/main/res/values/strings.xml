@@ -798,8 +798,12 @@
     <string name="second_player_hint">Another phone joins as player 2 — works for normal play, TV and computer.</string>
     <string name="second_player_add">Add another player</string>
     <string name="second_player_on">On — a second phone can join as player 2</string>
+    <string name="physical_pad_player2">First gamepad is player 2</string>
+    <string name="physical_pad_player2_hint">The touch pad stays player 1; a connected gamepad becomes player 2. Turn off for the gamepad to be player 1.</string>
+    <string name="physical_pad_none">No gamepad connected</string>
     <string name="receiver_transport_wifi">Wi-Fi Direct</string>
     <string name="receiver_transport_usb">USB cable</string>
+    <string name="receiver_send_input">Control the game from this device</string>
     <string name="setup_adv_configure">Configure</string>
     <string name="setup_tab_controller">Controller</string>
     <string name="setup_tab_session">Session</string>

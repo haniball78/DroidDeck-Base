@@ -36,7 +36,20 @@ class P2pPadClient(private val slot: Int = 1) {
     }
 
     fun send(state: PadState) {
-        latest = PadWire.encode(state, slot)
+        latest = InputWire.wrap(InputWire.KIND_PAD, PadWire.encode(state, slot))
+    }
+
+    /** Keyboard/mouse input is queued in order and never coalesced. */
+    fun sendKey(keyCode: Int, unicodeChar: Int, scanCode: Int, down: Boolean) {
+        enqueue(InputWire.encodeKey(keyCode, unicodeChar, scanCode, down))
+    }
+
+    fun sendMouse(dx: Float, dy: Float, buttons: Int, wheel: Float) {
+        enqueue(InputWire.encodeMouse(dx, dy, buttons, wheel))
+    }
+
+    private fun enqueue(bytes: ByteArray) {
+        synchronized(queueLock) { messageQueue.addLast(bytes) }
     }
 
     fun close() {
@@ -52,15 +65,20 @@ class P2pPadClient(private val slot: Int = 1) {
             return
         }
         while (!stopping.get() && connected.get()) {
+            // Queued key/mouse messages first, in order — a quick down+up tap
+            // must never be lost to the pad-state dedupe below.
+            var failed = false
+            while (true) {
+                val queued = synchronized(queueLock) { messageQueue.removeFirstOrNull() } ?: break
+                if (!write(out, queued)) {
+                    failed = true
+                    break
+                }
+            }
+            if (failed) break
             val bytes = latest
             if (bytes != null && !bytes.contentEquals(lastSent)) {
-                val ok = runCatching {
-                    out.writeInt(bytes.size)
-                    out.write(bytes)
-                    out.flush()
-                    true
-                }.getOrDefault(false)
-                if (!ok) break
+                if (!write(out, bytes)) break
                 lastSent = bytes
             }
             runCatching { Thread.sleep(SEND_POLL_MS) }
@@ -69,6 +87,13 @@ class P2pPadClient(private val slot: Int = 1) {
         runCatching { socket?.close() }
     }
 
+    private fun write(out: DataOutputStream, bytes: ByteArray): Boolean = runCatching {
+        out.writeInt(bytes.size)
+        out.write(bytes)
+        out.flush()
+        true
+    }.getOrDefault(false)
+
     val connected = AtomicBoolean(false)
 
     @Volatile
@@ -76,6 +101,9 @@ class P2pPadClient(private val slot: Int = 1) {
 
     @Volatile
     private var lastSent: ByteArray? = null
+
+    private val queueLock = Any()
+    private val messageQueue = ArrayDeque<ByteArray>()
 
     @Volatile
     private var socket: Socket? = null

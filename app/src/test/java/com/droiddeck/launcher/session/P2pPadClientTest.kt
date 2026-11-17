@@ -1,5 +1,6 @@
 package com.droiddeck.launcher.session
 
+import android.view.KeyEvent
 import com.droiddeck.launcher.input.PadState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,7 +27,7 @@ class P2pPadClientTest {
             val length = input.readInt()
             val payload = ByteArray(length)
             input.readFully(payload)
-            received += PadWire.decode(payload)!!.second
+            received += PadWire.decode((InputWire.parse(payload) as InputMessage.Pad).payload)!!.second
             firstMessage.countDown()
             socket.close()
         }, "pad-client-test-accept").apply { start() }
@@ -96,7 +97,7 @@ class P2pPadClientTest {
     }
 
     @Test
-    fun `client with slot 0 sends a 28-byte payload whose first byte is 0`() {
+    fun `client with slot 0 sends a kind-prefixed payload whose pad slot is 0`() {
         val server = ServerSocket(0, 1, null)
         val payloads = ArrayList<ByteArray>()
         val firstMessage = CountDownLatch(1)
@@ -117,11 +118,52 @@ class P2pPadClientTest {
             assertTrue(firstMessage.await(5, TimeUnit.SECONDS))
             client.close()
             assertEquals(1, payloads.size)
-            assertEquals(PadWire.PAYLOAD_BYTES, payloads[0].size)
-            assertEquals(0, payloads[0][0].toInt())
-            val (slot, state) = PadWire.decode(payloads[0])!!
+            assertEquals(1 + PadWire.PAYLOAD_BYTES, payloads[0].size)
+            assertEquals(InputWire.KIND_PAD, payloads[0][0].toInt())
+            val (slot, state) = PadWire.decode((InputWire.parse(payloads[0]) as InputMessage.Pad).payload)!!
             assertEquals(0, slot)
             assertTrue(state.isDown(PadState.A))
+        } finally {
+            accept.join(2_000)
+            server.close()
+        }
+    }
+
+    @Test
+    fun `queued key messages arrive in order and are never coalesced`() {
+        val server = ServerSocket(0, 1, null)
+        val messages = ArrayList<ByteArray>()
+        val gotBoth = CountDownLatch(2)
+        val accept = Thread({
+            val socket = server.accept()
+            val input = DataInputStream(socket.getInputStream())
+            try {
+                while (true) {
+                    val length = input.readInt()
+                    val payload = ByteArray(length)
+                    input.readFully(payload)
+                    messages += payload
+                    gotBoth.countDown()
+                }
+            } catch (_: Exception) {
+                // Client closed.
+            }
+            socket.close()
+        }, "pad-client-test-queue").apply { start() }
+        try {
+            val client = P2pPadClient()
+            assertTrue(client.connect("127.0.0.1", server.localPort))
+            client.sendKey(KeyEvent.KEYCODE_A, 0, 0, true)
+            client.sendKey(KeyEvent.KEYCODE_A, 0, 0, false)
+            assertTrue(gotBoth.await(5, TimeUnit.SECONDS))
+            client.close()
+            assertEquals(2, messages.size)
+            val first = InputWire.parse(messages[0]) as InputMessage.Key
+            val second = InputWire.parse(messages[1]) as InputMessage.Key
+            assertEquals(KeyEvent.KEYCODE_A, first.keyCode)
+            assertTrue(first.down)
+            assertEquals(KeyEvent.KEYCODE_A, second.keyCode)
+            assertFalse(second.down)
         } finally {
             accept.join(2_000)
             server.close()

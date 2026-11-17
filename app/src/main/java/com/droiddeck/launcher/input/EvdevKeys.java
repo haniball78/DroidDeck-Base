@@ -82,4 +82,19 @@ public final class EvdevKeys {
             default:   return 0;
         }
     }
+
+    /**
+     * The key mapping SessionActivity uses for a local keyboard: fromKeyCode,
+     * then the unicode-char fallback, then the scan code. -1 when unmappable.
+     */
+    public static int fromKeyEvent(int keyCode, int unicodeChar, int scanCode) {
+        int evdev = fromKeyCode(keyCode);
+        if (evdev <= 0 && unicodeChar > 0) {
+            int plain = unshiftedChar(unicodeChar);
+            int code = fromKeyCode(keycodeForChar(plain != 0 ? plain : unicodeChar));
+            if (code > 0) evdev = code;
+        }
+        if (evdev <= 0 && scanCode > 0) evdev = scanCode;
+        return evdev;
+    }
 }

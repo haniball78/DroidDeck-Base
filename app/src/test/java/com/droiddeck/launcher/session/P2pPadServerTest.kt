@@ -1,5 +1,6 @@
 package com.droiddeck.launcher.session
 
+import android.view.KeyEvent
 import com.droiddeck.launcher.input.PadState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -57,7 +58,7 @@ class P2pPadServerTest {
                 press(PadState.X, true)
                 down = true
             }
-            val bytes = PadWire.encode(state)
+            val bytes = InputWire.wrap(InputWire.KIND_PAD, PadWire.encode(state))
             out.writeInt(bytes.size)
             out.write(bytes)
             out.flush()
@@ -93,7 +94,7 @@ class P2pPadServerTest {
                 leftX = 0.25f
                 press(PadState.A, true)
             }
-            val bytes = PadWire.encode(state, 0)
+            val bytes = InputWire.wrap(InputWire.KIND_PAD, PadWire.encode(state, 0))
             out.writeInt(bytes.size)
             out.write(bytes)
             out.flush()
@@ -124,7 +125,7 @@ class P2pPadServerTest {
             val socket = Socket()
             socket.connect(InetSocketAddress("127.0.0.1", server.port), 5_000)
             val out = DataOutputStream(socket.getOutputStream())
-            val bytes = PadWire.encode(PadState().apply { press(PadState.A, true) }, 1)
+            val bytes = InputWire.wrap(InputWire.KIND_PAD, PadWire.encode(PadState().apply { press(PadState.A, true) }, 1))
             out.writeInt(bytes.size)
             out.write(bytes)
             out.flush()
@@ -134,6 +135,53 @@ class P2pPadServerTest {
             assertTrue(received[0].second.isDown(PadState.A))
             socket.close()
         } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun `server dispatches key and mouse messages to the guest input hook`() {
+        val server = P2pPadServer()
+        server.attach(RuntimeEnvironment.getApplication())
+        val keys = ArrayList<Pair<Int, Boolean>>()
+        val mice = ArrayList<InputMessage.Mouse>()
+        val gotKey = CountDownLatch(1)
+        val gotMouse = CountDownLatch(1)
+        val previous = SessionState.guestInput
+        SessionState.guestInput = object : GuestInput {
+            override fun sendKey(evdev: Int, down: Boolean) {
+                keys += evdev to down
+                gotKey.countDown()
+            }
+
+            override fun sendMouse(dx: Float, dy: Float, buttons: Int, wheel: Float) {
+                mice += InputMessage.Mouse(dx, dy, buttons, wheel)
+                gotMouse.countDown()
+            }
+        }
+        try {
+            assertNull(server.begin())
+            val socket = Socket()
+            socket.connect(InetSocketAddress("127.0.0.1", server.port), 5_000)
+            val out = DataOutputStream(socket.getOutputStream())
+            val key = InputWire.encodeKey(KeyEvent.KEYCODE_A, 0, 0, true)
+            out.writeInt(key.size)
+            out.write(key)
+            val mouse = InputWire.encodeMouse(10f, -5f, 1, 0f)
+            out.writeInt(mouse.size)
+            out.write(mouse)
+            out.flush()
+            assertTrue(gotKey.await(5, TimeUnit.SECONDS))
+            assertTrue(gotMouse.await(5, TimeUnit.SECONDS))
+            assertEquals(listOf(30 to true), keys)
+            assertEquals(1, mice.size)
+            assertEquals(10f, mice[0].dx, 0f)
+            assertEquals(-5f, mice[0].dy, 0f)
+            assertEquals(1, mice[0].buttons)
+            assertEquals(0f, mice[0].wheel, 0f)
+            socket.close()
+        } finally {
+            SessionState.guestInput = previous
             server.stop()
         }
     }

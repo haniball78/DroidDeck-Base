@@ -1,6 +1,8 @@
 package com.droiddeck.launcher.ui
 
 import android.widget.Toast
+import android.content.Context
+import android.view.InputDevice
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -107,7 +109,11 @@ import com.droiddeck.launcher.core.WirelessAdbFix
 import com.droiddeck.launcher.core.WirelessAdbPairingService
 import com.droiddeck.launcher.core.privileged.DiagnosticsLog
 import com.droiddeck.launcher.core.privileged.PrivilegedMode
+import com.droiddeck.launcher.input.PadBridge
+import com.droiddeck.launcher.input.PadSlotMap
 import com.droiddeck.launcher.session.SessionPrefs
+import com.droiddeck.launcher.session.SessionService
+import com.droiddeck.launcher.session.SessionState
 import com.droiddeck.launcher.stores.download.StoreDownloadTier
 import com.droiddeck.launcher.R
 
@@ -403,6 +409,22 @@ internal fun SetupPanel(
                                 secondPlayer = on
                                 SessionPrefs.setSecondPlayer(ctx, on)
                             }
+                            var physicalPadPlayer2 by remember { mutableStateOf(SessionPrefs.physicalPadPlayer2(ctx)) }
+                            ToggleRow(host, "controller-physical-pad-player2", stringResource(R.string.physical_pad_player2), stringResource(R.string.physical_pad_player2_hint), physicalPadPlayer2) { on ->
+                                physicalPadPlayer2 = on
+                                SessionPrefs.setPhysicalPadPlayer2(ctx, on)
+                                SessionState.padBridge?.let { bridge ->
+                                    bridge.setPhysicalBaseSlot(PadSlotMap.computeBaseSlot(on, bridge.isBuiltinPad(), SessionState.hiddenPad))
+                                }
+                            }
+                            var padStatus by remember { mutableStateOf("") }
+                            LaunchedEffect(Unit) {
+                                while (isActive) {
+                                    padStatus = physicalPadStatus(ctx)
+                                    delay(1_000)
+                                }
+                            }
+                            if (padStatus.isNotEmpty()) Note(padStatus)
                         }
                         if (s.controller == null || a.controller == null) Note(stringResource(R.string.setup_controller_unavailable))
                     }
@@ -527,6 +549,28 @@ internal fun SetupPanel(
             }
         }
     }
+}
+
+/** Connected physical gamepads with their player number. Live from the running session when there is one; otherwise a preview from the pads connected now and the current settings. */
+private fun physicalPadStatus(ctx: Context): String {
+    val bridge = SessionState.padBridge
+    if (bridge != null) {
+        val slots = bridge.physicalPadSlots()
+        if (slots.isEmpty()) return ctx.getString(R.string.physical_pad_none)
+        return slots.entries.joinToString("\n") { (id, slot) ->
+            "${InputDevice.getDevice(id)?.name ?: "Gamepad"} — Player ${slot + 1}"
+        }
+    }
+    val ids = InputDevice.getDeviceIds()
+        .filter { PadBridge.isFromController(InputDevice.getDevice(it)) }.sorted()
+    if (ids.isEmpty()) return ctx.getString(R.string.physical_pad_none)
+    val touchActive = SessionState.mode != SessionService.MODE_STEAM || SessionPrefs.builtinPad(ctx)
+    val base = PadSlotMap.computeBaseSlot(SessionPrefs.physicalPadPlayer2(ctx), touchActive, SessionState.hiddenPad)
+    val preview = PadSlotMap(PadBridge.SLOTS, base)
+    return ids.mapNotNull { id ->
+        val slot = preview.assign(id)
+        if (slot < 0) null else "${InputDevice.getDevice(id)?.name ?: "Gamepad"} — Player ${slot + 1}"
+    }.joinToString("\n").ifEmpty { ctx.getString(R.string.physical_pad_none) }
 }
 
 @Composable

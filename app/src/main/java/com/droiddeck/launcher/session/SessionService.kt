@@ -960,7 +960,10 @@ class SessionService : Service() {
         val builtinPad = SessionPrefs.builtinPad(this)
         val hiddenPad = SessionState.mode == MODE_STEAM && !builtinPad &&
             !com.droiddeck.launcher.input.PadBridge.anyControllerConnected()
-        com.droiddeck.launcher.input.PadBridge.setFirstSlot(if (hiddenPad) 1 else 0)
+        SessionState.hiddenPad = hiddenPad
+        val touchActive = SessionState.mode != MODE_STEAM || builtinPad
+        com.droiddeck.launcher.input.PadBridge.setFirstSlot(
+            com.droiddeck.launcher.input.PadSlotMap.computeBaseSlot(SessionPrefs.physicalPadPlayer2(this), touchActive, hiddenPad))
         fakeInputDir.listFiles()?.forEach { file ->
             val node = Regex("event(\\d+)").matchEntire(file.name)?.groupValues?.get(1)?.toIntOrNull()
             if (file.name.startsWith(".uinput-") || (node != null && node >= FIRST_VIRTUAL_PAD) ||

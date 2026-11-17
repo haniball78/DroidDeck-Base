@@ -82,6 +82,11 @@ object SessionState {
 
     @Volatile var padBridge: com.droiddeck.launcher.input.PadBridge? = null
 
+    /** Steam with no built-in pad hides slot 0 from the guest, so physical pads start at slot 1. Set by SessionService at session start. */
+    @Volatile var hiddenPad = false
+
+    @Volatile var guestInput: GuestInput? = null
+
     @Volatile var secondScreenMode = com.droiddeck.launcher.input.SecondScreenMode.NONE
     @Volatile var secondScreenDisplay = -1
 
@@ -118,6 +123,16 @@ object SessionState {
     fun notifyEnded(status: Int) {
         endListener?.invoke(status)
     }
+}
+
+/**
+ * Remote keyboard/mouse injection from a second phone (Gamepad mode).
+ * Published in SessionState and set/cleared by SessionActivity together
+ * with padBridge. A plain interface, not a SAM: it has two methods.
+ */
+interface GuestInput {
+    fun sendKey(evdev: Int, down: Boolean)
+    fun sendMouse(dx: Float, dy: Float, buttons: Int, wheel: Float)
 }
 
 enum class SessionPhase {

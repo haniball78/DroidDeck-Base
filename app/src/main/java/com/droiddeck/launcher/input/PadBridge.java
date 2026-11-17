@@ -10,7 +10,10 @@ import android.view.MotionEvent;
 import com.droiddeck.launcher.session.SessionState;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
 public final class PadBridge {
@@ -48,6 +51,7 @@ public final class PadBridge {
     private final PadState state = new PadState();
     private final int[] owners = new int[SLOTS];
     private final int[] partners = new int[SLOTS];
+    private final PadSlotMap slotMap = new PadSlotMap(SLOTS, 0);
     private volatile java.util.function.IntPredicate excluded = id -> false;
     private final FakeInputWriter[] playerWriters = new FakeInputWriter[SLOTS];
     private final PadState[] playerStates = new PadState[SLOTS];
@@ -130,6 +134,67 @@ public final class PadBridge {
         return firstSlot;
     }
 
+    public boolean isBuiltinPad() {
+        return builtinPad;
+    }
+
+    /** Live physical-pad assignment (device id -> player slot), for the Settings status line. */
+    public synchronized Map<Integer, Integer> physicalPadSlots() {
+        return slotMap.slots();
+    }
+
+    /**
+     * Physical pads start at this slot (1 while the touch pad owns slot 0).
+     * Re-maps pads already connected; a pad that no longer fits is dropped
+     * until a slot frees. Held buttons are dropped by the move.
+     */
+    public synchronized void setPhysicalBaseSlot(int base) {
+        if (base < 0 || base >= SLOTS) return;
+        int oldBase = firstSlot;
+        if (base == oldBase && slotMap.baseSlot() == base) return;
+        Map<Integer, Integer> before = slotMap.slots();
+        slotMap.setBaseSlot(base);
+        firstSlot = base;
+        if (base != oldBase) releaseBackPaddles();
+        Map<Integer, Integer> after = slotMap.slots();
+        int delta = base - oldBase;
+        ArrayList<Integer> devices = new ArrayList<>(before.keySet());
+        devices.sort((a, b) -> delta > 0
+                ? Integer.compare(before.get(b), before.get(a))
+                : Integer.compare(before.get(a), before.get(b)));
+        for (int deviceId : devices) {
+            Integer oldSlot = before.get(deviceId);
+            Integer newSlot = after.get(deviceId);
+            if (oldSlot == null) continue;
+            if (newSlot == null) {
+                Log.i(TAG, "player " + (oldSlot + 1) + " (id " + deviceId + ") has no free slot");
+                free(oldSlot);
+            } else if (newSlot != oldSlot) {
+                movePad(deviceId, oldSlot, newSlot);
+            }
+        }
+    }
+
+    private void movePad(int deviceId, int oldSlot, int newSlot) {
+        int partner = partners[oldSlot];
+        int joyLeft = slotJoyCons.get(oldSlot * 2);
+        int joyRight = slotJoyCons.get(oldSlot * 2 + 1);
+        PadState saved = null;
+        if (oldSlot > 0 && newSlot > 0) {
+            saved = new PadState();
+            saved.copyFrom(playerStates[oldSlot]);
+        }
+        free(oldSlot);
+        owners[newSlot] = deviceId;
+        partners[newSlot] = partner;
+        slotJoyCons.set(newSlot * 2, joyLeft);
+        slotJoyCons.set(newSlot * 2 + 1, joyRight);
+        slotControllers.set(newSlot, deviceId);
+        if (saved != null) playerStates[newSlot].copyFrom(saved);
+        Log.i(TAG, "player " + (oldSlot + 1) + " (id " + deviceId + ") moves to player " + (newSlot + 1));
+        publish(newSlot);
+    }
+
     private void resetBuiltin() {
         routedTouch.clear();
         systemGuidePressed = false;
@@ -154,6 +219,7 @@ public final class PadBridge {
     public synchronized void stop() {
         releaseBackPaddles();
         activeControllerId = NO_CONTROLLER;
+        slotMap.clear();
         for (int slot = 0; slot < SLOTS; slot++) {
             owners[slot] = NO_CONTROLLER;
             partners[slot] = NO_CONTROLLER;
@@ -613,25 +679,26 @@ public final class PadBridge {
             if (owners[slot] != NO_CONTROLLER && InputDevice.getDevice(owners[slot]) == null) leave(slot, owners[slot]);
         }
         int side = JoyCon.side(device);
-        for (int slot = firstPlayerSlot(); side >= 0 && slot < SLOTS; slot++) {
+        for (int slot = slotMap.baseSlot(); side >= 0 && slot < SLOTS; slot++) {
             if (owners[slot] == NO_CONTROLLER || partners[slot] != NO_CONTROLLER) continue;
             InputDevice owner = InputDevice.getDevice(owners[slot]);
             if (JoyCon.side(owner) != 1 - side) continue;
             partners[slot] = id;
             slotJoyCons.set(slot * 2 + side, id);
             slotJoyCons.set(slot * 2 + 1 - side, owner.getId());
-            if (slot == firstPlayerSlot()) releaseBackPaddles();
+            if (slot == slotMap.baseSlot()) releaseBackPaddles();
             stateFor(slot).clear();
             Log.i(TAG, "\"" + device.getName() + "\" (id " + id + ") joins \"" + owner.getName() + "\" as player " + (slot + 1));
             return slot;
         }
-        for (int slot = firstPlayerSlot(); slot < SLOTS; slot++) {
-            if (owners[slot] != NO_CONTROLLER) continue;
-            owners[slot] = id;
-            Log.i(TAG, "\"" + device.getName() + "\" (id " + id + ") is player " + (slot + 1));
-            return slot;
+        int slot = slotMap.assign(id);
+        if (slot < 0) {
+            Log.i(TAG, "\"" + device.getName() + "\" (id " + id + ") has no free player slot");
+            return -1;
         }
-        return -1;
+        owners[slot] = id;
+        Log.i(TAG, "\"" + device.getName() + "\" (id " + id + ") is player " + (slot + 1));
+        return slot;
     }
 
     private PadState stateFor(int slot) {
@@ -655,11 +722,16 @@ public final class PadBridge {
 
     private void leave(int slot, int id) {
         if (partners[slot] == NO_CONTROLLER) {
+            if (owners[slot] == id) slotMap.remove(id);
             free(slot);
             return;
         }
         Log.i(TAG, "player " + (slot + 1) + " Joy-Con (id " + id + ") left");
-        if (owners[slot] == id) owners[slot] = partners[slot];
+        if (owners[slot] == id) {
+            slotMap.remove(id);
+            slotMap.forceAssign(partners[slot], slot);
+            owners[slot] = partners[slot];
+        }
         partners[slot] = NO_CONTROLLER;
         clearJoyCons(slot);
         if (slotControllers.get(slot) == id) slotControllers.set(slot, owners[slot]);

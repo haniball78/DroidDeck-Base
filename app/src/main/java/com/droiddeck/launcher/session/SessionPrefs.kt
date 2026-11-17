@@ -118,6 +118,20 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("secondPlayer", on).apply()
     }
 
+    /** The first physical gamepad is player 2 while the touch pad is player 1; off keeps it player 1. */
+    fun physicalPadPlayer2(context: Context): Boolean = prefs(context).getBoolean("physicalPadPlayer2", false)
+
+    fun setPhysicalPadPlayer2(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("physicalPadPlayer2", on).apply()
+    }
+
+    /** A receiver device also drives the game from its own touch pad / plugged-in inputs, while it shows the video. */
+    fun receiverSendInput(context: Context): Boolean = prefs(context).getBoolean("receiverSendInput", false)
+
+    fun setReceiverSendInput(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("receiverSendInput", on).apply()
+    }
+
     fun tvRender4k(context: Context): Boolean = prefs(context).getBoolean("tvRender4k", false)
 
     fun setTvRender4k(context: Context, on: Boolean) {

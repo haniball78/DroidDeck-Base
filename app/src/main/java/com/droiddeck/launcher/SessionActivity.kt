@@ -83,6 +83,7 @@ import com.droiddeck.launcher.input.SessionClipboard
 import com.droiddeck.launcher.input.OnScreenControls
 import com.droiddeck.launcher.input.PadBridge
 import com.droiddeck.launcher.input.PadMouse
+import com.droiddeck.launcher.input.PadSlotMap
 import com.droiddeck.launcher.input.PadState
 import com.droiddeck.launcher.input.SteamControllerBle
 import com.droiddeck.launcher.input.DirectTouchHold
@@ -111,6 +112,7 @@ import com.droiddeck.launcher.session.SessionPaths
 import com.droiddeck.launcher.wayland.HdrSupport
 import com.droiddeck.launcher.session.SessionService
 import com.droiddeck.launcher.session.SessionState
+import com.droiddeck.launcher.session.GuestInput
 import com.droiddeck.launcher.session.ProtonDefault
 import com.droiddeck.launcher.session.SelectedGameProfile
 import com.droiddeck.launcher.session.WinComponents
@@ -547,10 +549,13 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
 
         val bridge = PadBridge(File(LinuxRuntime.sessionRoot(this), "dev/input"))
         bridge.setSelectSteam(ControllerPrefs.read(this).selectSteam)
-        bridge.setBuiltinPad(SessionState.mode != SessionService.MODE_STEAM || SessionPrefs.builtinPad(this))
+        val touchActive = SessionState.mode != SessionService.MODE_STEAM || SessionPrefs.builtinPad(this)
+        bridge.setBuiltinPad(touchActive)
+        bridge.setPhysicalBaseSlot(PadSlotMap.computeBaseSlot(SessionPrefs.physicalPadPlayer2(this), touchActive, SessionState.hiddenPad))
         padBridge = bridge
         bridge.setOnChordInput(backQamInput::onChordInput)
         SessionState.padBridge = bridge
+        SessionState.guestInput = guestInput
         if (Build.VERSION.SDK_INT >= 31) {
             val vr = com.droiddeck.launcher.input.JoyConVr(this, File(filesDir, ".wayland-rt/${com.droiddeck.launcher.input.JoyConVr.FILE}")) { taken, released ->
                 if (joyConVr == null) return@JoyConVr
@@ -2227,15 +2232,10 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             val down = event.action == KeyEvent.ACTION_DOWN
             if (down && event.repeatCount > 0) return true
             if (down || event.action == KeyEvent.ACTION_UP) {
-                var evdev = EvdevKeys.fromKeyCode(event.keyCode)
                 val ch = event.unicodeChar
                 val plain = if (ch > 0) EvdevKeys.unshiftedChar(ch) else 0
-                if (evdev <= 0 && ch > 0) {
-                    val code = EvdevKeys.fromKeyCode(EvdevKeys.keycodeForChar(if (plain != 0) plain else ch))
-                    if (code > 0) evdev = code
-                }
+                val evdev = EvdevKeys.fromKeyEvent(event.keyCode, ch, event.scanCode)
                 val shiftEvdev = if (evdev > 0 && plain != 0 && event.deviceId <= 0) 42 else 0
-                if (evdev <= 0 && event.scanCode > 0) evdev = event.scanCode
                 if (evdev > 0) {
                     if (down) {
                         if (shiftEvdev != 0) sendGuestKey(shiftEvdev, true)
@@ -3003,6 +3003,36 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
 
     private fun keyboardCoversPad() =
         SessionState.mode == SessionService.MODE_STEAM && AgentGuest.steamKeyboard
+
+    // Remote keyboard/mouse from a second phone (Gamepad mode). Posted to the
+    // UI thread because guestKeysDown is not thread-safe; reuses the same
+    // injection the local keyboard and mouse use.
+    private val guestInput = object : GuestInput {
+        private var lastButtons = 0
+
+        override fun sendKey(evdev: Int, down: Boolean) {
+            uiHandler.post { if (CompositorHost.isStarted) sendGuestKey(evdev, down) }
+        }
+
+        override fun sendMouse(dx: Float, dy: Float, buttons: Int, wheel: Float) {
+            uiHandler.post {
+                if (!CompositorHost.isStarted) return@post
+                if (dx != 0f || dy != 0f) WaylandCompositor.sendPointerDelta(dx, dy)
+                val changed = buttons xor lastButtons
+                if (changed and 1 != 0) WaylandCompositor.nativeSendSceneInput(
+                    3, PointerGestures.BTN_LEFT, if (buttons and 1 != 0) 1 else 0,
+                )
+                if (changed and 2 != 0) WaylandCompositor.nativeSendSceneInput(
+                    3, PointerGestures.BTN_RIGHT, if (buttons and 2 != 0) 1 else 0,
+                )
+                if (changed and 4 != 0) WaylandCompositor.nativeSendSceneInput(
+                    3, PointerGestures.BTN_MIDDLE, if (buttons and 4 != 0) 1 else 0,
+                )
+                lastButtons = buttons
+                if (wheel != 0f) WaylandCompositor.nativeSendSceneInput(4, -Math.round(wheel), 0)
+            }
+        }
+    }
 
     private fun sendGuestKey(code: Int, down: Boolean) {
         if (down && pipUi) return
@@ -3999,8 +4029,11 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         handCamera?.stop()
         handCamera = null
         padBridge?.stop()
+        // The first-slot static is per-session; a later bridge in this process must not inherit it.
+        PadBridge.setFirstSlot(0)
         steamController?.stop()
         if (SessionState.padBridge === padBridge) SessionState.padBridge = null
+        if (SessionState.guestInput === guestInput) SessionState.guestInput = null
         padMotion?.stop()
         if (SessionState.deckPadListener === deckPadListener) SessionState.deckPadListener = null
         if (SessionState.endListener === endListener) SessionState.endListener = null
