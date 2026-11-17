@@ -26,7 +26,7 @@ class P2pPadClientTest {
             val length = input.readInt()
             val payload = ByteArray(length)
             input.readFully(payload)
-            received += PadWire.decode(payload)!!
+            received += PadWire.decode(payload)!!.second
             firstMessage.countDown()
             socket.close()
         }, "pad-client-test-accept").apply { start() }
@@ -93,5 +93,50 @@ class P2pPadClientTest {
     fun `connect returns false when nothing listens`() {
         val client = P2pPadClient()
         assertFalse(client.connect("127.0.0.1", 1))
+    }
+
+    @Test
+    fun `client with slot 0 sends a 28-byte payload whose first byte is 0`() {
+        val server = ServerSocket(0, 1, null)
+        val payloads = ArrayList<ByteArray>()
+        val firstMessage = CountDownLatch(1)
+        val accept = Thread({
+            val socket = server.accept()
+            val input = DataInputStream(socket.getInputStream())
+            val length = input.readInt()
+            val payload = ByteArray(length)
+            input.readFully(payload)
+            payloads += payload
+            firstMessage.countDown()
+            socket.close()
+        }, "pad-client-test-slot0").apply { start() }
+        try {
+            val client = P2pPadClient(0)
+            assertTrue(client.connect("127.0.0.1", server.localPort))
+            client.send(PadState().apply { press(PadState.A, true) })
+            assertTrue(firstMessage.await(5, TimeUnit.SECONDS))
+            client.close()
+            assertEquals(1, payloads.size)
+            assertEquals(PadWire.PAYLOAD_BYTES, payloads[0].size)
+            assertEquals(0, payloads[0][0].toInt())
+            val (slot, state) = PadWire.decode(payloads[0])!!
+            assertEquals(0, slot)
+            assertTrue(state.isDown(PadState.A))
+        } finally {
+            accept.join(2_000)
+            server.close()
+        }
+    }
+
+    @Test
+    fun `client rejects a slot outside 0 to 3`() {
+        for (bad in listOf(-1, 4)) {
+            try {
+                P2pPadClient(bad)
+                throw AssertionError("expected IllegalArgumentException for slot $bad")
+            } catch (_: IllegalArgumentException) {
+                // Expected.
+            }
+        }
     }
 }

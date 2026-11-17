@@ -16,6 +16,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.Display
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -1270,6 +1271,7 @@ class FrontEndActivity : ComponentActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (com.droiddeck.launcher.session.GamepadInput.onKeyEvent(event)) return true
         if (event.keyCode == KeyEvent.KEYCODE_BUTTON_A) com.droiddeck.launcher.ui.HeldKeys.confirm = event.action == KeyEvent.ACTION_DOWN
         if (showComponents && (event.keyCode == KeyEvent.KEYCODE_BUTTON_L1 || event.keyCode == KeyEvent.KEYCODE_BUTTON_R1)) {
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
@@ -1284,6 +1286,11 @@ class FrontEndActivity : ComponentActivity() {
             android.util.Log.w("MainActivity", "key ${event.keyCode} dropped: ${e.message}")
             true
         }
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (com.droiddeck.launcher.session.GamepadInput.onMotionEvent(event)) return true
+        return super.dispatchGenericMotionEvent(event)
     }
 
     override fun onResume() {

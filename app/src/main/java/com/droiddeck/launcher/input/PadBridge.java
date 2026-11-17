@@ -638,6 +638,10 @@ public final class PadBridge {
         return slot == 0 ? state : playerStates[slot];
     }
 
+    public synchronized void copyStateInto(PadState out) {
+        out.copyFrom(state);
+    }
+
     private boolean isPrimary(KeyEvent event) {
         int id = event.getDevice().getId();
         int first = firstPlayerSlot();

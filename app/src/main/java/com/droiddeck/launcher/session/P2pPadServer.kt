@@ -12,8 +12,8 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Controller-side input listener for the second phone: accepts one gamepad
  * phone at a time on its own TCP port (advertised in the P2P TXT record as
- * "pad") and injects its touch-pad state into ring slot 1, so the second
- * phone plays as player 2. The controller phone's own touch pad stays slot 0.
+ * "pad") and injects its pad state into the ring slot the phone chose
+ * (0 = player 1, 1 = player 2). The controller phone's own touch pad stays slot 0.
  */
 class P2pPadServer : SessionPart() {
     override fun start() {
@@ -84,24 +84,28 @@ class P2pPadServer : SessionPart() {
             if (length != PadWire.PAYLOAD_BYTES) break
             val payload = ByteArray(length)
             runCatching { input.readFully(payload) }.getOrNull() ?: break
-            val state = PadWire.decode(payload) ?: break
+            val (slot, state) = PadWire.decode(payload) ?: continue
+            lastSlot = slot
             messagesReceived.incrementAndGet()
-            runCatching { onState?.invoke(state) }
-            SessionState.padBridge?.applyExternalForSlot(1, { it.copyFrom(state) }, true)
+            runCatching { onState?.invoke(slot, state) }
+            SessionState.padBridge?.applyExternalForSlot(slot, { it.copyFrom(state) }, true)
         }
         runCatching { socket.close() }
     }
 
     private fun clearSlot() {
-        SessionState.padBridge?.applyExternalForSlot(1, { it.clear() }, true)
+        SessionState.padBridge?.applyExternalForSlot(lastSlot, { it.clear() }, true)
     }
 
-    /** Test/diagnostics hook: called with every decoded pad state. */
-    var onState: ((PadState) -> Unit)? = null
+    /** Test/diagnostics hook: called with the slot and every decoded pad state. */
+    var onState: ((Int, PadState) -> Unit)? = null
 
     @Volatile
     var port = -1
         private set
+
+    @Volatile
+    private var lastSlot = 1
 
     private val beginLock = Any()
 

@@ -34,6 +34,7 @@ import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
 import com.droiddeck.launcher.input.OnScreenControls
 import com.droiddeck.launcher.input.PadBridge
 import com.droiddeck.launcher.input.PadState
+import com.droiddeck.launcher.session.GamepadInput
 import com.droiddeck.launcher.session.P2pPadClient
 import com.droiddeck.launcher.session.P2pReceiver
 import com.droiddeck.launcher.session.SessionPrefs
@@ -66,6 +67,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
     var padStatus by remember { mutableStateOf("Idle — pick Gamepad below, then Start.") }
     var padRef by remember { mutableStateOf<P2pPadClient?>(null) }
     var padP2pRef by remember { mutableStateOf<P2pReceiver?>(null) }
+    var gamepadSlot by remember { mutableStateOf(1) }
 
     // Local touch pad for Gamepad mode: its state is routed to the controller
     // phone instead of a guest, so no session runs on this device.
@@ -80,6 +82,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
 
     fun stopPad() {
         padRunning = false
+        GamepadInput.clear()
         runCatching { padBridge?.setTouchRoute(null) }
         runCatching { padRef?.close() }
         runCatching { padP2pRef?.stop() }
@@ -113,7 +116,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                 padRunning = false
                 return@Thread
             }
-            val client = P2pPadClient()
+            val client = P2pPadClient(gamepadSlot)
             if (!client.connect(host, port)) {
                 padStatus = "Could not reach the controller's gamepad input."
                 p2p.stop()
@@ -121,10 +124,11 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                 return@Thread
             }
             padRef = client
-            padStatus = "Connected as player 2 — use the touch pad below."
+            padBridge?.let { GamepadInput.install(it, client) }
+            padStatus = "Connected as player ${gamepadSlot + 1} — use the touch pad below."
             padBridge?.setTouchRoute(object : PadBridge.TouchRoute {
                 override fun active() = padRunning
-                override fun accept(state: PadState) = client.send(state)
+                override fun accept(state: PadState) = GamepadInput.onTouchState(state)
             })
         }, "gamepad-start").start()
     }
@@ -253,8 +257,8 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
                     "One device runs the game, another shows it. Controller: this phone runs the game " +
                     "and streams it over its own Wi-Fi Direct group — the phone keeps its router Wi-Fi " +
                     "for the game itself. Receiver: this device finds a controller phone and shows its " +
-                    "game full-screen. Gamepad: this phone joins a controller phone as player 2 — its touch pad " +
-                    "drives the game while you watch on the TV or a receiver. The Vestel TV cannot be a receiver (it runs Vestel Smart OS, not Android).",
+                    "game full-screen. Gamepad: this phone joins a controller phone as player 1 or 2 — its touch pad, " +
+                    "or a gamepad plugged into this phone, drives the chosen player while you watch on the TV or a receiver. The Vestel TV cannot be a receiver (it runs Vestel Smart OS, not Android).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -284,7 +288,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
             }
             SettingsRow(
                 label = "Gamepad — second controller for two-player games",
-                hint = "This phone joins a controller phone and its touch pad drives player 2. Watch the game on the TV or a receiver.",
+                hint = "This phone joins a controller phone as player 1 or 2 — its touch pad, or a gamepad plugged into this phone, drives the chosen player. Pick the role below. Watch the game on the TV or a receiver.",
             ) {
                 ToggleSwitch(checked = mode == SessionPrefs.RECEIVER_MODE_GAMEPAD, onChange = { on ->
                     mode = if (on) SessionPrefs.RECEIVER_MODE_GAMEPAD else SessionPrefs.RECEIVER_MODE_OFF
@@ -339,6 +343,28 @@ fun ReceiverSettingsPage(onBack: () -> Unit) {
         // ── Gamepad ───────────────────────────────────────────────
         if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD) {
             SettingsGroup("Gamepad") {
+                SettingsRow(
+                    label = "Player 1 — this phone is the first controller",
+                    hint = "Use when the controller phone's USB port is busy with the TV cable: a gamepad plugged into this phone drives player 1.",
+                ) {
+                    ToggleSwitch(checked = gamepadSlot == 0, onChange = { on ->
+                        if (on) {
+                            if (padRunning) stopPad()
+                            gamepadSlot = 0
+                        }
+                    })
+                }
+                SettingsRow(
+                    label = "Player 2 — this phone is the second controller",
+                    hint = "This phone's touch pad drives player 2.",
+                ) {
+                    ToggleSwitch(checked = gamepadSlot == 1, onChange = { on ->
+                        if (on) {
+                            if (padRunning) stopPad()
+                            gamepadSlot = 1
+                        }
+                    })
+                }
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (padBridge != null) {
                         AndroidView(

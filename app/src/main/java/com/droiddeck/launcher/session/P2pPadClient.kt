@@ -13,7 +13,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * stores the latest state — a sender thread writes it, and only when it
  * changed, so touch events on the UI thread never block on the network.
  */
-class P2pPadClient {
+class P2pPadClient(private val slot: Int = 1) {
+    init {
+        require(slot in 0..3) { "slot must be 0..3" }
+    }
+
     /** Opens the connection; false when the controller cannot be reached. */
     fun connect(host: String, port: Int): Boolean {
         if (connected.get()) return true
@@ -32,7 +36,7 @@ class P2pPadClient {
     }
 
     fun send(state: PadState) {
-        latest = PadWire.encode(state)
+        latest = PadWire.encode(state, slot)
     }
 
     fun close() {
