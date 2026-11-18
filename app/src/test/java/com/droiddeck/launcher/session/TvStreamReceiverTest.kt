@@ -2,6 +2,7 @@ package com.droiddeck.launcher.session
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -53,6 +54,25 @@ class TvStreamReceiverTest {
         var calls = 0
         assertEquals(0, readUnits(input, { true }) { calls++ })
         assertEquals(0, calls)
+    }
+
+    @Test
+    fun `nsd endpoint takes host and port from resolution`() {
+        assertEquals("192.168.49.1" to 28752, nsdEndpoint("192.168.49.1", 28752))
+    }
+
+    @Test
+    fun `nsd endpoint rejects the port 0 registration quirk`() {
+        assertNull(nsdEndpoint("192.168.49.1", 0))
+    }
+
+    @Test
+    fun `nsd endpoint rejects a missing host or an unusable port`() {
+        assertNull(nsdEndpoint(null, 28752))
+        assertNull(nsdEndpoint("", 28752))
+        assertNull(nsdEndpoint("  ", 28752))
+        assertNull(nsdEndpoint("192.168.49.1", -1))
+        assertNull(nsdEndpoint("192.168.49.1", 65536))
     }
 
     private fun framed(units: List<ByteArray>): ByteArray {

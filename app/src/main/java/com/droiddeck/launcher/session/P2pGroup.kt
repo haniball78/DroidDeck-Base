@@ -14,9 +14,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Controller-side Wi-Fi Direct group for Receiver mode: the phone becomes the group
- * owner so a receiver can discover and join it. No Play Services dependency.
- * begin() returns after kicking off group creation; formation and advertising
- * finish asynchronously (the session must not wait on P2P), failures are logged.
+ * owner so a receiver can discover and join it, or uses the group already up
+ * (e.g. made from Settings) instead of asking the framework to create one.
+ * No Play Services dependency. begin() returns after kicking off group
+ * detection/creation; formation and advertising finish asynchronously (the
+ * session must not wait on P2P), failures are logged.
  */
 class P2pGroup(
     private val padServer: P2pPadServer? = null,
@@ -40,11 +42,17 @@ class P2pGroup(
 
     override fun stop() {
         if (!stopped.compareAndSet(false, true)) return
-        runCatching { manager?.removeGroup(channel, null) }
+        // A group this call did not create is not ours to tear down.
+        if (!usedExistingGroup) runCatching { manager?.removeGroup(channel, null) }
         thread?.quitSafely()
     }
 
-    /** Kicks off group creation (5 GHz when available); null when started, else the start-failed reason. */
+    /** True when the group in use is one already up, not one this call created. */
+    @Volatile
+    var usedExistingGroup: Boolean = false
+        private set
+
+    /** Kicks off group detection (an existing group is used as-is) or creation; null when started, else the start-failed reason. */
     fun begin(): String? {
         synchronized(beginLock) {
             if (begun) return startReason
@@ -91,24 +99,51 @@ class P2pGroup(
                 }
             }
         }
-        // createGroup throws synchronously when the P2P permission is missing;
-        // that must fail the group honestly, never the session.
-        runCatching { if (config != null) mgr.createGroup(ch, config, listener) else mgr.createGroup(ch, listener) }
-            .onFailure { if (!stopped.get()) fail("create-group-failed") }
+        fun createGroup() {
+            // createGroup throws synchronously when the P2P permission is missing;
+            // that must fail the group honestly, never the session.
+            runCatching { if (config != null) mgr.createGroup(ch, config, listener) else mgr.createGroup(ch, listener) }
+                .onFailure { if (!stopped.get()) fail("create-group-failed") }
+        }
+        // A group already up (e.g. made from Settings) is used as-is: the
+        // framework's createGroup fails on this phone, so never ask for one
+        // when a group exists. requestConnectionInfo is the authority here —
+        // requestGroupInfo returns null on a live group.
+        val detectionDone = AtomicBoolean(false)
+        runCatching {
+            mgr.requestConnectionInfo(ch) { info ->
+                if (stopped.get() || !detectionDone.compareAndSet(false, true)) return@requestConnectionInfo
+                if (info?.groupFormed == true && info.isGroupOwner) useExistingGroup() else createGroup()
+            }
+        }.onFailure {
+            if (!stopped.get() && detectionDone.compareAndSet(false, true)) createGroup()
+        }
+        Handler(t.looper).postDelayed({
+            if (stopped.get() || !detectionDone.compareAndSet(false, true)) return@postDelayed
+            createGroup()
+        }, DETECT_TIMEOUT_MS)
         return null
     }
 
-    /** The group we ask for on API 29+: name + 5 GHz band + persistent. Null below API 29. */
-    internal data class GroupRequest(val networkName: String, val band: Int, val persistent: Boolean)
+    /** The group is already up: skip creation and advertise on it. */
+    private fun useExistingGroup() {
+        if (stopped.get()) return
+        usedExistingGroup = true
+        advertiseService(bestEffort = true)
+    }
+
+    /** The group we ask for on API 29+: a valid DIRECT- name + passphrase, auto band, never persistent. Null below API 29. */
+    internal data class GroupRequest(val networkName: String, val band: Int, val persistent: Boolean, val passphrase: String)
 
     internal fun groupRequestFor(sdkInt: Int = Build.VERSION.SDK_INT): GroupRequest? =
         if (sdkInt < Build.VERSION_CODES.Q) null
-        else GroupRequest(GROUP_NAME, WifiP2pConfig.GROUP_OWNER_BAND_5GHZ, true)
+        else GroupRequest(GROUP_NAME, WifiP2pConfig.GROUP_OWNER_BAND_AUTO, false, GROUP_PASSPHRASE)
 
     // Not chained: under Robolectric the Builder setters return null instead of this.
     private fun buildConfig(request: GroupRequest): WifiP2pConfig? = runCatching {
         val builder = WifiP2pConfig.Builder()
         builder.setNetworkName(request.networkName)
+        builder.setPassphrase(request.passphrase)
         builder.setGroupOperatingBand(request.band)
         if (request.persistent) builder.enablePersistentMode(true)
         builder.build()
@@ -144,28 +179,41 @@ class P2pGroup(
         check()
     }
 
-    private fun advertiseService() {
+    private fun advertiseService(bestEffort: Boolean = false) {
         if (stopped.get()) return
         val info = WifiP2pDnsSdServiceInfo.newInstance(
             SERVICE_INSTANCE, SERVICE_TYPE,
             txtRecord(padServer?.port ?: -1, streamPort, SessionState.outputSize),
         )
         manager?.addLocalService(channel, info, object : WifiP2pManager.ActionListener {
-            override fun onSuccess() {
-                if (stopped.get()) return
-                startReason = null
-                status = Status.READY
-                onState?.invoke()
-                TvDiagnosticsLog.log(
-                    app(), "tv", "p2p-group",
-                    fields = mapOf("step" to "begin", "result" to "up", "group" to (groupName ?: "-")),
-                )
-            }
+            override fun onSuccess() = markReady()
 
             override fun onFailure(reason: Int) {
-                if (!stopped.get()) fail("advertise-failed: ${p2pFailureReason(reason)}")
+                if (stopped.get()) return
+                if (bestEffort) {
+                    // The group is up and NSD carries discovery, so a dead P2P
+                    // advertisement must not fail the preparation.
+                    TvDiagnosticsLog.log(
+                        app(), "tv", "p2p-group",
+                        fields = mapOf("step" to "advertise-failed", "result" to p2pFailureReason(reason), "group" to (groupName ?: "-")),
+                    )
+                    markReady()
+                } else {
+                    fail("advertise-failed: ${p2pFailureReason(reason)}")
+                }
             }
         }) ?: fail("advertise-failed")
+    }
+
+    private fun markReady() {
+        if (stopped.get()) return
+        startReason = null
+        status = Status.READY
+        onState?.invoke()
+        TvDiagnosticsLog.log(
+            app(), "tv", "p2p-group",
+            fields = mapOf("step" to "begin", "result" to "up", "group" to (groupName ?: "-")),
+        )
     }
 
     private fun fail(reason: String) {
@@ -198,13 +246,23 @@ class P2pGroup(
         private set
 
     private companion object {
-        const val GROUP_NAME = "DroidDeck-TV"
+        const val GROUP_NAME = "DIRECT-TV"
+        const val GROUP_PASSPHRASE = "DroidDeck1"
         const val SERVICE_INSTANCE = "DroidDeck-TV"
         const val SERVICE_TYPE = "_droiddeck-tv._tcp"
         const val GROUP_TIMEOUT_MS = 10_000L
+        const val DETECT_TIMEOUT_MS = 3_000L
         const val POLL_MS = 500L
     }
 }
+
+/** A P2P group name must start with DIRECT- plus two characters and fit in 9-32 bytes. */
+internal fun isValidGroupName(name: String): Boolean =
+    name.length in 9..32 && name.matches(Regex("^DIRECT-[a-zA-Z0-9]{2}.*"))
+
+/** A P2P passphrase is 8-63 ASCII characters. */
+internal fun isValidPassphrase(passphrase: String): Boolean =
+    passphrase.length in 8..63 && passphrase.all { it.code in 0x20..0x7e }
 
 /**
  * TXT record for the controller's DNS-SD service: the video size so the receiver can configure

@@ -785,6 +785,7 @@
     <string name="receiver_prepare_hint">اضغط «جهّز العرض» لإنشاء مجموعة Wi-Fi Direct وتشغيل خادم البث. ثم ابدأ لعبة — وسيجد التابلت هذا الهاتف.</string>
     <string name="receiver_prepare_forming">جارٍ إنشاء مجموعة Wi-Fi Direct…</string>
     <string name="receiver_prepare_ready">جاهز — المجموعة %1$s جاهزة. ابدأ لعبة وسيجد التابلت هذا الهاتف.</string>
+    <string name="receiver_prepare_ready_existing">جاهز — نستخدم مجموعة Wi-Fi Direct الجاهزة أصلاً. ابدأ لعبة وسيجد التابلت هذا الهاتف.</string>
     <string name="receiver_prepare_failed">تعذّر إنشاء المجموعة: %1$s. إذا ظهرت نافذة Wi-Fi Direct على هذا الهاتف، وافق عليها وحاول مجدداً.</string>
     <string name="setup_adv_configure">ضبط</string>
     <string name="setup_tab_controller">وحدة التحكم</string>

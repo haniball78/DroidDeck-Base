@@ -54,10 +54,10 @@ import com.droiddeck.launcher.input.PadState
 import com.droiddeck.launcher.session.ControllerStream
 import com.droiddeck.launcher.session.GamepadInput
 import com.droiddeck.launcher.session.P2pPadClient
-import com.droiddeck.launcher.session.P2pReceiver
 import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.session.TvStreamReceiver
 import com.droiddeck.launcher.session.UsbTether
+import com.droiddeck.launcher.session.discoverNsdController
 import java.io.File
 import kotlinx.coroutines.delay
 
@@ -79,13 +79,11 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
     var status by remember { mutableStateOf("Idle — pick Receiver below, then Start.") }
     var frames by remember { mutableStateOf(0L) }
     var firstFrameMs by remember { mutableStateOf(-1L) }
-    var p2pRef by remember { mutableStateOf<P2pReceiver?>(null) }
     var recvRef by remember { mutableStateOf<TvStreamReceiver?>(null) }
 
     var padRunning by remember { mutableStateOf(false) }
     var padStatus by remember { mutableStateOf("Idle — pick Gamepad below, then Start.") }
     var padRef by remember { mutableStateOf<P2pPadClient?>(null) }
-    var padP2pRef by remember { mutableStateOf<P2pReceiver?>(null) }
     var gamepadSlot by remember { mutableStateOf(1) }
     var useUsb by remember { mutableStateOf(false) }
 
@@ -96,6 +94,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
 
     var prepStatus by remember { mutableStateOf(ControllerStream.status) }
     var prepGroup by remember { mutableStateOf<String?>(ControllerStream.groupName) }
+    var prepExisting by remember { mutableStateOf(ControllerStream.usedExistingGroup) }
     var prepReason by remember { mutableStateOf<String?>(ControllerStream.failureReason) }
 
     // Local touch pad: shared by the Gamepad section and the Receiver
@@ -117,10 +116,8 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
         GamepadInput.clear()
         runCatching { padBridge?.setTouchRoute(null) }
         runCatching { padRef?.close() }
-        runCatching { padP2pRef?.stop() }
         runCatching { padBridge?.stop() }
         padRef = null
-        padP2pRef = null
     }
 
     fun stopReceiverInput() {
@@ -160,26 +157,24 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
                 receiverInputRunning = false
                 return@Thread
             }
-            // The video's P2pReceiver is already up; wait for its input
-            // record (address + pad port) to arrive.
+            // The video receiver resolved the controller over NSD; its host is
+            // the pad host too (the pad server always binds the fixed port).
             var waited = 0
-            var port: Int? = null
             var host: String? = null
             while (receiverInputRunning && waited < 10000) {
-                port = p2pRef?.padPort
-                host = p2pRef?.controllerAddress?.hostAddress
-                if (port != null && host != null) break
+                host = recvRef?.resolvedEndpoint?.first
+                if (host != null) break
                 runCatching { Thread.sleep(200) }
                 waited += 200
             }
             if (!receiverInputRunning) return@Thread
-            if (port == null || host == null) {
+            if (host == null) {
                 receiverInputStatus = "This controller has no gamepad input — start a game on the controller phone with Controller mode on."
                 receiverInputRunning = false
                 return@Thread
             }
             val client = P2pPadClient(gamepadSlot)
-            if (!client.connect(host, port)) {
+            if (!client.connect(host, UsbTether.USB_PAD_PORT)) {
                 receiverInputStatus = "Could not reach the controller's gamepad input."
                 receiverInputRunning = false
                 return@Thread
@@ -216,30 +211,17 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
                 })
                 return@Thread
             }
-            val p2p = P2pReceiver(ctx)
-            padP2pRef = p2p
-            val error = p2p.begin()
-            if (!padRunning) {
-                p2p.stop()
-                return@Thread
-            }
-            if (error != null) {
-                padStatus = "Controller not found ($error)"
+            val endpoint = discoverNsdController(ctx, 15_000)
+            if (!padRunning) return@Thread
+            if (endpoint == null) {
+                padStatus = "Controller not found (controller-not-found)"
                 padRunning = false
                 return@Thread
             }
-            val port = p2p.padPort
-            val host = p2p.controllerAddress?.hostAddress
-            if (port == null || host == null) {
-                padStatus = "This controller has no gamepad input — start a game on the controller phone with Controller mode on."
-                p2p.stop()
-                padRunning = false
-                return@Thread
-            }
+            val (host, _) = endpoint
             val client = P2pPadClient(gamepadSlot)
-            if (!client.connect(host, port)) {
+            if (!client.connect(host, UsbTether.USB_PAD_PORT)) {
                 padStatus = "Could not reach the controller's gamepad input."
-                p2p.stop()
                 padRunning = false
                 return@Thread
             }
@@ -257,9 +239,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
         receiverRunning = false
         stopReceiverInput()
         runCatching { recvRef?.stop() }
-        runCatching { p2pRef?.stop() }
         recvRef = null
-        p2pRef = null
     }
 
     fun switchTransport(usb: Boolean) {
@@ -314,38 +294,19 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
                 recv.start()
                 return@Thread
             }
-            val p2p = P2pReceiver(ctx)
-            p2pRef = p2p
-            val error = p2p.begin()
-            if (!receiverRunning) {
-                p2p.stop()
-                return@Thread
-            }
-            if (error != null) {
-                status = "Controller not found ($error)"
-                receiverRunning = false
-                return@Thread
-            }
-            val (w, h) = p2p.videoSize ?: (1920 to 1080)
+            // Plain NSD discovery is the only path: P2P DNS-SD is dead on this
+            // phone, and its discoverPeers scan is the prime suspect for
+            // breaking the tablet-to-phone link. The stream receiver resolves
+            // the controller host and port over NSD itself.
             val surf = surface
             if (surf == null) {
                 status = "No video surface yet — wait a moment and try again."
-                p2p.stop()
                 receiverRunning = false
                 return@Thread
             }
-            // The TXT record carries the bound stream port; use it when present
-            // instead of NSD resolution, whose callback reports port 0 here.
-            val host = p2p.controllerAddress?.hostAddress
-            val videoPort = p2p.videoPort
-            val fixed = if (host != null && videoPort != null) host to videoPort else null
-            val recv = TvStreamReceiver(
-                ctx, surf, w, h,
-                host,
-                fixedEndpoint = fixed,
-            ) { status = it }
+            val recv = TvStreamReceiver(ctx, surf) { status = it }
             recvRef = recv
-            status = "Found ${p2p.controllerName ?: "controller"} — connecting to the stream…"
+            status = "Searching for a controller…"
             recv.start()
         }, "receiver-start").start()
     }
@@ -415,6 +376,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
         while (mode == SessionPrefs.RECEIVER_MODE_CONTROLLER) {
             prepStatus = ControllerStream.status
             prepGroup = ControllerStream.groupName
+            prepExisting = ControllerStream.usedExistingGroup
             prepReason = ControllerStream.failureReason
             delay(1000)
         }
@@ -517,7 +479,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
                         when (prepStatus) {
                             ControllerStream.Status.IDLE -> stringResource(R.string.receiver_prepare_hint)
                             ControllerStream.Status.FORMING -> stringResource(R.string.receiver_prepare_forming)
-                            ControllerStream.Status.READY -> stringResource(R.string.receiver_prepare_ready, prepGroup ?: "DroidDeck-TV")
+                            ControllerStream.Status.READY -> if (prepExisting) stringResource(R.string.receiver_prepare_ready_existing) else stringResource(R.string.receiver_prepare_ready, prepGroup ?: "DroidDeck-TV")
                             ControllerStream.Status.FAILED -> stringResource(R.string.receiver_prepare_failed, prepReason ?: "")
                         },
                         style = MaterialTheme.typography.bodySmall,

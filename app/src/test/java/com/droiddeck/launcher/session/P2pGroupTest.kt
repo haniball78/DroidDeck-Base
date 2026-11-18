@@ -3,7 +3,9 @@ package com.droiddeck.launcher.session
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pManager
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -11,11 +13,36 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class P2pGroupTest {
     @Test
-    fun `group request asks for 5 GHz on API 29 and above`() {
+    fun `group request asks for a valid DIRECT name with passphrase, auto band, no persistence`() {
         assertEquals(
-            P2pGroup.GroupRequest("DroidDeck-TV", WifiP2pConfig.GROUP_OWNER_BAND_5GHZ, true),
+            P2pGroup.GroupRequest("DIRECT-TV", WifiP2pConfig.GROUP_OWNER_BAND_AUTO, false, "DroidDeck1"),
             P2pGroup().groupRequestFor(34),
         )
+    }
+
+    @Test
+    fun `group request satisfies the name and passphrase rules`() {
+        val request = P2pGroup().groupRequestFor(34)!!
+        assertTrue(isValidGroupName(request.networkName))
+        assertTrue(isValidPassphrase(request.passphrase))
+    }
+
+    @Test
+    fun `group name must start with DIRECT plus two characters`() {
+        assertTrue(isValidGroupName("DIRECT-TV"))
+        assertTrue(isValidGroupName("DIRECT-5m-bibars"))
+        assertFalse(isValidGroupName("DroidDeck-TV"))
+        assertFalse(isValidGroupName("DIRECT-"))
+        assertFalse(isValidGroupName("DIRECT-X"))
+        assertFalse(isValidGroupName("DIRECT-TV-012345678901234567890123"))
+    }
+
+    @Test
+    fun `passphrase must be 8 to 63 ASCII characters`() {
+        assertTrue(isValidPassphrase("DroidDeck1"))
+        assertFalse(isValidPassphrase("short"))
+        assertFalse(isValidPassphrase(""))
+        assertFalse(isValidPassphrase("a".repeat(64)))
     }
 
     @Test

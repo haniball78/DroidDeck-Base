@@ -18,9 +18,9 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Receiver-side stream: discovers the controller's _droiddeck-tv service over
- * NSD (after joining its P2P group), reads length-prefixed Annex B NAL units
- * over raw TCP and decodes them to the given surface with a hardware H.264
- * decoder. Reconnects until stopped. No PIN, no input return channel, no audio.
+ * NSD (the receiver is already on the controller's network), reads length-prefixed
+ * Annex B NAL units over raw TCP and decodes them to the given surface with a
+ * hardware H.264 decoder. Reconnects until stopped. No PIN, no input return channel, no audio.
  */
 class TvStreamReceiver(
     private val context: Context,
@@ -36,6 +36,11 @@ class TvStreamReceiver(
     val framesDecoded = AtomicLong(0)
     val firstFrameMs = AtomicLong(-1)
 
+    /** The host and stream port the last discovery resolved; the pad client uses the host. */
+    @Volatile
+    var resolvedEndpoint: Pair<String, Int>? = null
+        private set
+
     fun start() {
         if (!started.compareAndSet(false, true)) return
         worker = Thread({ runLoop() }, "tv-stream-receiver").apply { start() }
@@ -44,7 +49,6 @@ class TvStreamReceiver(
     fun stop() {
         destroyed.set(true)
         runCatching { currentSocket?.close() }
-        stopDiscovery()
         runCatching { decoder?.release() }
         worker?.interrupt()
     }
@@ -56,6 +60,7 @@ class TvStreamReceiver(
                 sleepQuietly(RETRY_MS)
                 continue
             }
+            resolvedEndpoint = endpoint
             val connectStartNanos = System.nanoTime()
             val host = hostOverride ?: endpoint.first
             val socket = runCatching {
@@ -96,58 +101,8 @@ class TvStreamReceiver(
         }
     }
 
-    /** Discovers one _droiddeck-tv._tcp service; null on timeout. */
-    private fun discover(): Pair<String, Int>? {
-        val manager = context.getSystemService(Context.NSD_SERVICE) as? NsdManager ?: return null
-        nsdManager = manager
-        var endpoint: Pair<String, Int>? = null
-        val found = CountDownLatch(1)
-        val listener = object : NsdManager.DiscoveryListener {
-            override fun onDiscoveryStarted(serviceType: String) = Unit
-            override fun onServiceFound(serviceInfo: NsdServiceInfo) {
-                if (serviceInfo.serviceType?.contains(SERVICE_TYPE) != true) return
-                runCatching { manager.resolveService(serviceInfo, resolveListener(found) { endpoint = it }) }
-            }
-
-            override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
-            override fun onDiscoveryStopped(serviceType: String) = Unit
-            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
-                Log.w(TAG, "discovery failed: $errorCode")
-                found.countDown()
-            }
-
-            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
-        }
-        discoveryListener = listener
-        runCatching { manager.discoverServices("$SERVICE_TYPE.", NsdManager.PROTOCOL_DNS_SD, listener) }
-            .onFailure {
-                Log.w(TAG, "discoverServices failed", it)
-                return null
-            }
-        found.await(DISCOVERY_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        stopDiscovery()
-        return endpoint
-    }
-
-    private fun resolveListener(found: CountDownLatch, onResolved: (Pair<String, Int>) -> Unit) =
-        object : NsdManager.ResolveListener {
-            override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = Unit
-            override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-                val host = serviceInfo.host?.hostAddress ?: return
-                onResolved(host to serviceInfo.port)
-                found.countDown()
-            }
-        }
-
-    private fun stopDiscovery() {
-        val manager = nsdManager
-        val listener = discoveryListener
-        nsdManager = null
-        discoveryListener = null
-        if (manager != null && listener != null) {
-            runCatching { manager.stopServiceDiscovery(listener) }
-        }
-    }
+    /** Discovers one _droiddeck-tv._tcp service over NSD; null on timeout. */
+    private fun discover(): Pair<String, Int>? = discoverNsdController(context, DISCOVERY_TIMEOUT_MS)
 
     private fun sleepQuietly(ms: Long) {
         runCatching { Thread.sleep(ms) }
@@ -156,8 +111,6 @@ class TvStreamReceiver(
     private val started = AtomicBoolean(false)
     private val destroyed = AtomicBoolean(false)
     private var worker: Thread? = null
-    private var nsdManager: NsdManager? = null
-    private var discoveryListener: NsdManager.DiscoveryListener? = null
 
     @Volatile
     private var currentSocket: Socket? = null
@@ -166,12 +119,67 @@ class TvStreamReceiver(
     private var decoder: VideoDecoder? = null
 
     private companion object {
-        const val TAG = "TvStreamReceiver"
-        const val SERVICE_TYPE = "_droiddeck-tv._tcp"
         const val DISCOVERY_TIMEOUT_MS = 10_000L
         const val CONNECT_TIMEOUT_MS = 5_000
         const val RETRY_MS = 2_000L
     }
+}
+
+/** The NSD service type the controller advertises; shared by the stream receiver and the gamepad finder. */
+internal const val NSD_SERVICE_TYPE = "_droiddeck-tv._tcp"
+
+/**
+ * Discovers one controller service over plain NSD and resolves it; the host and
+ * port come from resolution, never from the registration callback (which
+ * reports port 0 on this device). Null on timeout or failure. Stops discovery
+ * before returning on every path.
+ */
+internal fun discoverNsdController(context: Context, timeoutMs: Long): Pair<String, Int>? {
+    val manager = context.getSystemService(Context.NSD_SERVICE) as? NsdManager ?: return null
+    var endpoint: Pair<String, Int>? = null
+    val found = CountDownLatch(1)
+    val listener = object : NsdManager.DiscoveryListener {
+        override fun onDiscoveryStarted(serviceType: String) = Unit
+        override fun onServiceFound(serviceInfo: NsdServiceInfo) {
+            if (serviceInfo.serviceType?.contains(NSD_SERVICE_TYPE) != true) return
+            runCatching { manager.resolveService(serviceInfo, nsdResolveListener(found) { endpoint = it }) }
+        }
+
+        override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
+        override fun onDiscoveryStopped(serviceType: String) = Unit
+        override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+            Log.w("TvStreamReceiver", "discovery failed: $errorCode")
+            found.countDown()
+        }
+
+        override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
+    }
+    runCatching { manager.discoverServices("$NSD_SERVICE_TYPE.", NsdManager.PROTOCOL_DNS_SD, listener) }
+        .onFailure {
+            Log.w("TvStreamReceiver", "discoverServices failed", it)
+            return null
+        }
+    runCatching { found.await(timeoutMs, TimeUnit.MILLISECONDS) }
+    runCatching { manager.stopServiceDiscovery(listener) }
+    return endpoint
+}
+
+internal fun nsdResolveListener(found: CountDownLatch, onResolved: (Pair<String, Int>) -> Unit) =
+    object : NsdManager.ResolveListener {
+        override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = Unit
+        override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
+            nsdEndpoint(serviceInfo.host?.hostAddress, serviceInfo.port)?.let {
+                onResolved(it)
+                found.countDown()
+            }
+        }
+    }
+
+/** A resolved NSD endpoint; null when the host is missing or the port is unusable (0 is the registration-callback quirk, never a real port). */
+internal fun nsdEndpoint(host: String?, port: Int): Pair<String, Int>? {
+    if (host.isNullOrBlank()) return null
+    if (port < 1 || port > 65535) return null
+    return host to port
 }
 
 /** Hardware H.264 decoder rendering to a surface; calls onFrame per released frame. */

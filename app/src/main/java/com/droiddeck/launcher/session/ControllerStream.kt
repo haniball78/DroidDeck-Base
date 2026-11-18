@@ -1,6 +1,7 @@
 package com.droiddeck.launcher.session
 
 import android.content.Context
+import com.droiddeck.launcher.core.SessionPart
 import java.io.File
 
 /**
@@ -21,6 +22,11 @@ object ControllerStream {
     var groupName: String? = null
         private set
 
+    /** True when the preparation runs on a group already up, not one it created. */
+    @Volatile
+    var usedExistingGroup: Boolean = false
+        private set
+
     @Volatile
     var failureReason: String? = null
         private set
@@ -35,6 +41,7 @@ object ControllerStream {
             if (status != Status.IDLE && status != Status.FAILED) return null
             status = Status.FORMING
             groupName = null
+            usedExistingGroup = false
             failureReason = null
         }
         val app = context.applicationContext
@@ -47,14 +54,24 @@ object ControllerStream {
         val grp = P2pGroup(pad, server.port)
         grp.attach(app)
         grp.onState = {
+            var teardown: List<SessionPart>? = null
             synchronized(lock) {
                 if (grp === group) {
                     when (grp.status) {
                         P2pGroup.Status.READY -> {
                             status = Status.READY
                             groupName = grp.groupName
+                            usedExistingGroup = grp.usedExistingGroup
                         }
                         P2pGroup.Status.FAILED -> {
+                            // The group failed after the servers started: tear them
+                            // down, or the pad port stays listening with no group.
+                            teardown = listOfNotNull(group, streamServer, padServer)
+                            group = null
+                            streamServer = null
+                            padServer = null
+                            groupName = null
+                            usedExistingGroup = false
                             status = Status.FAILED
                             failureReason = grp.failureReason
                         }
@@ -62,6 +79,7 @@ object ControllerStream {
                     }
                 }
             }
+            teardown?.forEach { runCatching { it.stop() } }
         }
         group = grp
         grp.begin()?.let { return fail(it) }
@@ -89,6 +107,7 @@ object ControllerStream {
             padServer = null
             status = Status.IDLE
             groupName = null
+            usedExistingGroup = false
             failureReason = null
         }
         runCatching { grp?.stop() }

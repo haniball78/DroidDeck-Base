@@ -187,6 +187,23 @@ class P2pPadServerTest {
     }
 
     @Test
+    fun `stop closes the listening socket so the port can be bound again`() {
+        val first = P2pPadServer(UsbTether.USB_PAD_PORT)
+        first.attach(RuntimeEnvironment.getApplication())
+        assertNull(first.begin())
+        assertEquals(UsbTether.USB_PAD_PORT, first.port)
+        first.stop()
+        val second = P2pPadServer(UsbTether.USB_PAD_PORT)
+        second.attach(RuntimeEnvironment.getApplication())
+        try {
+            assertNull(second.begin())
+            assertEquals(UsbTether.USB_PAD_PORT, second.port)
+        } finally {
+            second.stop()
+        }
+    }
+
+    @Test
     fun `stop is safe without begin`() {
         P2pPadServer().stop()
     }
