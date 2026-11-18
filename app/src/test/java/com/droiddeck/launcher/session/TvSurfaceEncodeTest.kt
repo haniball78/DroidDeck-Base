@@ -3,6 +3,7 @@ package com.droiddeck.launcher.session
 import android.content.Context
 import android.media.MediaFormat
 import androidx.test.core.app.ApplicationProvider
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -85,6 +86,20 @@ class TvSurfaceEncodeTest {
     fun `encode begin fails honestly without the native library`() {
         val part = TvSurfaceEncode(File(context.filesDir, "venc/surface.h264"))
         assertNotNull(part.begin())
+        part.stop()
+    }
+
+    @Test
+    fun `chunk sink receives every delivered chunk`() {
+        val received = ArrayList<ByteArray>()
+        val part = TvSurfaceEncode(File(context.filesDir, "venc/surface.h264")) { received.add(it) }
+        val first = byteArrayOf(0, 0, 0, 1, 0x65, 0x01)
+        val second = byteArrayOf(0, 0, 1, 0x41, 0x02)
+        part.deliverChunk(first)
+        part.deliverChunk(second)
+        assertEquals(2, received.size)
+        assertArrayEquals(first, received[0])
+        assertArrayEquals(second, received[1])
         part.stop()
     }
 }

@@ -1,11 +1,21 @@
 package com.droiddeck.launcher.session
 
+import android.graphics.SurfaceTexture
+import android.media.MediaFormat
+import android.os.Build
+import android.view.Surface
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -73,6 +83,72 @@ class TvStreamReceiverTest {
         assertNull(nsdEndpoint("  ", 28752))
         assertNull(nsdEndpoint("192.168.49.1", -1))
         assertNull(nsdEndpoint("192.168.49.1", 65536))
+    }
+
+    @Test
+    fun `decoder format sets low-latency keys only on API 30+ when supported`() {
+        val flagged = buildDecoderFormat(1920, 1080, Build.VERSION_CODES.R, true)
+        assertEquals(1, flagged.getInteger(MediaFormat.KEY_LOW_LATENCY))
+        assertEquals(0, flagged.getInteger(MediaFormat.KEY_PRIORITY))
+        val plain = buildDecoderFormat(1920, 1080, Build.VERSION_CODES.R, false)
+        assertFalse(plain.containsKey(MediaFormat.KEY_LOW_LATENCY))
+        assertEquals(0, plain.getInteger(MediaFormat.KEY_PRIORITY))
+    }
+
+    @Test
+    fun `decoder format omits low-latency below API 30 even when supported`() {
+        val fmt = buildDecoderFormat(1920, 1080, Build.VERSION_CODES.Q, true)
+        assertFalse(fmt.containsKey(MediaFormat.KEY_LOW_LATENCY))
+        assertEquals(0, fmt.getInteger(MediaFormat.KEY_PRIORITY))
+    }
+
+    @Test
+    fun `decoder format omits priority below API 23`() {
+        val fmt = buildDecoderFormat(1920, 1080, Build.VERSION_CODES.LOLLIPOP_MR1, true)
+        assertFalse(fmt.containsKey(MediaFormat.KEY_PRIORITY))
+        assertFalse(fmt.containsKey(MediaFormat.KEY_LOW_LATENCY))
+    }
+
+    @Test
+    fun `low-latency probe is false below API 30 and safe with no codecs`() {
+        assertFalse(decoderSupportsLowLatency(Build.VERSION_CODES.Q))
+        assertFalse(decoderSupportsLowLatency())
+    }
+
+    @Test
+    fun `decoder still starts with the plain format when low latency is unsupported`() {
+        val surface = Surface(SurfaceTexture(0))
+        try {
+            val decoder = VideoDecoder(surface, 1920, 1080) {}
+            assertTrue(decoder.start())
+            decoder.release()
+        } finally {
+            surface.release()
+        }
+    }
+
+    @Test
+    fun `connect failure maps refused, no route, timeout, and other`() {
+        assertEquals(ConnectFailure.REFUSED, classifyConnectFailure(ConnectException()))
+        assertEquals(ConnectFailure.NO_ROUTE, classifyConnectFailure(NoRouteToHostException()))
+        assertEquals(ConnectFailure.TIMEOUT, classifyConnectFailure(SocketTimeoutException()))
+        assertEquals(ConnectFailure.OTHER, classifyConnectFailure(null))
+        assertEquals(ConnectFailure.OTHER, classifyConnectFailure(RuntimeException("boom")))
+    }
+
+    @Test
+    fun `connect failure strings name the host and port`() {
+        val app = RuntimeEnvironment.getApplication()
+        val refused = app.getString(connectFailureStringId(ConnectException()), "192.168.42.129", 28752)
+        assertTrue(refused.contains("192.168.42.129:28752"))
+        assertTrue(refused.contains("Prepare"))
+        val noRoute = app.getString(connectFailureStringId(NoRouteToHostException()), "192.168.42.129", 28752)
+        assertTrue(noRoute.contains("192.168.42.129:28752"))
+        assertTrue(noRoute.contains("USB tethering"))
+        val timeout = app.getString(connectFailureStringId(SocketTimeoutException()), "192.168.42.129", 28752)
+        assertTrue(timeout.contains("192.168.42.129:28752"))
+        val other = app.getString(connectFailureStringId(null), "192.168.42.129", 28752)
+        assertTrue(other.contains("192.168.42.129:28752"))
     }
 
     private fun framed(units: List<ByteArray>): ByteArray {

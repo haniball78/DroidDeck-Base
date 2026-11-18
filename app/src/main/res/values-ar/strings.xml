@@ -773,6 +773,7 @@
     <string name="physical_pad_none">لا توجد قبضة موصولة</string>
     <string name="receiver_transport_wifi">Wi-Fi Direct</string>
     <string name="receiver_transport_usb">كبل USB</string>
+    <string name="receiver_usb_tethering">USB tethering: %1$s</string>
     <string name="receiver_send_input">التحكم باللعبة من هذا الجهاز</string>
     <string name="receiver_role_controller">المتحكم</string>
     <string name="receiver_role_controller_hint">هذا الهاتف يشغّل اللعبة ويبثها.</string>
@@ -786,7 +787,12 @@
     <string name="receiver_prepare_forming">جارٍ إنشاء مجموعة Wi-Fi Direct…</string>
     <string name="receiver_prepare_ready">جاهز — المجموعة %1$s جاهزة. ابدأ لعبة وسيجد التابلت هذا الهاتف.</string>
     <string name="receiver_prepare_ready_existing">جاهز — نستخدم مجموعة Wi-Fi Direct الجاهزة أصلاً. ابدأ لعبة وسيجد التابلت هذا الهاتف.</string>
+    <string name="receiver_prepare_ready_no_group">جاهز بدون مجموعة Wi-Fi Direct (%1$s). صِل التابلت عبر كبل USB، ثم ابدأ لعبة.</string>
     <string name="receiver_prepare_failed">تعذّر إنشاء المجموعة: %1$s. إذا ظهرت نافذة Wi-Fi Direct على هذا الهاتف، وافق عليها وحاول مجدداً.</string>
+    <string name="receiver_connect_refused">رفض %1$s:%2$d الاتصال — سيرفر وحدة التحكم مو شغال. اضغط Prepare على هاتف اللعبة.</string>
+    <string name="receiver_connect_no_route">لا يوجد مسار إلى %1$s:%2$d — افحص الكبل وUSB tethering على هاتف اللعبة، وتأكد أن التابلت هو الـ USB host.</string>
+    <string name="receiver_connect_timeout">انتهت مهلة الاتصال بـ %1$s:%2$d — وحدة التحكم غير قابلة للوصول. جارٍ البحث مجدداً…</string>
+    <string name="receiver_connect_failed">تعذّر الاتصال بـ %1$s:%2$d. جارٍ البحث مجدداً…</string>
     <string name="setup_adv_configure">ضبط</string>
     <string name="setup_tab_controller">وحدة التحكم</string>
     <string name="setup_tab_session">الجلسة</string>

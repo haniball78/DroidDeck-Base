@@ -2,15 +2,22 @@ package com.droiddeck.launcher.session
 
 import android.content.Context
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Build
 import android.util.Log
 import android.view.Surface
+import com.droiddeck.launcher.R
 import java.io.DataInputStream
 import java.io.EOFException
+import java.net.ConnectException
 import java.net.InetSocketAddress
+import java.net.NoRouteToHostException
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -63,14 +70,15 @@ class TvStreamReceiver(
             resolvedEndpoint = endpoint
             val connectStartNanos = System.nanoTime()
             val host = hostOverride ?: endpoint.first
+            var failure: Throwable? = null
             val socket = runCatching {
                 Socket().apply {
                     tcpNoDelay = true
                     connect(InetSocketAddress(host, endpoint.second), CONNECT_TIMEOUT_MS)
                 }
-            }.getOrNull()
+            }.onFailure { failure = it }.getOrNull()
             if (socket == null) {
-                onStatus?.invoke("connect to $host:${endpoint.second} failed, searching again")
+                onStatus?.invoke(context.getString(connectFailureStringId(failure), host, endpoint.second))
                 sleepQuietly(RETRY_MS)
                 continue
             }
@@ -182,6 +190,56 @@ internal fun nsdEndpoint(host: String?, port: Int): Pair<String, Int>? {
     return host to port
 }
 
+/** Why a controller connection failed; drives the status line the user sees. */
+internal enum class ConnectFailure { REFUSED, NO_ROUTE, TIMEOUT, OTHER }
+
+internal fun classifyConnectFailure(error: Throwable?): ConnectFailure = when (error) {
+    is NoRouteToHostException -> ConnectFailure.NO_ROUTE
+    is ConnectException -> ConnectFailure.REFUSED
+    is SocketTimeoutException -> ConnectFailure.TIMEOUT
+    else -> ConnectFailure.OTHER
+}
+
+internal fun connectFailureStringId(error: Throwable?): Int = when (classifyConnectFailure(error)) {
+    ConnectFailure.REFUSED -> R.string.receiver_connect_refused
+    ConnectFailure.NO_ROUTE -> R.string.receiver_connect_no_route
+    ConnectFailure.TIMEOUT -> R.string.receiver_connect_timeout
+    ConnectFailure.OTHER -> R.string.receiver_connect_failed
+}
+
+/**
+ * Decoder format; low-latency keys only when the OS defines them and the
+ * codec supports them (mirrors the encoder's API-gated buildFormat).
+ */
+internal fun buildDecoderFormat(
+    width: Int,
+    height: Int,
+    sdkInt: Int = Build.VERSION.SDK_INT,
+    lowLatency: Boolean = false,
+): MediaFormat =
+    MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+        if (sdkInt >= Build.VERSION_CODES.M) setInteger(MediaFormat.KEY_PRIORITY, 0)
+        if (lowLatency && sdkInt >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+    }
+
+/**
+ * True when a hardware AVC decoder on this device advertises low-latency
+ * decoding (API 30+). False on any failure — the plain format is always safe.
+ */
+internal fun decoderSupportsLowLatency(sdkInt: Int = Build.VERSION.SDK_INT): Boolean {
+    if (sdkInt < Build.VERSION_CODES.R) return false
+    val list = runCatching { MediaCodecList(MediaCodecList.REGULAR_CODECS) }.getOrNull() ?: return false
+    // findDecoderForFormat returns the preferred decoder's NAME, not its info.
+    val name = runCatching {
+        list.findDecoderForFormat(MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 1920, 1080))
+    }.getOrNull() ?: return false
+    val info = runCatching { list.codecInfos.firstOrNull { it.name == name } }.getOrNull() ?: return false
+    return runCatching {
+        info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            .isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)
+    }.getOrDefault(false)
+}
+
 /** Hardware H.264 decoder rendering to a surface; calls onFrame per released frame. */
 internal class VideoDecoder(
     private val surface: Surface,
@@ -193,18 +251,31 @@ internal class VideoDecoder(
 
     /** Creates and starts the decoder; false when this device has no AVC decoder. */
     fun start(): Boolean {
-        val dec = runCatching {
-            MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).apply {
-                configure(
-                    MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height),
-                    surface, null, 0,
-                )
-                start()
-            }
-        }.getOrNull() ?: return false
-        decoder = dec
-        return true
+        val lowLatency = decoderSupportsLowLatency()
+        val first = runCatching { MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC) }.getOrNull()
+            ?: return false
+        if (tryStart(first, lowLatency)) {
+            decoder = first
+            return true
+        }
+        // A rejected low-latency configure can leave the codec in its error
+        // state, so the plain-format retry uses a fresh decoder.
+        runCatching { first.release() }
+        if (!lowLatency) return false
+        val plain = runCatching { MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC) }.getOrNull()
+            ?: return false
+        if (tryStart(plain, false)) {
+            decoder = plain
+            return true
+        }
+        runCatching { plain.release() }
+        return false
     }
+
+    private fun tryStart(dec: MediaCodec, lowLatency: Boolean): Boolean = runCatching {
+        dec.configure(buildDecoderFormat(width, height, lowLatency = lowLatency), surface, null, 0)
+        dec.start()
+    }.isSuccess
 
     fun release() {
         runCatching { decoder?.stop() }

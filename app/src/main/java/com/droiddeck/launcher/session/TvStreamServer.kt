@@ -10,24 +10,26 @@ import com.droiddeck.launcher.core.SessionPart
 import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
-import java.io.File
-import java.io.RandomAccessFile
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
  * P3 slice A3: serves the encoded game frames over raw TCP on the Wi-Fi network.
  *
- * The server tails the Annex B file the surface encoder writes
- * (filesDir/venc/surface.h264), splits it into NAL units at the Annex B start
+ * The surface encoder feeds its chunks straight into a bounded in-memory queue
+ * (see [feed]); the sender splits them into NAL units at the Annex B start
  * codes and sends each unit length-prefixed (4-byte big-endian length + NAL
- * bytes, start code included) to one connected TV receiver at a time. It is a
+ * bytes, start code included) to one connected TV receiver at a time. The
+ * encoder still records to its file for diagnostics, but the server never
+ * reads it, so a full recording can no longer starve the stream. It is a
  * proof slice only: no PIN, no input return channel, no audio.
  */
-class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0) : SessionPart() {
+class TvStreamServer(private val bindPort: Int = 0) : SessionPart() {
     override fun start() {
         begin()
     }
@@ -92,6 +94,7 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
             synchronized(clientLock) {
                 runCatching { currentClient?.close() }
                 currentClient = socket
+                chunkQueue.clear()
             }
             clientsConnected.incrementAndGet()
             TvDiagnosticsLog.log(
@@ -109,41 +112,48 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
             return
         }
         val scanner = AnnexBScanner()
-        var offset = 0L
-        val chunk = ByteArray(READ_CHUNK)
         while (!stopping && !socket.isClosed) {
-            val file = runCatching { RandomAccessFile(sourceFile, "r") }.getOrNull()
-            if (file == null) {
-                sleepQuietly(POLL_MS)
-                continue
-            }
-            file.use {
-                val length = it.length()
-                if (length < offset) {
-                    offset = 0
-                    TvDiagnosticsLog.log(app(), "tv", "stream", fields = mapOf("step" to "source-reset"))
-                }
-                if (length > offset) {
-                    it.seek(offset)
-                    var read: Int
-                    while (true) {
-                        read = runCatching { it.read(chunk) }.getOrDefault(-1)
-                        if (read <= 0) break
-                        offset += read
-                        val units = scanner.feed(chunk.copyOf(read))
-                        for (unit in units) {
-                            if (!writeUnit(out, unit)) {
-                                closeClient(socket)
-                                return
-                            }
-                        }
-                    }
+            val chunk = try {
+                chunkQueue.poll(QUEUE_POLL_MS, TimeUnit.MILLISECONDS)
+            } catch (_: InterruptedException) {
+                closeClient(socket)
+                return
+            } ?: continue
+            val units = scanner.feed(chunk) + scanner.flush()
+            for (unit in units) {
+                if (!writeUnit(out, unit)) {
+                    closeClient(socket)
+                    return
                 }
             }
-            sleepQuietly(POLL_MS)
         }
         closeClient(socket)
     }
+
+    /**
+     * Offers one encoded chunk to the connected receiver; never blocks the
+     * encoder thread. Chunks offered with no client connected are dropped, so
+     * a joining client gets fresh frames after the next keyframe.
+     */
+    fun feed(chunk: ByteArray) {
+        if (currentClient == null) return
+        offerChunk(chunk)
+    }
+
+    /** Offers a chunk, dropping the oldest queued chunk when the queue is full. */
+    internal fun offerChunk(chunk: ByteArray) {
+        if (!chunkQueue.offer(chunk)) {
+            chunkQueue.poll()
+            chunkQueue.offer(chunk)
+        }
+    }
+
+    /** Removes and returns the oldest queued chunk, or null when the queue is empty. */
+    internal fun pollChunk(): ByteArray? = chunkQueue.poll()
+
+    internal val queueSize: Int get() = chunkQueue.size
+
+    internal fun hasClient(): Boolean = currentClient != null
 
     /** Sends one length-prefixed NAL; false when the client is gone. */
     private fun writeUnit(out: DataOutputStream, unit: ByteArray): Boolean {
@@ -163,7 +173,10 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
 
     private fun closeClient(socket: Socket) {
         synchronized(clientLock) {
-            if (currentClient === socket) currentClient = null
+            if (currentClient === socket) {
+                currentClient = null
+                chunkQueue.clear()
+            }
         }
         runCatching { socket.close() }
         TvDiagnosticsLog.log(app(), "tv", "stream", fields = mapOf("step" to "client-disconnected"))
@@ -176,10 +189,6 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
             firstFrameMs.get(), SystemClock.elapsedRealtime() - startNanos,
         )
         TvDiagnosticsLog.log(app(), "tv", "stream", fields = mapOf("step" to "stopped", "summary" to streamSummary(stats)))
-    }
-
-    private fun sleepQuietly(ms: Long) {
-        runCatching { Thread.sleep(ms) }
     }
 
     private val registrationListener = object : NsdManager.RegistrationListener {
@@ -235,6 +244,7 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
     private var currentClient: Socket? = null
 
     private val clientLock = Any()
+    private val chunkQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAPACITY)
     private var acceptThread: Thread? = null
     private var senderThread: Thread? = null
     private var nsdManager: NsdManager? = null
@@ -244,8 +254,8 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
         const val TAG = "TvStreamServer"
         const val SERVICE_NAME = "DroidDeck TV"
         const val SERVICE_TYPE = "_droiddeck-tv._tcp."
-        const val POLL_MS = 50L
-        const val READ_CHUNK = 8192
+        const val QUEUE_CAPACITY = 32
+        const val QUEUE_POLL_MS = 50L
         const val STOP_JOIN_MS = 2_000L
     }
 }
@@ -255,8 +265,12 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
  * start codes. Each returned unit includes its start code; a unit is only
  * emitted once the next start code is seen, so a partial unit at the end of
  * a feed stays buffered. Units are NALs, not access units: the encoder's
- * output-buffer boundaries are lost in the file, and a decoder accepts
+ * output-buffer boundaries are lost in the byte stream, and a decoder accepts
  * NAL-by-NAL feeding.
+ *
+ * [flush] emits the buffered trailing unit. It is only valid at access-unit
+ * (chunk) boundaries, where the trailing unit is known complete: a chunk is
+ * one whole MediaCodec output buffer, never a partial NAL.
  */
 internal class AnnexBScanner {
     private val pending = ByteArrayOutputStream()
@@ -274,6 +288,18 @@ internal class AnnexBScanner {
         pending.reset()
         pending.write(bytes, starts.last(), bytes.size - starts.last())
         return out
+    }
+
+    /** Emits the buffered trailing unit, if it is a complete NAL; a bare start code stays buffered. */
+    fun flush(): List<ByteArray> {
+        val bytes = pending.toByteArray()
+        val starts = findStartCodes(bytes)
+        if (starts.isEmpty()) return emptyList()
+        val start = starts.first()
+        val unit = bytes.copyOfRange(start, bytes.size)
+        if (unit.size <= startCodeLength(bytes, start)) return emptyList()
+        pending.reset()
+        return listOf(unit)
     }
 
     private fun findStartCodes(bytes: ByteArray): List<Int> {

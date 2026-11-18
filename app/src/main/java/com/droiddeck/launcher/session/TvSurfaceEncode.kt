@@ -206,8 +206,7 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
                     val chunk = ByteArray(info.size)
                     buf.position(info.offset)
                     buf.get(chunk)
-                    writeChunk(chunk)
-                    chunkSink?.invoke(chunk)
+                    deliverChunk(chunk)
                     if (!isConfig) {
                         frames.incrementAndGet()
                         if (info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0) keyframes.incrementAndGet()
@@ -219,6 +218,12 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
         val eos = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
         runCatching { enc?.releaseOutputBuffer(index, false) }
         return eos
+    }
+
+    /** Writes one encoded chunk to the recording and hands it to the stream sink. */
+    internal fun deliverChunk(chunk: ByteArray) {
+        writeChunk(chunk)
+        chunkSink?.invoke(chunk)
     }
 
     private fun writeChunk(chunk: ByteArray) {

@@ -745,7 +745,7 @@ class SessionService : Service() {
             }
             StreamPlan.ENCODER_ONLY -> {
                 val streamFile = File(filesDir, "venc/surface.h264")
-                components.add(TvSurfaceEncode(streamFile).also { it.attach(this) })
+                components.add(TvSurfaceEncode(streamFile, ControllerStream.streamSink).also { it.attach(this) })
             }
             StreamPlan.NONE -> Unit
         }

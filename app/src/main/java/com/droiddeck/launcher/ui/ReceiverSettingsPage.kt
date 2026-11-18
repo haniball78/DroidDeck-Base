@@ -480,8 +480,17 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
                             ControllerStream.Status.IDLE -> stringResource(R.string.receiver_prepare_hint)
                             ControllerStream.Status.FORMING -> stringResource(R.string.receiver_prepare_forming)
                             ControllerStream.Status.READY -> if (prepExisting) stringResource(R.string.receiver_prepare_ready_existing) else stringResource(R.string.receiver_prepare_ready, prepGroup ?: "DroidDeck-TV")
+                            ControllerStream.Status.READY_NO_GROUP -> stringResource(R.string.receiver_prepare_ready_no_group, prepReason ?: "")
                             ControllerStream.Status.FAILED -> stringResource(R.string.receiver_prepare_failed, prepReason ?: "")
                         },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        stringResource(
+                            R.string.receiver_usb_tethering,
+                            stringResource(if (UsbTether.systemGateway() != null) R.string.widgets_on else R.string.widgets_off),
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

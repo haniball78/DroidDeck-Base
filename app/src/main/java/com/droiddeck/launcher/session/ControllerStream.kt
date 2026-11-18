@@ -2,7 +2,7 @@ package com.droiddeck.launcher.session
 
 import android.content.Context
 import com.droiddeck.launcher.core.SessionPart
-import java.io.File
+import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
 
 /**
  * The controller stream, prepared explicitly from the Receiver page: the Wi-Fi Direct group,
@@ -12,7 +12,7 @@ import java.io.File
  * everything when it ends.
  */
 object ControllerStream {
-    enum class Status { IDLE, FORMING, READY, FAILED }
+    enum class Status { IDLE, FORMING, READY, READY_NO_GROUP, FAILED }
 
     @Volatile
     var status: Status = Status.IDLE
@@ -31,9 +31,12 @@ object ControllerStream {
     var failureReason: String? = null
         private set
 
-    val isPrepared: Boolean get() = status == Status.FORMING || status == Status.READY
+    /** The in-memory sink feeding the running stream server; null unless prepared. */
+    @Volatile
+    var streamSink: ((ByteArray) -> Unit)? = null
+        private set
 
-    fun streamFile(context: Context): File = File(context.filesDir, "venc/surface.h264")
+    val isPrepared: Boolean get() = status == Status.FORMING || status == Status.READY || status == Status.READY_NO_GROUP
 
     /** Starts the group, the stream server and the pad server; null when preparation started, else the start-failed reason. */
     fun prepare(context: Context): String? {
@@ -48,44 +51,41 @@ object ControllerStream {
         val pad = P2pPadServer(UsbTether.USB_PAD_PORT).also { it.attach(app) }
         padServer = pad
         pad.begin()?.let { return fail(it) }
-        val server = TvStreamServer(streamFile(app), UsbTether.USB_STREAM_PORT).also { it.attach(app) }
+        val server = TvStreamServer(UsbTether.USB_STREAM_PORT).also { it.attach(app) }
         streamServer = server
+        streamSink = server::feed
         server.begin()?.let { return fail(it) }
         val grp = P2pGroup(pad, server.port)
         grp.attach(app)
         grp.onState = {
             var teardown: List<SessionPart>? = null
-            synchronized(lock) {
-                if (grp === group) {
-                    when (grp.status) {
-                        P2pGroup.Status.READY -> {
-                            status = Status.READY
-                            groupName = grp.groupName
-                            usedExistingGroup = grp.usedExistingGroup
-                        }
-                        P2pGroup.Status.FAILED -> {
-                            // The group failed after the servers started: tear them
-                            // down, or the pad port stays listening with no group.
-                            teardown = listOfNotNull(group, streamServer, padServer)
-                            group = null
-                            streamServer = null
-                            padServer = null
-                            groupName = null
-                            usedExistingGroup = false
-                            status = Status.FAILED
-                            failureReason = grp.failureReason
-                        }
-                        else -> Unit
+            val current = synchronized(lock) { if (grp === group) grp.status else null }
+            when (current) {
+                P2pGroup.Status.READY -> synchronized(lock) {
+                    if (grp === group) {
+                        status = Status.READY
+                        groupName = grp.groupName
+                        usedExistingGroup = grp.usedExistingGroup
                     }
                 }
+                // The group failed, but the pad and stream servers do not need it:
+                // a receiver over a USB cable reaches them directly, so they stay
+                // up and the preparation reads as usable without a group.
+                P2pGroup.Status.FAILED -> teardown = listOfNotNull(enterReadyNoGroup(grp, grp.failureReason))
+                else -> Unit
             }
             teardown?.forEach { runCatching { it.stop() } }
         }
         group = grp
-        grp.begin()?.let { return fail(it) }
+        grp.begin()?.let { reason ->
+            enterReadyNoGroup(grp, reason)?.let { runCatching { it.stop() } }
+            return null
+        }
         // A stop tap while preparing must not leave started servers behind.
+        // Only a stop sets IDLE: a group that reports READY (or falls over to
+        // READY_NO_GROUP) while this runs is a live preparation, not a stop.
         synchronized(lock) {
-            if (status != Status.FORMING) {
+            if (status == Status.IDLE) {
                 runCatching { grp.stop() }
                 runCatching { server.stop() }
                 runCatching { pad.stop() }
@@ -104,6 +104,7 @@ object ControllerStream {
             pad = padServer
             group = null
             streamServer = null
+            streamSink = null
             padServer = null
             status = Status.IDLE
             groupName = null
@@ -113,6 +114,29 @@ object ControllerStream {
         runCatching { grp?.stop() }
         runCatching { server?.stop() }
         runCatching { pad?.stop() }
+    }
+
+    /**
+     * Moves a failed group aside and keeps the pad and stream servers up: they
+     * do not need the group, so the preparation stays usable without one.
+     * Returns the group to stop, or null when it was already torn down.
+     */
+    private fun enterReadyNoGroup(grp: P2pGroup, reason: String?): P2pGroup? {
+        val failed = synchronized(lock) {
+            if (grp !== group) null else {
+                val failed = group
+                group = null
+                groupName = null
+                usedExistingGroup = false
+                status = Status.READY_NO_GROUP
+                failureReason = reason
+                failed
+            }
+        }
+        if (failed != null) {
+            TvDiagnosticsLog.log("tv", "p2p-group", fields = mapOf("step" to "ready-no-group", "reason" to (reason ?: "")))
+        }
+        return failed
     }
 
     private fun fail(reason: String): String {

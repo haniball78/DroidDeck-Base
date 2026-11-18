@@ -21,18 +21,22 @@ class P2pPadClient(private val slot: Int = 1) {
     /** Opens the connection; false when the controller cannot be reached. */
     fun connect(host: String, port: Int): Boolean {
         if (connected.get()) return true
-        val socket = Socket()
-        runCatching {
-            socket.tcpNoDelay = true
-            socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
-        }.getOrNull() ?: run {
+        repeat(CONNECT_ATTEMPTS) { attempt ->
+            val socket = Socket()
+            val ok = runCatching {
+                socket.tcpNoDelay = true
+                socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            }.isSuccess
+            if (ok) {
+                this.socket = socket
+                connected.set(true)
+                senderThread = Thread({ sendLoop() }, "pad-client-send").apply { start() }
+                return true
+            }
             runCatching { socket.close() }
-            return false
+            if (attempt < CONNECT_ATTEMPTS - 1) runCatching { Thread.sleep(RETRY_DELAY_MS) }
         }
-        this.socket = socket
-        connected.set(true)
-        senderThread = Thread({ sendLoop() }, "pad-client-send").apply { start() }
-        return true
+        return false
     }
 
     fun send(state: PadState) {
@@ -113,6 +117,8 @@ class P2pPadClient(private val slot: Int = 1) {
 
     private companion object {
         const val CONNECT_TIMEOUT_MS = 5_000
+        const val CONNECT_ATTEMPTS = 3
+        const val RETRY_DELAY_MS = 500L
         const val SEND_POLL_MS = 10L
         const val STOP_JOIN_MS = 2_000L
     }

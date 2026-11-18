@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include "vk_encode.h"
+#include "vk_fit_rect.h"
 #include "vk_present.h"
 #include <android/hardware_buffer.h>
 #include <dlfcn.h>
@@ -60,6 +61,7 @@ struct vk_enc_fns {
     PFN_vkBeginCommandBuffer BeginCommandBuffer;
     PFN_vkCmdPipelineBarrier CmdPipelineBarrier;
     PFN_vkCmdBlitImage CmdBlitImage;
+    PFN_vkCmdClearColorImage CmdClearColorImage;
     PFN_vkEndCommandBuffer EndCommandBuffer;
     PFN_vkResetFences ResetFences;
     PFN_vkQueueSubmit QueueSubmit;
@@ -294,6 +296,7 @@ int vk_encode_start(ANativeWindow *window, int width, int height) {
     LOAD_DEVICE(BeginCommandBuffer);
     LOAD_DEVICE(CmdPipelineBarrier);
     LOAD_DEVICE(CmdBlitImage);
+    LOAD_DEVICE(CmdClearColorImage);
     LOAD_DEVICE(EndCommandBuffer);
     LOAD_DEVICE(ResetFences);
     LOAD_DEVICE(QueueSubmit);
@@ -307,7 +310,8 @@ int vk_encode_start(ANativeWindow *window, int width, int height) {
         !vk->DestroyDevice || !vk->CreateImage || !vk->DestroyImage || !vk->GetImageMemoryRequirements ||
         !vk->AllocateMemory || !vk->FreeMemory || !vk->BindImageMemory ||
         !vk->AcquireNextImageKHR || !vk->ResetCommandBuffer ||
-        !vk->BeginCommandBuffer || !vk->CmdPipelineBarrier || !vk->CmdBlitImage || !vk->EndCommandBuffer ||
+        !vk->BeginCommandBuffer || !vk->CmdPipelineBarrier || !vk->CmdBlitImage || !vk->CmdClearColorImage ||
+        !vk->EndCommandBuffer ||
         !vk->ResetFences || !vk->QueueSubmit || !vk->QueuePresentKHR || !vk->WaitForFences ||
         !vk->GetAndroidHardwareBufferPropertiesANDROID) {
         droiddeck_log("tv", "vk-encode: missing device function");
@@ -558,8 +562,19 @@ int vk_encode_present_frame(AHardwareBuffer *ahb, int fence_fd) {
         blit.srcOffsets[0] = (VkOffset3D){0, 0, 0};
         blit.srcOffsets[1] = (VkOffset3D){(int32_t)desc.width, (int32_t)desc.height, 1};
         blit.dstSubresource = (VkImageSubresourceLayers){VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        blit.dstOffsets[0] = (VkOffset3D){0, 0, 0};
-        blit.dstOffsets[1] = (VkOffset3D){(int32_t)g_enc.swap_extent.width, (int32_t)g_enc.swap_extent.height, 1};
+        int dx0, dy0, dx1, dy1;
+        vk_fit_rect((int)desc.width, (int)desc.height,
+                    (int)g_enc.swap_extent.width, (int)g_enc.swap_extent.height,
+                    &dx0, &dy0, &dx1, &dy1);
+        /* The bars outside the fitted rect keep the image's previous contents,
+         * so clear the image first when the source is not 16:9. */
+        if (dx0 > 0 || dy0 > 0) {
+            VkClearColorValue black = {.float32 = {0.0f, 0.0f, 0.0f, 1.0f}};
+            vk->CmdClearColorImage(g_enc.cmd, g_enc.swap_images[img_idx],
+                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range);
+        }
+        blit.dstOffsets[0] = (VkOffset3D){dx0, dy0, 0};
+        blit.dstOffsets[1] = (VkOffset3D){dx1, dy1, 1};
         vk->CmdBlitImage(g_enc.cmd, imported_img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                          g_enc.swap_images[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                          1, &blit, g_enc.blit_filter);

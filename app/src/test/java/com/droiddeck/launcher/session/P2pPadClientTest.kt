@@ -97,6 +97,31 @@ class P2pPadClientTest {
     }
 
     @Test
+    fun `connect retries until the server appears`() {
+        val port = ServerSocket(0, 1, null).use { it.localPort }
+        val accepted = CountDownLatch(1)
+        val serverThread = Thread({
+            Thread.sleep(600)
+            val server = ServerSocket(port, 1, null)
+            try {
+                val socket = server.accept()
+                accepted.countDown()
+                socket.close()
+            } finally {
+                server.close()
+            }
+        }, "pad-client-test-retry").apply { start() }
+        try {
+            val client = P2pPadClient()
+            assertTrue(client.connect("127.0.0.1", port))
+            assertTrue(accepted.await(5, TimeUnit.SECONDS))
+            client.close()
+        } finally {
+            serverThread.join(5_000)
+        }
+    }
+
+    @Test
     fun `client with slot 0 sends a kind-prefixed payload whose pad slot is 0`() {
         val server = ServerSocket(0, 1, null)
         val payloads = ArrayList<ByteArray>()

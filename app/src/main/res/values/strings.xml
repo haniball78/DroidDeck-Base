@@ -807,6 +807,7 @@
     <string name="physical_pad_none">No gamepad connected</string>
     <string name="receiver_transport_wifi">Wi-Fi Direct</string>
     <string name="receiver_transport_usb">USB cable</string>
+    <string name="receiver_usb_tethering">USB tethering: %1$s</string>
     <string name="receiver_send_input">Control the game from this device</string>
     <string name="receiver_role_controller">Controller</string>
     <string name="receiver_role_controller_hint">This phone runs the game and streams it.</string>
@@ -820,7 +821,12 @@
     <string name="receiver_prepare_forming">Creating the Wi-Fi Direct group…</string>
     <string name="receiver_prepare_ready">Ready — group %1$s is up. Start a game and the tablet will find this phone.</string>
     <string name="receiver_prepare_ready_existing">Ready — using the Wi-Fi Direct group that is already up. Start a game and the tablet will find this phone.</string>
+    <string name="receiver_prepare_ready_no_group">Ready without a Wi-Fi Direct group (%1$s). Connect the tablet over a USB cable, then start a game.</string>
     <string name="receiver_prepare_failed">Could not create the group: %1$s. If a Wi-Fi Direct prompt appeared on this phone, approve it and try again.</string>
+    <string name="receiver_connect_refused">Connection refused by %1$s:%2$d — the controller server is not up. Press Prepare on the game phone.</string>
+    <string name="receiver_connect_no_route">No route to %1$s:%2$d — check the cable and USB tethering on the game phone, and that the tablet is the USB host.</string>
+    <string name="receiver_connect_timeout">Connection to %1$s:%2$d timed out — the controller is not reachable. Searching again…</string>
+    <string name="receiver_connect_failed">Could not connect to %1$s:%2$d. Searching again…</string>
     <string name="setup_adv_configure">Configure</string>
     <string name="setup_tab_controller">Controller</string>
     <string name="setup_tab_session">Session</string>
