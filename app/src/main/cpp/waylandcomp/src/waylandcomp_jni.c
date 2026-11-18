@@ -10,15 +10,8 @@
 #include <android/log.h>
 #include <android/native_window_jni.h>
 #include <android/hardware_buffer_jni.h>
-#include <EGL/egl.h>
-// eglext.h only declares eglCreateImageKHR / eglDestroyImageKHR when EGL_EGLEXT_PROTOTYPES is defined.
-#define EGL_EGLEXT_PROTOTYPES
-#include <EGL/eglext.h>
-// gl2ext.h only declares glEGLImageTargetTexture2DOES when GL_GLEXT_PROTOTYPES is defined.
-#define GL_GLEXT_PROTOTYPES
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
 #include "vk_present.h"
+#include "vk_encode.h"
 #include "droiddeck_ext.h"
 #include "ahb_swapchain.h"
 #include "sc_layer.h"
@@ -356,26 +349,28 @@ Java_com_droiddeck_launcher_wayland_WaylandCompositor_nativeEncodeAvailable(JNIE
     return (jboolean)ahb_swapchain_advertised();
 }
 
-JNIEXPORT jlong JNICALL
-Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeCreateEglImage(JNIEnv *env, jclass clazz, jlong displayHandle, jlong ahbPtr) {
-    EGLDisplay dpy = (EGLDisplay)(uintptr_t)displayHandle;
-    AHardwareBuffer *ahb = (AHardwareBuffer *)(uintptr_t)ahbPtr;
-    if (!dpy || !ahb) return 0;
-    EGLImageKHR image = eglCreateImageKHR(dpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, (EGLClientBuffer)ahb, NULL);
-    return (jlong)(uintptr_t)image;
+JNIEXPORT jint JNICALL
+Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeVkEncodeStart(JNIEnv *env, jclass clazz,
+                                                                        jobject surface, jint width,
+                                                                        jint height) {
+    (void)clazz;
+    if (!surface || width <= 0 || height <= 0) return -1;
+    ANativeWindow *win = ANativeWindow_fromSurface(env, surface);
+    if (!win) return -2;
+    return vk_encode_start(win, (int)width, (int)height);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeVkEncodePresentFrame(JNIEnv *env, jclass clazz,
+                                                                              jlong ahbPtr, jint fenceFd) {
+    (void)env; (void)clazz;
+    return vk_encode_present_frame((AHardwareBuffer *)(uintptr_t)ahbPtr, (int)fenceFd);
 }
 
 JNIEXPORT void JNICALL
-Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeBindEglImageToTexture(JNIEnv *env, jclass clazz, jint texture, jlong imageHandle) {
-    if (!imageHandle) return;
-    glBindTexture(GL_TEXTURE_EXTERNAL_OES, (GLuint)texture);
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, (GLeglImageOES)(uintptr_t)imageHandle);
-}
-
-JNIEXPORT void JNICALL
-Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeDestroyEglImage(JNIEnv *env, jclass clazz, jlong displayHandle, jlong imageHandle) {
-    if (!displayHandle || !imageHandle) return;
-    eglDestroyImageKHR((EGLDisplay)(uintptr_t)displayHandle, (EGLImageKHR)(uintptr_t)imageHandle);
+Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeVkEncodeStop(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
+    vk_encode_stop();
 }
 
 JNIEXPORT void JNICALL

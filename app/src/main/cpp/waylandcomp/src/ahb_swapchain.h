@@ -22,6 +22,7 @@ uint32_t ahb_swapchain_ahb_format(const struct dmabuf_buffer *b);
 void ahb_swapchain_layer_released(void *token, int release_fd);
 
 int ahb_swapchain_tap_take(AHardwareBuffer **ahb, uint64_t *seq, int *fence_fd);
+void ahb_swapchain_tap_store_pool(AHardwareBuffer *ahb);
 uint64_t ahb_swapchain_tap_presented(void);
 
 struct dmabuf_buffer *droiddeck_dmabuf_from_resource(struct wl_resource *buffer);

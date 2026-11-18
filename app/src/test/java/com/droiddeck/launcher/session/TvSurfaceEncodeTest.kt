@@ -74,6 +74,14 @@ class TvSurfaceEncodeTest {
     }
 
     @Test
+    fun `vk present outcome maps native result codes`() {
+        assertEquals(VkPresentOutcome.PRESENTED, vkPresentOutcome(1))
+        assertEquals(VkPresentOutcome.PRESENTED, vkPresentOutcome(90))
+        assertEquals(VkPresentOutcome.SKIPPED, vkPresentOutcome(0))
+        assertEquals(VkPresentOutcome.FATAL, vkPresentOutcome(-1))
+    }
+
+    @Test
     fun `encode begin fails honestly without the native library`() {
         val part = TvSurfaceEncode(File(context.filesDir, "venc/surface.h264"))
         assertNotNull(part.begin())

@@ -809,6 +809,7 @@ int sc_layer_present(struct vkp_image *src, int scene_w, int scene_h, const stru
     if (idx < 0) { log_drop(l); return 0; }
     if (vkp_blit_image(src, l->slots[idx].img, wait_fd) != 0) return -1;
     if (present_slot(l, idx, r, color, 0) != 0) return -1;
+    ahb_swapchain_tap_store_pool(l->slots[idx].ahb);
     if (color && color->dataspace) droiddeck_color_frame_shown(color, DROIDDECK_HDR_LAYER_COPY, AHB_RGBA8);
     if (!l->first_logged) {
         l->first_logged = 1;
@@ -832,6 +833,7 @@ int sc_layer_present_pass(const struct vkp_draw *draws, int n, int scene_w, int 
     if (idx < 0) { vkp_pass_abort(); log_drop(l); return 0; }
     if (vkp_pass_copy_to(l->slots[idx].img, wait_fd) != 0) return -1;
     if (present_slot(l, idx, r, NULL, 0) != 0) return -1;
+    ahb_swapchain_tap_store_pool(l->slots[idx].ahb);
     if (!l->first_logged) {
         l->first_logged = 1;
         droiddeck_log("layer", "presenting %dx%d frames on their own SurfaceControl layer (%s pool, %d buffers); "
@@ -866,6 +868,7 @@ int sc_layer_present_hdr_scene(const struct vkp_draw *draws, int n, const struct
     if (idx < 0) { vkp_pass_abort(); log_drop(l); return 0; }
     if (vkp_pass_copy_to(l->slots[idx].img, wait_fd) != 0) return -1;
     if (present_slot(l, idx, r, tm ? NULL : color, 0) != 0) return -1;
+    ahb_swapchain_tap_store_pool(l->slots[idx].ahb);
     if (color && color->dataspace)
         droiddeck_color_frame_shown(color, tm ? DROIDDECK_HDR_TONEMAPPED : DROIDDECK_HDR_COMPOSED, tm ? AHB_RGBA8 : g_hdr_pool_fmt);
     static int said = -1;

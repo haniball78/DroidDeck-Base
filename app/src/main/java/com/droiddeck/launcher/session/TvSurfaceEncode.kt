@@ -1,31 +1,21 @@
 package com.droiddeck.launcher.session
 
-import android.hardware.HardwareBuffer
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
-import android.opengl.EGL14
-import android.opengl.EGL15
-import android.opengl.EGLExt
-import android.opengl.EGLSync
-import android.opengl.GLES11Ext
-import android.opengl.GLES20
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
-import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
+import android.view.Surface
 import com.droiddeck.launcher.core.SessionPart
 import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
 import com.droiddeck.launcher.wayland.WaylandCompositor
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.FloatBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -71,7 +61,7 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
             begun = true
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            startReason = "egl15-unavailable"
+            startReason = "api-unavailable"
             return startReason
         }
         runCatching { System.loadLibrary("droiddeckwayland") }.onFailure {
@@ -140,18 +130,27 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
         try {
             enc = MediaCodec.createByCodecName(name)
             enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            egl = BootMovieTranscoder.EglWindow(enc.createInputSurface())
-            renderer = ImageRenderer(size.first, size.second)
+            val surface = enc.createInputSurface()
+            inputSurface = surface
+            enc.start()
+            if (nativeVkEncodeStart(surface, size.first, size.second) != 0) {
+                runCatching { enc.stop() }
+                runCatching { enc.release() }
+                runCatching { surface.release() }
+                inputSurface = null
+                runCatching { out.close() }
+                return "vk-encode-failed"
+            }
             encoder = enc
             output = out
-            enc.start()
         } catch (e: Exception) {
             Log.w(TAG, "surface encode setup failed", e)
-            runCatching { renderer?.release() }
-            runCatching { egl?.release() }
+            runCatching { nativeVkEncodeStop() }
+            runCatching { inputSurface?.release() }
+            inputSurface = null
             runCatching { enc?.release() }
             runCatching { out.close() }
-            return "egl-image-failed"
+            return "vk-encode-failed"
         }
         running.set(true)
         return null
@@ -162,64 +161,29 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
         val out = LongArray(3)
         while (!stopping) {
             val buffer = runCatching { WaylandCompositor.nativeBorrowGameFrame(out) }.getOrNull()
-            var drew = false
+            var presented = false
             if (buffer != null) {
                 borrowed.incrementAndGet()
                 try {
-                    drew = drawFrame(buffer, out[2], out[1].toInt())
+                    when (vkPresentOutcome(nativeVkEncodePresentFrame(out[2], out[1].toInt()))) {
+                        VkPresentOutcome.PRESENTED -> presented = true
+                        VkPresentOutcome.FATAL -> {
+                            if (fatalReason == null) {
+                                fatalReason = "vk-present-failed"
+                                TvDiagnosticsLog.log(app(), "tv", "surface-encode", fields = mapOf("step" to "vk-present-failed"))
+                                stopping = true
+                            }
+                        }
+                        VkPresentOutcome.SKIPPED -> Unit
+                    }
                 } finally {
                     runCatching { buffer.close() }
                 }
             }
             drain(info, 0)
-            if (!drew && buffer == null) runCatching { Thread.sleep(IDLE_SLEEP_MS) }
+            if (!presented && buffer == null) runCatching { Thread.sleep(IDLE_SLEEP_MS) }
         }
         finish()
-    }
-
-    private fun drawFrame(buffer: HardwareBuffer, ahbPtr: Long, fenceFd: Int): Boolean {
-        val window = egl ?: return false
-        val draw = renderer ?: return false
-        var sync: EGLSync? = null
-        try {
-            if (fenceFd >= 0) {
-                sync = runCatching {
-                    EGL15.eglCreateSync(
-                        window.display, EGLExt.EGL_SYNC_NATIVE_FENCE_ANDROID,
-                        longArrayOf(EGLExt.EGL_SYNC_NATIVE_FENCE_FD_ANDROID.toLong(), fenceFd.toLong(), EGL14.EGL_NONE.toLong()), 0,
-                    )
-                }.getOrNull()
-                if (sync == null || sync === EGL15.EGL_NO_SYNC) {
-                    // eglCreateSync failed, so EGL never took the fd; adopt and close it.
-                    runCatching { ParcelFileDescriptor.adoptFd(fenceFd).close() }
-                    return false
-                }
-                val waited = runCatching {
-                    EGL15.eglClientWaitSync(window.display, sync, EGL15.EGL_SYNC_FLUSH_COMMANDS_BIT, FENCE_WAIT_NS)
-                }.getOrDefault(EGL15.EGL_TIMEOUT_EXPIRED)
-                if (waited != EGL15.EGL_CONDITION_SATISFIED) return false
-            }
-            val image = runCatching { nativeCreateEglImage(window.displayHandle, ahbPtr) }.getOrDefault(0L)
-            if (image == 0L) {
-                if (frames.get() == 0L && fatalReason == null) {
-                    fatalReason = "egl-image-failed"
-                    TvDiagnosticsLog.log(app(), "tv", "surface-encode", fields = mapOf("step" to "egl-image-failed"))
-                    stopping = true
-                }
-                return false
-            }
-            try {
-                val bound = runCatching { nativeBindEglImageToTexture(draw.texture, image) }.isSuccess
-                if (!bound) return false
-                draw.draw()
-                window.swap(System.nanoTime())
-                return true
-            } finally {
-                runCatching { nativeDestroyEglImage(window.displayHandle, image) }
-            }
-        } finally {
-            if (sync != null) runCatching { EGL15.eglDestroySync(window.display, sync) }
-        }
     }
 
     private fun drain(info: MediaCodec.BufferInfo, timeoutUs: Long) {
@@ -281,8 +245,9 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
         }
         runCatching { output?.flush() }
         runCatching { output?.close() }
-        runCatching { renderer?.release() }
-        runCatching { egl?.release() }
+        runCatching { nativeVkEncodeStop() }
+        runCatching { inputSurface?.release() }
+        inputSurface = null
         runCatching { encoder?.stop() }
         runCatching { encoder?.release() }
         logStopped()
@@ -300,9 +265,9 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
         TvDiagnosticsLog.log(app(), "tv", "surface-encode", fields = mapOf("step" to "stopped", "summary" to surfaceSummary(stats)))
     }
 
-    private external fun nativeCreateEglImage(displayHandle: Long, ahbPtr: Long): Long
-    private external fun nativeBindEglImageToTexture(texture: Int, imageHandle: Long)
-    private external fun nativeDestroyEglImage(displayHandle: Long, imageHandle: Long)
+    private external fun nativeVkEncodeStart(surface: Surface, width: Int, height: Int): Int
+    private external fun nativeVkEncodePresentFrame(ahbPtr: Long, fenceFd: Int): Int
+    private external fun nativeVkEncodeStop()
 
     private val beginLock = Any()
 
@@ -329,8 +294,7 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
 
     @Volatile
     private var encoder: MediaCodec? = null
-    private var egl: BootMovieTranscoder.EglWindow? = null
-    private var renderer: ImageRenderer? = null
+    private var inputSurface: Surface? = null
     private var output: BufferedOutputStream? = null
     private var written = 0L
     private val startNanos = SystemClock.elapsedRealtime()
@@ -339,86 +303,6 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
     private val keyframes = AtomicLong(0)
     private val borrowed = AtomicLong(0)
     private val firstFrameMs = AtomicLong(-1)
-
-    private class ImageRenderer(private val width: Int, private val height: Int) {
-        val texture: Int
-        private val program: Int
-        private val positions: FloatBuffer = floats(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
-        private val coords: FloatBuffer = floats(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f)
-
-        init {
-            texture = IntArray(1).also { GLES20.glGenTextures(1, it, 0) }[0]
-            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture)
-            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
-            program = link(VERTEX, FRAGMENT)
-        }
-
-        fun draw() {
-            GLES20.glViewport(0, 0, width, height)
-            GLES20.glClearColor(0f, 0f, 0f, 1f)
-            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-            GLES20.glUseProgram(program)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture)
-            val position = GLES20.glGetAttribLocation(program, "aPosition")
-            val coord = GLES20.glGetAttribLocation(program, "aCoord")
-            GLES20.glEnableVertexAttribArray(position)
-            GLES20.glVertexAttribPointer(position, 2, GLES20.GL_FLOAT, false, 0, positions)
-            GLES20.glEnableVertexAttribArray(coord)
-            GLES20.glVertexAttribPointer(coord, 2, GLES20.GL_FLOAT, false, 0, coords)
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-        }
-
-        fun release() {
-            GLES20.glDeleteProgram(program)
-            GLES20.glDeleteTextures(1, intArrayOf(texture), 0)
-        }
-
-        private fun floats(vararg values: Float): FloatBuffer =
-            ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(values); position(0) }
-
-        private fun link(vertex: String, fragment: String): Int {
-            fun compile(type: Int, code: String): Int = GLES20.glCreateShader(type).also {
-                GLES20.glShaderSource(it, code)
-                GLES20.glCompileShader(it)
-                val ok = IntArray(1)
-                GLES20.glGetShaderiv(it, GLES20.GL_COMPILE_STATUS, ok, 0)
-                check(ok[0] != 0) { GLES20.glGetShaderInfoLog(it) }
-            }
-            return GLES20.glCreateProgram().also {
-                GLES20.glAttachShader(it, compile(GLES20.GL_VERTEX_SHADER, vertex))
-                GLES20.glAttachShader(it, compile(GLES20.GL_FRAGMENT_SHADER, fragment))
-                GLES20.glLinkProgram(it)
-                val ok = IntArray(1)
-                GLES20.glGetProgramiv(it, GLES20.GL_LINK_STATUS, ok, 0)
-                check(ok[0] != 0) { GLES20.glGetProgramInfoLog(it) }
-            }
-        }
-
-        companion object {
-            private val VERTEX = """
-                attribute vec4 aPosition;
-                attribute vec4 aCoord;
-                varying vec2 vCoord;
-                void main() {
-                    gl_Position = aPosition;
-                    vCoord = aCoord.xy;
-                }
-            """.trimIndent()
-            private val FRAGMENT = """
-                #extension GL_OES_EGL_image_external : require
-                precision mediump float;
-                varying vec2 vCoord;
-                uniform samplerExternalOES sTexture;
-                void main() {
-                    gl_FragColor = texture2D(sTexture, vCoord);
-                }
-            """.trimIndent()
-        }
-    }
 
     private companion object {
         const val TAG = "TvSurfaceEncode"
@@ -430,7 +314,6 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
         const val COMPOSITOR_WAIT_MS = 60_000L
         const val COMPOSITOR_POLL_MS = 100L
         const val STOP_JOIN_MS = 2_000L
-        const val FENCE_WAIT_NS = 100_000_000L
         const val FINAL_DRAIN_TRIES = 20
         const val FINAL_DRAIN_TIMEOUT_US = 100_000L
     }
@@ -445,4 +328,13 @@ fun surfaceSummary(stats: LongArray): String {
     val firstFrameMs = stats.getOrElse(4) { -1L }
     val elapsedMs = stats.getOrElse(5) { 0L }
     return "frames=$frames bytes=$bytes keyframes=$keyframes dropped=$dropped firstFrameMs=$firstFrameMs elapsedMs=$elapsedMs"
+}
+
+/** What runLoop does with a borrowed frame, from the native present result: >0 presented, <0 fatal, 0 skipped. */
+enum class VkPresentOutcome { PRESENTED, SKIPPED, FATAL }
+
+fun vkPresentOutcome(result: Int): VkPresentOutcome = when {
+    result > 0 -> VkPresentOutcome.PRESENTED
+    result < 0 -> VkPresentOutcome.FATAL
+    else -> VkPresentOutcome.SKIPPED
 }

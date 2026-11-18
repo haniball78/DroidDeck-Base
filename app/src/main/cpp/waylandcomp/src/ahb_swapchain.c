@@ -290,6 +290,10 @@ uint64_t ahb_swapchain_tap_presented(void) {
     return n;
 }
 
+void ahb_swapchain_tap_store_pool(AHardwareBuffer *ahb) {
+    if (ahb) ahb_swapchain_tap_store(ahb, -1);
+}
+
 int ahb_swapchain_advertised(void) { return g_advertised; }
 
 uint32_t ahb_swapchain_ahb_format(const struct dmabuf_buffer *b) {
