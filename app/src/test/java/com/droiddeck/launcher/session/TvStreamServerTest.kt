@@ -112,4 +112,25 @@ class TvStreamServerTest {
             server.stop()
         }
     }
+
+    @Test
+    fun `registration carries the bound port`() {
+        val info = buildServiceInfo(28752)
+        assertEquals(28752, info.port)
+        assertEquals("DroidDeck TV", info.serviceName)
+        assertEquals("_droiddeck-tv._tcp.", info.serviceType)
+    }
+
+    @Test
+    fun `server exposes its bound port after begin`() {
+        val server = TvStreamServer(File(context.filesDir, "venc/surface.h264"), 0)
+        server.attach(context)
+        try {
+            assertNull(server.begin())
+            assertTrue(server.port > 0)
+            assertEquals(server.port, buildServiceInfo(server.port).port)
+        } finally {
+            server.stop()
+        }
+    }
 }

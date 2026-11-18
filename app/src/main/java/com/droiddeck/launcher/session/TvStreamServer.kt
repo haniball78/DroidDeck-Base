@@ -60,6 +60,7 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
             return startReason
         }
         serverSocket = server
+        port = server.localPort
         multicastLock = runCatching {
             // MulticastLock has no setReferenceCounted (unlike WifiLock/WakeLock); acquire/release are balanced.
             wifi?.createMulticastLock("droiddeck-tv")?.apply {
@@ -68,12 +69,7 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
         }.getOrNull()
         nsdManager = ctx.applicationContext.getSystemService(Context.NSD_SERVICE) as? NsdManager
         runCatching {
-            val info = NsdServiceInfo().apply {
-                serviceName = SERVICE_NAME
-                serviceType = SERVICE_TYPE
-                port = server.localPort
-            }
-            nsdManager?.registerService(info, NsdManager.PROTOCOL_DNS_SD, registrationListener)
+            nsdManager?.registerService(buildServiceInfo(server.localPort), NsdManager.PROTOCOL_DNS_SD, registrationListener)
         }.onFailure {
             Log.w(TAG, "tv stream advertise failed", it)
             TvDiagnosticsLog.log(app(), "tv", "stream", fields = mapOf("step" to "advertise-failed", "error" to "exception"))
@@ -188,12 +184,14 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
 
     private val registrationListener = object : NsdManager.RegistrationListener {
         override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {
+            // The callback's port is not trustworthy on this device (it reports 0
+            // while the socket is bound); log the bound port instead.
             TvDiagnosticsLog.log(
                 app(), "tv", "stream",
                 fields = mapOf(
                     "step" to "advertise-ok",
                     "name" to (serviceInfo.serviceName ?: ""),
-                    "port" to serviceInfo.port.toString(),
+                    "port" to port.toString(),
                 ),
             )
         }
@@ -213,6 +211,11 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
 
     @Volatile
     private var startReason: String? = null
+
+    /** The bound port, or -1 before the socket is bound. */
+    @Volatile
+    var port = -1
+        private set
 
     @Volatile
     private var stopping = false
@@ -237,7 +240,7 @@ class TvStreamServer(private val sourceFile: File, private val bindPort: Int = 0
     private var nsdManager: NsdManager? = null
     private var multicastLock: WifiManager.MulticastLock? = null
 
-    private companion object {
+    internal companion object {
         const val TAG = "TvStreamServer"
         const val SERVICE_NAME = "DroidDeck TV"
         const val SERVICE_TYPE = "_droiddeck-tv._tcp."
@@ -310,6 +313,13 @@ internal fun wifiAddress(wifi: WifiManager): InetAddress? {
         (ip shr 24 and 0xff).toByte(),
     )
     return runCatching { InetAddress.getByAddress(bytes) }.getOrNull()
+}
+
+/** The NSD service info for the stream server: the name and type the receiver discovers, on the bound port. */
+internal fun buildServiceInfo(port: Int): NsdServiceInfo = NsdServiceInfo().apply {
+    serviceName = TvStreamServer.SERVICE_NAME
+    serviceType = TvStreamServer.SERVICE_TYPE
+    this.port = port
 }
 
 /** [frames, bytes, clients, dropped, firstFrameMs, elapsedMs]; short arrays read as zero, firstFrameMs stays -1 when no frame was sent. */

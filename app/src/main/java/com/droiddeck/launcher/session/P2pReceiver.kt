@@ -52,6 +52,7 @@ class P2pReceiver(private val context: Context) {
                     txtByDevice[device.deviceAddress]?.let {
                         videoSize = parseVideoSize(it)
                         padPort = parsePadPort(it)
+                        videoPort = parseVideoPort(it)
                     }
                     if (videoSize != null) txtReady.countDown()
                     found.countDown()
@@ -62,6 +63,7 @@ class P2pReceiver(private val context: Context) {
                 if (device.deviceAddress == controllerDevice?.deviceAddress) {
                     videoSize = parseVideoSize(record)
                     padPort = parsePadPort(record)
+                    videoPort = parseVideoPort(record)
                     txtReady.countDown()
                 }
             },
@@ -201,6 +203,11 @@ class P2pReceiver(private val context: Context) {
     var padPort: Int? = null
         private set
 
+    /** The controller's stream-server port from the TXT record ("video"); null when the controller streams nothing. */
+    @Volatile
+    var videoPort: Int? = null
+        private set
+
     @Volatile
     var controllerName: String? = null
         private set
@@ -228,6 +235,13 @@ internal fun parseVideoSize(record: Map<String, String>): Pair<Int, Int>? {
 /** Pad-server port from the controller's TXT record ("pad"); null when absent or invalid. */
 internal fun parsePadPort(record: Map<String, String>): Int? {
     val port = record["pad"]?.toIntOrNull() ?: return null
+    if (port < 1 || port > 65535) return null
+    return port
+}
+
+/** Stream-server port from the controller's TXT record ("video"); null when absent or invalid. */
+internal fun parseVideoPort(record: Map<String, String>): Int? {
+    val port = record["video"]?.toIntOrNull() ?: return null
     if (port < 1 || port > 65535) return null
     return port
 }

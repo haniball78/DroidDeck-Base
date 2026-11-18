@@ -48,6 +48,19 @@ class P2pReceiverTest {
     }
 
     @Test
+    fun `video port parses from the TXT record`() {
+        assertEquals(28752, parseVideoPort(mapOf("role" to "controller", "video" to "28752")))
+    }
+
+    @Test
+    fun `video port is null when absent or invalid`() {
+        assertNull(parseVideoPort(mapOf("role" to "controller")))
+        assertNull(parseVideoPort(mapOf("video" to "not-a-port")))
+        assertNull(parseVideoPort(mapOf("video" to "0")))
+        assertNull(parseVideoPort(mapOf("video" to "70000")))
+    }
+
+    @Test
     fun `stop is safe without begin`() {
         P2pReceiver(context).stop()
     }

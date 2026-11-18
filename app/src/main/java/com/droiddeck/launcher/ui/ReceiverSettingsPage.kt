@@ -51,6 +51,7 @@ import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
 import com.droiddeck.launcher.input.OnScreenControls
 import com.droiddeck.launcher.input.PadBridge
 import com.droiddeck.launcher.input.PadState
+import com.droiddeck.launcher.session.ControllerStream
 import com.droiddeck.launcher.session.GamepadInput
 import com.droiddeck.launcher.session.P2pPadClient
 import com.droiddeck.launcher.session.P2pReceiver
@@ -92,6 +93,10 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
     var receiverInputRunning by remember { mutableStateOf(false) }
     var receiverInputStatus by remember { mutableStateOf("") }
     var receiverPadRef by remember { mutableStateOf<P2pPadClient?>(null) }
+
+    var prepStatus by remember { mutableStateOf(ControllerStream.status) }
+    var prepGroup by remember { mutableStateOf<String?>(ControllerStream.groupName) }
+    var prepReason by remember { mutableStateOf<String?>(ControllerStream.failureReason) }
 
     // Local touch pad: shared by the Gamepad section and the Receiver
     // section's input. The sections are exclusive (one mode at a time), so
@@ -278,6 +283,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
         val next = if (newMode == mode) SessionPrefs.RECEIVER_MODE_OFF else newMode
         if (mode == SessionPrefs.RECEIVER_MODE_RECEIVER && next != SessionPrefs.RECEIVER_MODE_RECEIVER) stopReceiver()
         if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD && next != SessionPrefs.RECEIVER_MODE_GAMEPAD) stopPad()
+        if (mode == SessionPrefs.RECEIVER_MODE_CONTROLLER && next != SessionPrefs.RECEIVER_MODE_CONTROLLER) ControllerStream.stop()
         mode = next
         SessionPrefs.setReceiverMode(ctx, mode)
     }
@@ -328,9 +334,15 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
                 receiverRunning = false
                 return@Thread
             }
+            // The TXT record carries the bound stream port; use it when present
+            // instead of NSD resolution, whose callback reports port 0 here.
+            val host = p2p.controllerAddress?.hostAddress
+            val videoPort = p2p.videoPort
+            val fixed = if (host != null && videoPort != null) host to videoPort else null
             val recv = TvStreamReceiver(
                 ctx, surf, w, h,
-                p2p.controllerAddress?.hostAddress,
+                host,
+                fixedEndpoint = fixed,
             ) { status = it }
             recvRef = recv
             status = "Found ${p2p.controllerName ?: "controller"} — connecting to the stream…"
@@ -338,11 +350,35 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
         }, "receiver-start").start()
     }
 
+    fun startPrepare() {
+        if (ControllerStream.isPrepared) return
+        Thread({
+            ControllerStream.prepare(ctx)
+        }, "controller-prepare").start()
+    }
+
+    fun missingP2pPermissions(): Array<String> {
+        val needed = ArrayList<String>()
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            needed += Manifest.permission.ACCESS_FINE_LOCATION
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed += Manifest.permission.NEARBY_WIFI_DEVICES
+        }
+        return needed.toTypedArray()
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grants ->
         if (grants.values.all { it }) {
-            if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD) startPad() else startReceiver()
+            when (mode) {
+                SessionPrefs.RECEIVER_MODE_GAMEPAD -> startPad()
+                SessionPrefs.RECEIVER_MODE_CONTROLLER -> startPrepare()
+                else -> startReceiver()
+            }
         } else if (mode == SessionPrefs.RECEIVER_MODE_GAMEPAD) {
             padStatus = "Wi-Fi Direct needs location permission to find the controller."
         } else {
@@ -350,30 +386,19 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
         }
     }
 
+    fun ensurePermissionsAndPrepare() {
+        val needed = missingP2pPermissions()
+        if (needed.isEmpty()) startPrepare() else permissionLauncher.launch(needed)
+    }
+
     fun ensurePermissionsAndStart() {
-        val needed = ArrayList<String>()
-        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            needed += Manifest.permission.ACCESS_FINE_LOCATION
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            ContextCompat.checkSelfPermission(ctx, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
-        ) {
-            needed += Manifest.permission.NEARBY_WIFI_DEVICES
-        }
-        if (needed.isEmpty()) startReceiver() else permissionLauncher.launch(needed.toTypedArray())
+        val needed = missingP2pPermissions()
+        if (needed.isEmpty()) startReceiver() else permissionLauncher.launch(needed)
     }
 
     fun ensurePermissionsAndStartPad() {
-        val needed = ArrayList<String>()
-        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            needed += Manifest.permission.ACCESS_FINE_LOCATION
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            ContextCompat.checkSelfPermission(ctx, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
-        ) {
-            needed += Manifest.permission.NEARBY_WIFI_DEVICES
-        }
-        if (needed.isEmpty()) startPad() else permissionLauncher.launch(needed.toTypedArray())
+        val needed = missingP2pPermissions()
+        if (needed.isEmpty()) startPad() else permissionLauncher.launch(needed)
     }
 
     LaunchedEffect(receiverRunning) {
@@ -382,6 +407,15 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
                 frames = it.framesDecoded.get()
                 firstFrameMs = it.firstFrameMs.get()
             }
+            delay(1000)
+        }
+    }
+
+    LaunchedEffect(mode) {
+        while (mode == SessionPrefs.RECEIVER_MODE_CONTROLLER) {
+            prepStatus = ControllerStream.status
+            prepGroup = ControllerStream.groupName
+            prepReason = ControllerStream.failureReason
             delay(1000)
         }
     }
@@ -424,6 +458,8 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
         onDispose {
             stopReceiver()
             stopPad()
+            // The prepared controller stream is not stopped here: it must survive
+            // leaving this page for Games, and ends with the session instead.
         }
     }
 
@@ -478,15 +514,25 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
             SettingsGroup("Controller") {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Waiting for a receiver — start a game and the tablet will find this phone.",
+                        when (prepStatus) {
+                            ControllerStream.Status.IDLE -> stringResource(R.string.receiver_prepare_hint)
+                            ControllerStream.Status.FORMING -> stringResource(R.string.receiver_prepare_forming)
+                            ControllerStream.Status.READY -> stringResource(R.string.receiver_prepare_ready, prepGroup ?: "DroidDeck-TV")
+                            ControllerStream.Status.FAILED -> stringResource(R.string.receiver_prepare_failed, prepReason ?: "")
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (prepStatus == ControllerStream.Status.IDLE || prepStatus == ControllerStream.Status.FAILED) {
+                        PrimaryButton(stringResource(R.string.receiver_prepare), fill = true, large = true, modifier = Modifier.fillMaxWidth()) { ensurePermissionsAndPrepare() }
+                    } else {
+                        SecondaryButton(stringResource(R.string.receiver_prepare_stop), modifier = Modifier.fillMaxWidth()) { ControllerStream.stop() }
+                    }
                     if (onGoToGames != null) {
                         PrimaryButton("Start a game", fill = true, large = true, modifier = Modifier.fillMaxWidth()) { onGoToGames() }
                     } else {
                         Text(
-                            "Start any game from Games — the stream starts automatically.",
+                            "Prepare display above, then start any game from Games.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

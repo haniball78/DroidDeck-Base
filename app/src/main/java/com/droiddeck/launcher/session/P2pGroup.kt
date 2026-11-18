@@ -18,7 +18,22 @@ import java.util.concurrent.atomic.AtomicBoolean
  * begin() returns after kicking off group creation; formation and advertising
  * finish asynchronously (the session must not wait on P2P), failures are logged.
  */
-class P2pGroup(private val padServer: P2pPadServer? = null) : SessionPart() {
+class P2pGroup(
+    private val padServer: P2pPadServer? = null,
+    private val streamPort: Int = -1,
+) : SessionPart() {
+    enum class Status { IDLE, FORMING, READY, FAILED }
+
+    @Volatile
+    var status: Status = Status.IDLE
+        private set
+
+    @Volatile
+    var failureReason: String? = null
+        private set
+
+    /** Called on the P2P thread when the group is up or has failed. */
+    var onState: (() -> Unit)? = null
     override fun start() {
         begin()
     }
@@ -35,13 +50,18 @@ class P2pGroup(private val padServer: P2pPadServer? = null) : SessionPart() {
             if (begun) return startReason
             begun = true
         }
+        status = Status.FORMING
         val context = app() ?: run {
             startReason = "not-attached"
+            status = Status.FAILED
+            failureReason = startReason
             return startReason
         }
         val mgr = runCatching { context.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager }.getOrNull()
         if (mgr == null) {
             startReason = "p2p-unavailable"
+            status = Status.FAILED
+            failureReason = startReason
             return startReason
         }
         manager = mgr
@@ -50,6 +70,8 @@ class P2pGroup(private val padServer: P2pPadServer? = null) : SessionPart() {
         val ch = runCatching { mgr.initialize(context, t.looper, null) }.getOrNull()
         if (ch == null) {
             startReason = "p2p-init-failed"
+            status = Status.FAILED
+            failureReason = startReason
             t.quitSafely()
             return startReason
         }
@@ -65,7 +87,7 @@ class P2pGroup(private val padServer: P2pPadServer? = null) : SessionPart() {
                     runCatching { mgr.createGroup(ch, plainListener()) }
                         .onFailure { if (!stopped.get()) fail("create-group-failed") }
                 } else {
-                    fail("create-group-failed")
+                    fail("create-group-failed: ${p2pFailureReason(reason)}")
                 }
             }
         }
@@ -95,7 +117,7 @@ class P2pGroup(private val padServer: P2pPadServer? = null) : SessionPart() {
     private fun plainListener() = object : WifiP2pManager.ActionListener {
         override fun onSuccess() = pollGroupInfo()
         override fun onFailure(reason: Int) {
-            if (!stopped.get()) fail("create-group-failed")
+            if (!stopped.get()) fail("create-group-failed: ${p2pFailureReason(reason)}")
         }
     }
 
@@ -124,22 +146,16 @@ class P2pGroup(private val padServer: P2pPadServer? = null) : SessionPart() {
 
     private fun advertiseService() {
         if (stopped.get()) return
-        // The TXT record carries the video size so the receiver can configure
-        // its decoder before the first frame arrives, and the pad-server port
-        // so a second phone can join as player 2.
-        val size = SessionState.outputSize
-        val record = mutableMapOf(
-            "role" to "controller", "w" to size.first.toString(), "h" to size.second.toString(),
-        )
-        val padPort = padServer?.port ?: -1
-        if (padPort > 0) record["pad"] = padPort.toString()
         val info = WifiP2pDnsSdServiceInfo.newInstance(
-            SERVICE_INSTANCE, SERVICE_TYPE, record,
+            SERVICE_INSTANCE, SERVICE_TYPE,
+            txtRecord(padServer?.port ?: -1, streamPort, SessionState.outputSize),
         )
         manager?.addLocalService(channel, info, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
                 if (stopped.get()) return
                 startReason = null
+                status = Status.READY
+                onState?.invoke()
                 TvDiagnosticsLog.log(
                     app(), "tv", "p2p-group",
                     fields = mapOf("step" to "begin", "result" to "up", "group" to (groupName ?: "-")),
@@ -147,13 +163,16 @@ class P2pGroup(private val padServer: P2pPadServer? = null) : SessionPart() {
             }
 
             override fun onFailure(reason: Int) {
-                if (!stopped.get()) fail("advertise-failed")
+                if (!stopped.get()) fail("advertise-failed: ${p2pFailureReason(reason)}")
             }
         }) ?: fail("advertise-failed")
     }
 
     private fun fail(reason: String) {
         startReason = reason
+        status = Status.FAILED
+        failureReason = reason
+        onState?.invoke()
         TvDiagnosticsLog.log(
             app(), "tv", "p2p-group",
             fields = mapOf("step" to "begin", "result" to reason, "group" to (groupName ?: "-")),
@@ -185,4 +204,27 @@ class P2pGroup(private val padServer: P2pPadServer? = null) : SessionPart() {
         const val GROUP_TIMEOUT_MS = 10_000L
         const val POLL_MS = 500L
     }
+}
+
+/**
+ * TXT record for the controller's DNS-SD service: the video size so the receiver can configure
+ * its decoder before the first frame arrives, the pad-server port so a second phone can join
+ * as player 2, and the stream-server port so the receiver connects to the bound port.
+ */
+internal fun txtRecord(padPort: Int, streamPort: Int, size: Pair<Int, Int>): Map<String, String> {
+    val record = mutableMapOf(
+        "role" to "controller", "w" to size.first.toString(), "h" to size.second.toString(),
+    )
+    if (padPort > 0) record["pad"] = padPort.toString()
+    if (streamPort > 0) record["video"] = streamPort.toString()
+    return record
+}
+
+/** Short name for a WifiP2pManager failure code, for diagnostics and status text. */
+internal fun p2pFailureReason(code: Int): String = when (code) {
+    WifiP2pManager.BUSY -> "busy"
+    WifiP2pManager.P2P_UNSUPPORTED -> "p2p-unsupported"
+    WifiP2pManager.ERROR -> "error"
+    WifiP2pManager.NO_SERVICE_REQUESTS -> "no-service-requests"
+    else -> "reason-$code"
 }

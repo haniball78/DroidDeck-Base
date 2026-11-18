@@ -814,6 +814,12 @@
     <string name="receiver_role_receiver_hint">Show a game from another phone on this device.</string>
     <string name="receiver_role_gamepad">Gamepad</string>
     <string name="receiver_role_gamepad_hint">Join as player 1 or 2 from this phone.</string>
+    <string name="receiver_prepare">Prepare display</string>
+    <string name="receiver_prepare_stop">Stop preparation</string>
+    <string name="receiver_prepare_hint">Tap Prepare display to create the Wi-Fi Direct group and start the stream server. Then start a game — the tablet will find this phone.</string>
+    <string name="receiver_prepare_forming">Creating the Wi-Fi Direct group…</string>
+    <string name="receiver_prepare_ready">Ready — group %1$s is up. Start a game and the tablet will find this phone.</string>
+    <string name="receiver_prepare_failed">Could not create the group: %1$s. If a Wi-Fi Direct prompt appeared on this phone, approve it and try again.</string>
     <string name="setup_adv_configure">Configure</string>
     <string name="setup_tab_controller">Controller</string>
     <string name="setup_tab_session">Session</string>

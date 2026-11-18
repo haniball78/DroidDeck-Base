@@ -38,6 +38,7 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
         stopping = true
         if (!running.get()) {
             thread?.quitSafely()
+            restoreZeroCopy()
             return
         }
         runCatching { encoder?.signalEndOfInputStream() }
@@ -48,6 +49,14 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
                 TvDiagnosticsLog.log(app(), "tv", "surface-encode", fields = mapOf("step" to "stop-timeout"))
             }
             t.quitSafely()
+        }
+        restoreZeroCopy()
+    }
+
+    private fun restoreZeroCopy() {
+        if (!zeroCopyRestored.compareAndSet(false, true)) return
+        if (zeroCopyBefore == false) {
+            runCatching { WaylandCompositor.nativeSetZeroCopy(false) }
         }
     }
 
@@ -80,6 +89,7 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
             } else if (error != "stopped") {
                 startReason = error
                 TvDiagnosticsLog.log(app(), "tv", "surface-encode", fields = mapOf("step" to "setup-failed", "reason" to error))
+                restoreZeroCopy()
                 t.quitSafely()
             }
         }
@@ -99,6 +109,14 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
         }
 
     private fun setup(): String? {
+        // The tap only fills when the game presents on the display layer, which needs
+        // zero-copy presentation on; a normal SDR session leaves it off, so the encoder
+        // turns it on for the run and restores it on stop.
+        zeroCopyBefore = runCatching { WaylandCompositor.nativeIsZeroCopy() }.getOrNull()
+        if (zeroCopyBefore == false) {
+            runCatching { WaylandCompositor.nativeSetZeroCopy(true) }
+            TvDiagnosticsLog.log(app(), "tv", "surface-encode", fields = mapOf("step" to "zero-copy-on"))
+        }
         // The compositor thread advertises the layer asynchronously, and only once the
         // game is up; poll until it appears (bounded) so the encoder starts mid-session.
         var available = false
@@ -268,6 +286,7 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
         runCatching { encoder?.stop() }
         runCatching { encoder?.release() }
         logStopped()
+        restoreZeroCopy()
     }
 
     private fun logStopped() {
@@ -298,6 +317,11 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
 
     @Volatile
     private var fatalReason: String? = null
+
+    @Volatile
+    private var zeroCopyBefore: Boolean? = null
+
+    private val zeroCopyRestored = AtomicBoolean(false)
 
     private val running = AtomicBoolean(false)
     private val stoppedLogged = AtomicBoolean(false)

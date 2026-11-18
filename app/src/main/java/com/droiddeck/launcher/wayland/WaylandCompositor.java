@@ -178,6 +178,8 @@ public final class WaylandCompositor {
 
     public static native void nativeSetZeroCopy(boolean on);
 
+    public static native boolean nativeIsZeroCopy();
+
     public static native int nativeZeroCopyFrames();
 
     public static native int nativeZeroCopyLastFrameAgeMs();

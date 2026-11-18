@@ -308,6 +308,12 @@ Java_com_droiddeck_launcher_wayland_WaylandCompositor_nativeSetZeroCopy(JNIEnv *
     __android_log_print(ANDROID_LOG_INFO, TAG, "zero-copy layer mode %s%s", on ? "on" : "off", live ? " (live)" : "");
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_droiddeck_launcher_wayland_WaylandCompositor_nativeIsZeroCopy(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
+    return (jboolean)g_zero_copy;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_droiddeck_launcher_wayland_WaylandCompositor_nativeZeroCopyLastFrameAgeMs(JNIEnv *env, jclass clazz) {
     return (jint)ahb_swapchain_last_frame_age_ms();

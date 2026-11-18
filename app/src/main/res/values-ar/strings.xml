@@ -780,6 +780,12 @@
     <string name="receiver_role_receiver_hint">اعرض لعبة هاتف آخر على هذا الجهاز.</string>
     <string name="receiver_role_gamepad">قبضة</string>
     <string name="receiver_role_gamepad_hint">انضم كلاعب أول أو ثانٍ من هذا الهاتف.</string>
+    <string name="receiver_prepare">جهّز العرض</string>
+    <string name="receiver_prepare_stop">أوقف التجهيز</string>
+    <string name="receiver_prepare_hint">اضغط «جهّز العرض» لإنشاء مجموعة Wi-Fi Direct وتشغيل خادم البث. ثم ابدأ لعبة — وسيجد التابلت هذا الهاتف.</string>
+    <string name="receiver_prepare_forming">جارٍ إنشاء مجموعة Wi-Fi Direct…</string>
+    <string name="receiver_prepare_ready">جاهز — المجموعة %1$s جاهزة. ابدأ لعبة وسيجد التابلت هذا الهاتف.</string>
+    <string name="receiver_prepare_failed">تعذّر إنشاء المجموعة: %1$s. إذا ظهرت نافذة Wi-Fi Direct على هذا الهاتف، وافق عليها وحاول مجدداً.</string>
     <string name="setup_adv_configure">ضبط</string>
     <string name="setup_tab_controller">وحدة التحكم</string>
     <string name="setup_tab_session">الجلسة</string>
