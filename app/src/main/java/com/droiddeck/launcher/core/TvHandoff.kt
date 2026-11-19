@@ -37,24 +37,27 @@ object TvHandoff {
         modes.filter { it.width == wantWidth && it.height == wantHeight }
             .minByOrNull { abs(it.refreshRate - wantHz) }
 
-    fun shouldEngageController(tvActive: Boolean, running: Boolean, physicalConnected: Boolean, toggleOn: Boolean): Boolean =
-        tvActive && running && toggleOn && !physicalConnected
+    // externalOutputActive is true when the game is not on the phone screen:
+    // on the TV, or mirrored to a computer over scrcpy.
+    fun shouldEngageController(externalOutputActive: Boolean, running: Boolean, physicalConnected: Boolean, toggleOn: Boolean): Boolean =
+        externalOutputActive && running && toggleOn && !physicalConnected
 
-    // The phone pad shows only when the phone is the controller and the phone
-    // is not in mouse mode: mouse mode owns the whole screen.
+    // The phone pad shows only when the output is external, the phone is the
+    // controller and the phone is not in mouse mode: mouse mode owns the whole screen.
     fun shouldShowPad(
-        tvActive: Boolean,
+        externalOutputActive: Boolean,
         running: Boolean,
         physicalConnected: Boolean,
         toggleOn: Boolean,
         mouseMode: Boolean,
     ): Boolean =
-        shouldEngageController(tvActive, running, physicalConnected, toggleOn) && !mouseMode
+        shouldEngageController(externalOutputActive, running, physicalConnected, toggleOn) && !mouseMode
 
-    // The phone-as-mouse trackpad covers the whole phone screen while the TV
-    // session runs and mouse mode is on.
-    fun shouldShowMousePad(tvActive: Boolean, mouseMode: Boolean): Boolean =
-        tvActive && mouseMode
+    // The phone-as-mouse trackpad covers the whole phone screen while the
+    // output is external (TV or computer mirror) and mouse mode is on. It
+    // never shows while the game is on the phone screen.
+    fun shouldShowMousePad(externalOutputActive: Boolean, mouseMode: Boolean): Boolean =
+        externalOutputActive && mouseMode
 
     // A physical keyboard or mouse counts as a controller for the TV, same as a pad:
     // with one connected the phone pad hides. Gamepads are excluded

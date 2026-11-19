@@ -109,11 +109,11 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("tvCompanionInfo", on).apply()
     }
 
-    /** The phone acts as a mouse while the game is on the TV; read at TV attach, off without a TV. */
-    fun tvPhoneMouseMode(context: Context): Boolean = prefs(context).getBoolean("tvPhoneMouseMode", false)
+    /** Phone-as-mouse mode: true starts every session with the mouse on, false starts it off. The drawer toggle flips only the running session. */
+    fun phoneMouseAlways(context: Context): Boolean = prefs(context).getBoolean("phoneMouseAlways", false)
 
-    fun setTvPhoneMouseMode(context: Context, on: Boolean) {
-        prefs(context).edit().putBoolean("tvPhoneMouseMode", on).apply()
+    fun setPhoneMouseAlways(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("phoneMouseAlways", on).apply()
     }
 
     fun gameStoresEnabled(context: Context): Boolean = prefs(context).getBoolean("gameStoresEnabled", true)

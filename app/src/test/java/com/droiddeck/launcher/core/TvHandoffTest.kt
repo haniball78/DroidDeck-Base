@@ -39,23 +39,23 @@ class TvHandoffTest {
     }
 
     @Test fun controllerEngagesWhenTvLiveAndNoPhysicalPad() {
-        assertTrue(TvHandoff.shouldEngageController(tvActive = true, running = true, physicalConnected = false, toggleOn = true))
+        assertTrue(TvHandoff.shouldEngageController(externalOutputActive = true, running = true, physicalConnected = false, toggleOn = true))
     }
 
     @Test fun controllerStaysOffWhenTvNotActive() {
-        assertFalse(TvHandoff.shouldEngageController(tvActive = false, running = true, physicalConnected = false, toggleOn = true))
+        assertFalse(TvHandoff.shouldEngageController(externalOutputActive = false, running = true, physicalConnected = false, toggleOn = true))
     }
 
     @Test fun controllerStaysOffWhenSessionNotRunning() {
-        assertFalse(TvHandoff.shouldEngageController(tvActive = true, running = false, physicalConnected = false, toggleOn = true))
+        assertFalse(TvHandoff.shouldEngageController(externalOutputActive = true, running = false, physicalConnected = false, toggleOn = true))
     }
 
     @Test fun controllerStaysOffWhenPhysicalPadConnected() {
-        assertFalse(TvHandoff.shouldEngageController(tvActive = true, running = true, physicalConnected = true, toggleOn = true))
+        assertFalse(TvHandoff.shouldEngageController(externalOutputActive = true, running = true, physicalConnected = true, toggleOn = true))
     }
 
     @Test fun controllerStaysOffWhenToggleOff() {
-        assertFalse(TvHandoff.shouldEngageController(tvActive = true, running = true, physicalConnected = false, toggleOn = false))
+        assertFalse(TvHandoff.shouldEngageController(externalOutputActive = true, running = true, physicalConnected = false, toggleOn = false))
     }
 
     @Test fun padShowsWhenEngagedAndMouseModeOff() {

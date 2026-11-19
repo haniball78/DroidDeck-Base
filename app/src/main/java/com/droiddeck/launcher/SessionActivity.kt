@@ -335,6 +335,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var backActionsInverted by mutableStateOf(false)
     private var lowLatencyController by mutableStateOf(false)
     private var lowLatencyTouch by mutableStateOf(false)
+    private var secondPlayer by mutableStateOf(false)
+    private var physicalPadPlayer2 by mutableStateOf(false)
     private var padType by mutableStateOf(SessionPrefs.CONTROLLER_DECK)
     private var pcKeyboardOpen by mutableStateOf(false)
     private var achievementsInFront by mutableStateOf<AchievementsInFront?>(null)
@@ -652,6 +654,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             hud.start()
         }
         readPrefs()
+        tvPhoneMouseMode = SessionPrefs.phoneMouseAlways(this)
 
         intent.getIntExtra(com.droiddeck.launcher.ui.EXTRA_FLOOD, 0).takeIf { it != 0 && loading.visible }?.let {
             floodColor = it
@@ -1018,6 +1021,25 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                         SessionPrefs.setLowLatencyTouch(this@SessionActivity, on)
                         lowLatencyTouch = on
                         applyLowLatency()
+                    },
+                    phoneMouseMode = tvPhoneMouseMode,
+                    onPhoneMouseMode = { on ->
+                        tvPhoneMouseMode = on
+                        updateTvController()
+                    },
+                    secondPlayer = secondPlayer,
+                    onSecondPlayer = { on ->
+                        SessionPrefs.setSecondPlayer(this@SessionActivity, on)
+                        secondPlayer = on
+                        SessionService.setSecondPlayer(this@SessionActivity, on)
+                    },
+                    physicalPadPlayer2 = physicalPadPlayer2,
+                    onPhysicalPadPlayer2 = { on ->
+                        SessionPrefs.setPhysicalPadPlayer2(this@SessionActivity, on)
+                        physicalPadPlayer2 = on
+                        SessionState.padBridge?.let { bridge ->
+                            bridge.setPhysicalBaseSlot(PadSlotMap.computeBaseSlot(on, bridge.isBuiltinPad(), SessionState.hiddenPad))
+                        }
                     },
                     onOsc = { v ->
                         SessionPrefs.setOscMode(this@SessionActivity, v)
@@ -1660,6 +1682,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         lowLatencyController = SessionPrefs.lowLatencyController(this)
         lowLatencyTouch = SessionPrefs.lowLatencyTouch(this)
         padType = SessionPrefs.steamController(this)
+        secondPlayer = SessionPrefs.secondPlayer(this)
+        physicalPadPlayer2 = SessionPrefs.physicalPadPlayer2(this)
     }
 
 
@@ -3540,7 +3564,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             }
             tvAttachedAtMs = SystemClock.elapsedRealtime()
             tvCompanionInfoOn = SessionPrefs.tvCompanionInfo(this)
-            tvPhoneMouseMode = SessionPrefs.tvPhoneMouseMode(this)
+            tvPhoneMouseMode = SessionPrefs.phoneMouseAlways(this)
             startTvCompanionTicker()
             // Let the switch settle and frames flow before resizing, so a
             // failure is attributable to the resize step, not the switch.
@@ -3757,7 +3781,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private fun updateTvController() {
         val physical = PadBridge.anyControllerConnected() || SteamControllerBle.connected || TvHandoff.hasKeyboardOrMouse()
         val toggleOn = SessionPrefs.tvControllerMode(this)
-        val want = TvHandoff.shouldShowPad(tvOutputActive, SessionState.running, physical, toggleOn, tvPhoneMouseMode)
+        val externalOutputActive = tvOutputActive || TvHandoff.hasComputerController()
+        val want = TvHandoff.shouldShowPad(externalOutputActive, SessionState.running, physical, toggleOn, tvPhoneMouseMode)
         if (!TvHandoff.hasComputerController()) computerPadOverride = false
         ensureComputerPadButton()
         updateComputerPadButton()
@@ -3772,11 +3797,11 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 fields = mapOf("step" to if (freeze) "frozen" else "unfrozen"),
             )
         }
-        applyTvPhoneMouseMode()
+        applyTvPhoneMouseMode(externalOutputActive)
         if (want == tvControllerActive) return
         tvControllerActive = want
         val reason = when {
-            !tvOutputActive -> "handoff-ended"
+            !externalOutputActive -> "handoff-ended"
             !SessionState.running -> "session-ended"
             !toggleOn -> "toggle-off"
             physical -> "physical-connected"
@@ -3909,9 +3934,9 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         tvMousePad = pad
     }
 
-    private fun applyTvPhoneMouseMode() {
+    private fun applyTvPhoneMouseMode(externalOutputActive: Boolean) {
         ensureTvMousePad()
-        val show = TvHandoff.shouldShowMousePad(tvOutputActive, tvPhoneMouseMode)
+        val show = TvHandoff.shouldShowMousePad(externalOutputActive, tvPhoneMouseMode)
         tvMousePad?.visibility = if (show) View.VISIBLE else View.GONE
     }
 

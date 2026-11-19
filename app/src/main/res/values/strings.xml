@@ -621,7 +621,9 @@
     <string name="drawer_hud_color_violet">Violet</string>
     <string name="drawer_hud_opacity">Opacity</string>
     <string name="tv_phone_mouse">Phone as mouse</string>
-    <string name="tv_phone_mouse_hint">While on, the phone acts as a mouse while the game is on the TV.</string>
+    <string name="tv_phone_mouse_hint">While on, the phone acts as a mouse while the game is on the TV or computer.</string>
+    <string name="phone_mouse_one_session">One session</string>
+    <string name="tv_phone_mouse_session_hint">Applies to this session only.</string>
     <string name="drawer_tv_info">TV info strip</string>
     <string name="drawer_tv_info_hint">Show FPS, temperature and battery on the phone while the game is on the TV.</string>
     <string name="drawer_scaling">Scaling mode</string>

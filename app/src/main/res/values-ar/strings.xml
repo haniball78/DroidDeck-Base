@@ -612,7 +612,9 @@
     <string name="drawer_hud_color_violet">بنفسجي</string>
     <string name="drawer_hud_opacity">العتامة</string>
     <string name="tv_phone_mouse">الهاتف كفأرة</string>
-    <string name="tv_phone_mouse_hint">أثناء التشغيل، يعمل الهاتف كفأرة بينما اللعبة على التلفاز.</string>
+    <string name="tv_phone_mouse_hint">أثناء التشغيل، يعمل الهاتف كفأرة بينما اللعبة على التلفاز أو الكمبيوتر.</string>
+    <string name="phone_mouse_one_session">جلسة واحدة</string>
+    <string name="tv_phone_mouse_session_hint">ينطبق على هذه الجلسة فقط.</string>
     <string name="drawer_tv_info">شريط معلومات التلفاز</string>
     <string name="drawer_tv_info_hint">إظهار الفريمات والحرارة والبطارية على الهاتف أثناء عرض اللعبة على التلفاز.</string>
     <string name="drawer_scaling">وضع التحجيم</string>

@@ -408,6 +408,11 @@ class SessionService : Service() {
                 updateSuspendPolicy()
                 return START_NOT_STICKY
             }
+            ACTION_SECOND_PLAYER_CHANGED -> {
+                val on = intent?.getBooleanExtra(EXTRA_SECOND_PLAYER, false) == true
+                if (on) startSecondPlayerParts() else stopSecondPlayerParts()
+                return START_NOT_STICKY
+            }
             ACTION_SUSPEND_POLICY_CHANGED -> {
                 if (!SessionState.running) return START_NOT_STICKY
                 suspendPolicy = SessionPrefs.suspendPolicy(this, SessionState.mode)
@@ -534,6 +539,30 @@ class SessionService : Service() {
         if (linuxDriverId.isEmpty()) return false
         val name = LinuxVulkanDriverManager(this).getDriverName(linuxDriverId).lowercase()
         return name.contains("710-720") || name.contains("710_720")
+    }
+
+    /** The parts a second player adds: the pad server plus the group that advertises it. */
+    private fun secondPlayerParts(): List<SessionPart> =
+        components.filter { it is P2pPadServer || it is P2pGroup }
+
+    private fun addSecondPlayerParts() {
+        if (secondPlayerParts().isNotEmpty()) return
+        val padServer = P2pPadServer(UsbTether.USB_PAD_PORT).also { it.attach(this) }
+        components.add(padServer)
+        components.add(P2pGroup(padServer).also { it.attach(this) })
+    }
+
+    private fun startSecondPlayerParts() {
+        if (!SessionState.running) return
+        addSecondPlayerParts()
+        secondPlayerParts().forEach { it.start() }
+    }
+
+    private fun stopSecondPlayerParts() {
+        secondPlayerParts().reversed().forEach { part ->
+            runCatching { part.stop() }
+            components.remove(part)
+        }
     }
 
 
@@ -735,13 +764,8 @@ class SessionService : Service() {
         networkLink.publish()
         components.add(networkLink)
         // A second player gets the pad server + group; a normal session adds nothing.
-        when (sessionStreamPlan(SessionPrefs.secondPlayer(this))) {
-            StreamPlan.PAD_AND_GROUP -> {
-                val padServer = P2pPadServer(UsbTether.USB_PAD_PORT).also { it.attach(this) }
-                components.add(padServer)
-                components.add(P2pGroup(padServer).also { it.attach(this) })
-            }
-            StreamPlan.NONE -> Unit
+        if (sessionStreamPlan(SessionPrefs.secondPlayer(this)) == StreamPlan.PAD_AND_GROUP) {
+            addSecondPlayerParts()
         }
         if (gen != sessionGen || !SessionState.running) {
             Log.i(TAG, "session stopped while it was starting; not launching it")
@@ -2887,6 +2911,8 @@ class SessionService : Service() {
         private const val EXTRA_HOLD = "hold"
         const val ACTION_TV_INPUT_LOSS = "com.droiddeck.launcher.TV_INPUT_LOSS"
         private const val EXTRA_TV_INPUT_LOST = "tvInputLost"
+        const val ACTION_SECOND_PLAYER_CHANGED = "com.droiddeck.launcher.SECOND_PLAYER_CHANGED"
+        private const val EXTRA_SECOND_PLAYER = "secondPlayer"
         private const val ACTION_TRACK_AUXILIARY = "com.droiddeck.launcher.TRACK_AUXILIARY"
         private const val ACTION_STOP_AUXILIARY = "com.droiddeck.launcher.STOP_AUXILIARY"
         private const val ACTION_AUXILIARY_EXITED = "com.droiddeck.launcher.AUXILIARY_EXITED"
@@ -2992,6 +3018,13 @@ class SessionService : Service() {
         fun setTvInputLost(context: Context, lost: Boolean) {
             if (!SessionState.running) return
             context.startService(Intent(context, SessionService::class.java).setAction(ACTION_TV_INPUT_LOSS).putExtra(EXTRA_TV_INPUT_LOST, lost))
+        }
+
+        // Start (on=true) or stop (on=false) the second-player pad server +
+        // group mid-session. No-op when the session is not running.
+        fun setSecondPlayer(context: Context, on: Boolean) {
+            if (!SessionState.running) return
+            context.startService(Intent(context, SessionService::class.java).setAction(ACTION_SECOND_PLAYER_CHANGED).putExtra(EXTRA_SECOND_PLAYER, on))
         }
 
         fun resume(context: Context) {

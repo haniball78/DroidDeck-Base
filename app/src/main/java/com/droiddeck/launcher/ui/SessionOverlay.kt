@@ -258,6 +258,12 @@ class DrawerActions(
     val lowLatencyTouch: Boolean = false,
     val onLowLatencyController: (Boolean) -> Unit = {},
     val onLowLatencyTouch: (Boolean) -> Unit = {},
+    val phoneMouseMode: Boolean = false,
+    val onPhoneMouseMode: (Boolean) -> Unit = {},
+    val secondPlayer: Boolean = false,
+    val onSecondPlayer: (Boolean) -> Unit = {},
+    val physicalPadPlayer2: Boolean = false,
+    val onPhysicalPadPlayer2: (Boolean) -> Unit = {},
     val onTouch: (String) -> Unit,
     val onGestureSettings: () -> Unit = {},
     val onFexPreset: (String) -> Unit,
@@ -586,6 +592,15 @@ internal fun SessionDrawer(open: Boolean, requestedPage: SessionDrawerPage, cont
                                     stringResource(R.string.unfolded_controls_with_controller_hint), a.unfoldedControlsWithController,
                                     chipModifier = focus.track(page, "unfolded-controls-with-controller"),
                                     onChange = a.onUnfoldedControlsWithController)
+                                ToggleRow(host, "phone-mouse", stringResource(R.string.tv_phone_mouse),
+                                    stringResource(R.string.tv_phone_mouse_session_hint), a.phoneMouseMode,
+                                    chipModifier = focus.track(page, "phone-mouse"), onChange = a.onPhoneMouseMode)
+                                ToggleRow(host, "second-player", stringResource(R.string.second_player),
+                                    stringResource(R.string.second_player_hint), a.secondPlayer,
+                                    chipModifier = focus.track(page, "second-player"), onChange = a.onSecondPlayer)
+                                ToggleRow(host, "physical-pad-player2", stringResource(R.string.physical_pad_player2),
+                                    stringResource(R.string.physical_pad_player2_hint), a.physicalPadPlayer2,
+                                    chipModifier = focus.track(page, "physical-pad-player2"), onChange = a.onPhysicalPadPlayer2)
                             }
                             SettingsGroup(stringResource(R.string.drawer_latency)) {
                                 ToggleRow(host, "low-latency-controller", stringResource(R.string.drawer_low_latency_controller),
