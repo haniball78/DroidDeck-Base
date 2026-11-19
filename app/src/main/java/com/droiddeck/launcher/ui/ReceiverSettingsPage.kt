@@ -58,6 +58,7 @@ import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.session.TvStreamReceiver
 import com.droiddeck.launcher.session.UsbTether
 import com.droiddeck.launcher.session.discoverNsdController
+import com.droiddeck.launcher.session.USB_DISCOVERY_TIMEOUT_MS
 import java.io.File
 import kotlinx.coroutines.delay
 
@@ -136,7 +137,9 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
         receiverInputStatus = "Connecting input…"
         Thread({
             if (useUsb) {
-                val host = UsbTether.systemGateway() ?: UsbTether.DEFAULT_GATEWAY
+                val host = recvRef?.resolvedEndpoint?.first
+                    ?: discoverNsdController(ctx, USB_DISCOVERY_TIMEOUT_MS)?.takeIf { UsbTether.isTetherAddress(it.first) }?.first
+                    ?: UsbTether.systemGateway() ?: UsbTether.DEFAULT_GATEWAY
                 val client = P2pPadClient(gamepadSlot)
                 if (!client.connect(host, UsbTether.USB_PAD_PORT)) {
                     receiverInputStatus = "Could not reach the controller over USB — check the cable and USB tethering on the game phone."
@@ -195,7 +198,8 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
         padStatus = "Searching for a controller…"
         Thread({
             if (useUsb) {
-                val host = UsbTether.systemGateway() ?: UsbTether.DEFAULT_GATEWAY
+                val host = discoverNsdController(ctx, USB_DISCOVERY_TIMEOUT_MS)?.takeIf { UsbTether.isTetherAddress(it.first) }?.first
+                    ?: UsbTether.systemGateway() ?: UsbTether.DEFAULT_GATEWAY
                 val client = P2pPadClient(gamepadSlot)
                 if (!client.connect(host, UsbTether.USB_PAD_PORT)) {
                     padStatus = "Could not reach the controller over USB — check the cable and USB tethering on the game phone."
@@ -481,6 +485,7 @@ fun ReceiverSettingsPage(onBack: () -> Unit, onGoToGames: (() -> Unit)? = null) 
                             ControllerStream.Status.FORMING -> stringResource(R.string.receiver_prepare_forming)
                             ControllerStream.Status.READY -> if (prepExisting) stringResource(R.string.receiver_prepare_ready_existing) else stringResource(R.string.receiver_prepare_ready, prepGroup ?: "DroidDeck-TV")
                             ControllerStream.Status.READY_NO_GROUP -> stringResource(R.string.receiver_prepare_ready_no_group, prepReason ?: "")
+                            ControllerStream.Status.WAITING_USB -> stringResource(R.string.receiver_prepare_waiting_usb)
                             ControllerStream.Status.FAILED -> stringResource(R.string.receiver_prepare_failed, prepReason ?: "")
                         },
                         style = MaterialTheme.typography.bodySmall,

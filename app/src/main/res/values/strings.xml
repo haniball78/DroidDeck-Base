@@ -823,6 +823,8 @@
     <string name="receiver_prepare_ready_existing">Ready — using the Wi-Fi Direct group that is already up. Start a game and the tablet will find this phone.</string>
     <string name="receiver_prepare_ready_no_group">Ready without a Wi-Fi Direct group (%1$s). Connect the tablet over a USB cable, then start a game.</string>
     <string name="receiver_prepare_failed">Could not create the group: %1$s. If a Wi-Fi Direct prompt appeared on this phone, approve it and try again.</string>
+    <string name="receiver_prepare_waiting_usb">The Wi-Fi Direct group failed — waiting for the USB link. Check the cable and USB tethering on the game phone…</string>
+    <string name="receiver_prepare_usb_link_down">The USB link is down — check the cable and USB tethering on the game phone.</string>
     <string name="receiver_connect_refused">Connection refused by %1$s:%2$d — the controller server is not up. Press Prepare on the game phone.</string>
     <string name="receiver_connect_no_route">No route to %1$s:%2$d — check the cable and USB tethering on the game phone, and that the tablet is the USB host.</string>
     <string name="receiver_connect_timeout">Connection to %1$s:%2$d timed out — the controller is not reachable. Searching again…</string>

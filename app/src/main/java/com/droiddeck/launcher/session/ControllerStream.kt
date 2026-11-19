@@ -1,6 +1,7 @@
 package com.droiddeck.launcher.session
 
 import android.content.Context
+import com.droiddeck.launcher.R
 import com.droiddeck.launcher.core.SessionPart
 import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
 
@@ -12,7 +13,7 @@ import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
  * everything when it ends.
  */
 object ControllerStream {
-    enum class Status { IDLE, FORMING, READY, READY_NO_GROUP, FAILED }
+    enum class Status { IDLE, FORMING, READY, READY_NO_GROUP, WAITING_USB, FAILED }
 
     @Volatile
     var status: Status = Status.IDLE
@@ -36,7 +37,7 @@ object ControllerStream {
     var streamSink: ((ByteArray) -> Unit)? = null
         private set
 
-    val isPrepared: Boolean get() = status == Status.FORMING || status == Status.READY || status == Status.READY_NO_GROUP
+    val isPrepared: Boolean get() = status == Status.FORMING || status == Status.READY || status == Status.READY_NO_GROUP || status == Status.WAITING_USB
 
     /** Starts the group, the stream server and the pad server; null when preparation started, else the start-failed reason. */
     fun prepare(context: Context): String? {
@@ -71,14 +72,14 @@ object ControllerStream {
                 // The group failed, but the pad and stream servers do not need it:
                 // a receiver over a USB cable reaches them directly, so they stay
                 // up and the preparation reads as usable without a group.
-                P2pGroup.Status.FAILED -> teardown = listOfNotNull(enterReadyNoGroup(grp, grp.failureReason))
+                P2pGroup.Status.FAILED -> teardown = listOfNotNull(onGroupFailed(grp, grp.failureReason, app))
                 else -> Unit
             }
             teardown?.forEach { runCatching { it.stop() } }
         }
         group = grp
         grp.begin()?.let { reason ->
-            enterReadyNoGroup(grp, reason)?.let { runCatching { it.stop() } }
+            onGroupFailed(grp, reason, app)?.let { runCatching { it.stop() } }
             return null
         }
         // A stop tap while preparing must not leave started servers behind.
@@ -139,7 +140,45 @@ object ControllerStream {
         return failed
     }
 
+    /**
+     * Handles a failed group: when USB tethering is on, the cable link may
+     * still be coming up, so the preparation waits for it instead of claiming
+     * ready on a dead link; otherwise it falls over to ready without a group.
+     * Returns the group to stop, or null when it was already torn down.
+     */
+    private fun onGroupFailed(grp: P2pGroup, reason: String?, app: Context): P2pGroup? {
+        if (UsbTether.systemGateway() == null) return enterReadyNoGroup(grp, reason)
+        if (UsbTether.linkUpNow()) return enterReadyNoGroup(grp, reason)
+        val waiting = synchronized(lock) {
+            if (grp !== group || status != Status.FORMING) null else {
+                status = Status.WAITING_USB
+                failureReason = reason
+                group
+            }
+        } ?: return null
+        Thread {
+            val up = UsbTether.waitForUsbLink(
+                keepWaiting = { synchronized(lock) { status == Status.WAITING_USB && grp === group } },
+            )
+            synchronized(lock) {
+                if (status != Status.WAITING_USB || grp !== group) return@Thread
+            }
+            if (up) {
+                enterReadyNoGroup(grp, reason)?.let { runCatching { it.stop() } }
+            } else {
+                TvDiagnosticsLog.log("tv", "p2p-group", fields = mapOf("step" to "usb-link-down", "reason" to (reason ?: "")))
+                fail(app.getString(R.string.receiver_prepare_usb_link_down))
+            }
+        }.start()
+        return waiting
+    }
+
     private fun fail(reason: String): String {
+        synchronized(lock) {
+            // A stop tap that landed first wins: stay idle. Checked before
+            // stop(), which itself resets the status to idle.
+            if (status == Status.IDLE) return reason
+        }
         stop()
         synchronized(lock) {
             status = Status.FAILED

@@ -151,6 +151,39 @@ class TvStreamReceiverTest {
         assertTrue(other.contains("192.168.42.129:28752"))
     }
 
+    @Test
+    fun `usb candidates try the nsd address first then the fixed gateway`() {
+        val fixed = "192.168.42.129" to 28752
+        val nsd = "192.168.42.5" to 28752
+        assertEquals(listOf(nsd, fixed), usbEndpointCandidates(nsd, fixed))
+        assertEquals(listOf(fixed), usbEndpointCandidates(null, fixed))
+        assertEquals(listOf(fixed), usbEndpointCandidates(fixed, fixed))
+    }
+
+    @Test
+    fun `usb failure reads a timeout without nsd as a dead link`() {
+        val app = RuntimeEnvironment.getApplication()
+        val noRoute = usbFailureStringId(viaNsd = false, error = SocketTimeoutException())
+        assertEquals(com.droiddeck.launcher.R.string.receiver_connect_no_route, noRoute)
+        assertTrue(app.getString(noRoute, "192.168.42.129", 28752).contains("USB tethering"))
+        assertEquals(
+            com.droiddeck.launcher.R.string.receiver_connect_timeout,
+            usbFailureStringId(viaNsd = true, error = SocketTimeoutException()),
+        )
+        assertEquals(
+            com.droiddeck.launcher.R.string.receiver_connect_refused,
+            usbFailureStringId(viaNsd = false, error = ConnectException()),
+        )
+        assertEquals(
+            com.droiddeck.launcher.R.string.receiver_connect_no_route,
+            usbFailureStringId(viaNsd = true, error = NoRouteToHostException()),
+        )
+        assertEquals(
+            com.droiddeck.launcher.R.string.receiver_connect_failed,
+            usbFailureStringId(viaNsd = false, error = null),
+        )
+    }
+
     private fun framed(units: List<ByteArray>): ByteArray {
         val out = ByteArrayOutputStream()
         val data = DataOutputStream(out)

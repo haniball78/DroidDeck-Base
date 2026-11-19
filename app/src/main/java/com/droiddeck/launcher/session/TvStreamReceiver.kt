@@ -62,11 +62,12 @@ class TvStreamReceiver(
 
     private fun runLoop() {
         while (!destroyed.get()) {
-            val endpoint = fixedEndpoint ?: discover()
-            if (endpoint == null) {
+            val resolved = resolveEndpoint()
+            if (resolved == null) {
                 sleepQuietly(RETRY_MS)
                 continue
             }
+            val (endpoint, viaNsd) = resolved
             resolvedEndpoint = endpoint
             val connectStartNanos = System.nanoTime()
             val host = hostOverride ?: endpoint.first
@@ -78,7 +79,7 @@ class TvStreamReceiver(
                 }
             }.onFailure { failure = it }.getOrNull()
             if (socket == null) {
-                onStatus?.invoke(context.getString(connectFailureStringId(failure), host, endpoint.second))
+                onStatus?.invoke(context.getString(usbFailureStringId(viaNsd, failure), host, endpoint.second))
                 sleepQuietly(RETRY_MS)
                 continue
             }
@@ -112,6 +113,23 @@ class TvStreamReceiver(
     /** Discovers one _droiddeck-tv._tcp service over NSD; null on timeout. */
     private fun discover(): Pair<String, Int>? = discoverNsdController(context, DISCOVERY_TIMEOUT_MS)
 
+    /**
+     * One endpoint to try this cycle, and whether NSD resolved it. In USB
+     * mode NSD comes first but only on the tether subnet: an advertisement
+     * arriving over home Wi-Fi would silently switch the cable transport
+     * to Wi-Fi. The fixed gateway is the fallback.
+     */
+    private fun resolveEndpoint(): Pair<Pair<String, Int>, Boolean>? {
+        val fixed = fixedEndpoint
+        if (fixed == null) {
+            val found = discover() ?: return null
+            return found to true
+        }
+        val nsd = discoverNsdController(context, USB_DISCOVERY_TIMEOUT_MS)
+            ?.takeIf { UsbTether.isTetherAddress(it.first) }
+        return usbEndpointCandidates(nsd, fixed).first() to (nsd != null)
+    }
+
     private fun sleepQuietly(ms: Long) {
         runCatching { Thread.sleep(ms) }
     }
@@ -135,6 +153,9 @@ class TvStreamReceiver(
 
 /** The NSD service type the controller advertises; shared by the stream receiver and the gamepad finder. */
 internal const val NSD_SERVICE_TYPE = "_droiddeck-tv._tcp"
+
+/** Short NSD discovery window for USB mode: the cable link is either there or it is not. */
+internal const val USB_DISCOVERY_TIMEOUT_MS = 3_000L
 
 /**
  * Discovers one controller service over plain NSD and resolves it; the host and
@@ -205,6 +226,20 @@ internal fun connectFailureStringId(error: Throwable?): Int = when (classifyConn
     ConnectFailure.NO_ROUTE -> R.string.receiver_connect_no_route
     ConnectFailure.TIMEOUT -> R.string.receiver_connect_timeout
     ConnectFailure.OTHER -> R.string.receiver_connect_failed
+}
+
+/** USB-mode endpoints to try, in order: the NSD-resolved tether address first, the fixed gateway second. */
+internal fun usbEndpointCandidates(nsd: Pair<String, Int>?, fixed: Pair<String, Int>): List<Pair<String, Int>> =
+    if (nsd == null) listOf(fixed) else listOf(nsd, fixed).distinct()
+
+/**
+ * USB-mode failure message: a timeout with no NSD resolution means the
+ * packets never reached the phone (a live link with a down server refuses
+ * instead), so it reads as a dead USB link, not a slow controller.
+ */
+internal fun usbFailureStringId(viaNsd: Boolean, error: Throwable?): Int {
+    if (!viaNsd && error is SocketTimeoutException) return R.string.receiver_connect_no_route
+    return connectFailureStringId(error)
 }
 
 /**
