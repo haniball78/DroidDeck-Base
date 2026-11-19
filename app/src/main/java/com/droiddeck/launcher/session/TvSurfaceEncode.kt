@@ -5,6 +5,7 @@ import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
@@ -93,10 +94,28 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
             setInteger(MediaFormat.KEY_BIT_RATE, BIT_RATE)
             setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL_S)
+            // No periodic IDR: recovery is a keyframe on demand plus intra
+            // refresh (a rolling intra pass over one second of frames), so a
+            // lost frame does not cost a full keyframe every two seconds.
+            setInteger(MediaFormat.KEY_INTRA_REFRESH_PERIOD, INTRA_REFRESH_PERIOD_FRAMES)
+            if (sdkInt >= Build.VERSION_CODES.Q) {
+                setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+                // Every keyframe carries its SPS/PPS, so a tablet joining
+                // mid-stream decodes the first keyframe it sees.
+                setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
+            }
             if (sdkInt >= Build.VERSION_CODES.M) setInteger(MediaFormat.KEY_PRIORITY, 0)
-            if (sdkInt >= Build.VERSION_CODES.Q) setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
             if (sdkInt >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
         }
+
+    /** Asks the running encoder for a keyframe at the next frame; a no-op when it is not running. */
+    fun requestSyncFrame() {
+        runCatching {
+            encoder?.setParameters(Bundle().apply {
+                putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
+            })
+        }
+    }
 
     private fun setup(): String? {
         // The tap only fills when the game presents on the display layer, which needs
@@ -314,7 +333,8 @@ class TvSurfaceEncode(private val outFile: File, private var chunkSink: ((ByteAr
         const val MAX_BYTES = 8L shl 20
         const val BIT_RATE = 8_000_000
         const val FRAME_RATE = 30
-        const val I_FRAME_INTERVAL_S = 2
+        const val I_FRAME_INTERVAL_S = 300
+        const val INTRA_REFRESH_PERIOD_FRAMES = 30
         const val IDLE_SLEEP_MS = 8L
         const val COMPOSITOR_WAIT_MS = 60_000L
         const val COMPOSITOR_POLL_MS = 100L

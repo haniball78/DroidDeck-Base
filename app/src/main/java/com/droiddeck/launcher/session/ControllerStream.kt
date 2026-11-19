@@ -37,6 +37,14 @@ object ControllerStream {
     var streamSink: ((ByteArray) -> Unit)? = null
         private set
 
+    /**
+     * Asks the running encoder for a keyframe; set by the session when it
+     * creates the encoder, cleared on stop. A stale callback is harmless:
+     * requesting a sync frame on a stopped encoder is a caught no-op.
+     */
+    @Volatile
+    var requestSyncFrame: (() -> Unit)? = null
+
     val isPrepared: Boolean get() = status == Status.FORMING || status == Status.READY || status == Status.READY_NO_GROUP || status == Status.WAITING_USB
 
     /** Starts the group, the stream server and the pad server; null when preparation started, else the start-failed reason. */
@@ -54,8 +62,38 @@ object ControllerStream {
         pad.begin()?.let { return fail(it) }
         val server = TvStreamServer(UsbTether.USB_STREAM_PORT).also { it.attach(app) }
         streamServer = server
-        streamSink = server::feed
+        server.onClientConnected = { requestSyncFrame?.invoke() }
         server.begin()?.let { return fail(it) }
+        // The UDP transport is best-effort: a bind failure leaves the TCP
+        // transport in place, so the preparation still works.
+        val udp = UdpVideoServer(UsbTether.USB_VIDEO_UDP_PORT).also { it.attach(app) }
+        udp.onSubscribe = { requestSyncFrame?.invoke() }
+        val udpError = udp.begin()
+        if (udpError == null) {
+            udpVideoServer = udp
+        } else {
+            TvDiagnosticsLog.log("tv", "udp-video-server", fields = mapOf("step" to "start-failed", "reason" to udpError))
+            runCatching { udp.stop() }
+        }
+        val control = UdpControlServer(UsbTether.USB_CONTROL_PORT) { message ->
+            if (message.kind == ControlMessage.KIND_RFI || message.kind == ControlMessage.KIND_IDR) {
+                requestSyncFrame?.invoke()
+            }
+        }.also { it.attach(app) }
+        val controlError = control.begin()
+        if (controlError == null) {
+            controlServer = control
+        } else {
+            TvDiagnosticsLog.log("tv", "udp-control-server", fields = mapOf("step" to "start-failed", "reason" to controlError))
+            runCatching { control.stop() }
+        }
+        val pump = SteadyFramePump({ frame ->
+            server.feed(frame.bytes)
+            udpVideoServer?.feed(frame)
+        })
+        framePump = pump
+        streamSink = pump::offer
+        pump.start()
         val grp = P2pGroup(pad, server.port)
         grp.attach(app)
         grp.onState = {
@@ -90,6 +128,9 @@ object ControllerStream {
                 runCatching { grp.stop() }
                 runCatching { server.stop() }
                 runCatching { pad.stop() }
+                runCatching { udp.stop() }
+                runCatching { control.stop() }
+                runCatching { pump.stop() }
             }
         }
         return null
@@ -99,14 +140,24 @@ object ControllerStream {
         val grp: P2pGroup?
         val server: TvStreamServer?
         val pad: P2pPadServer?
+        val udp: UdpVideoServer?
+        val control: UdpControlServer?
+        val pump: SteadyFramePump?
         synchronized(lock) {
             grp = group
             server = streamServer
             pad = padServer
+            udp = udpVideoServer
+            control = controlServer
+            pump = framePump
             group = null
             streamServer = null
             streamSink = null
             padServer = null
+            udpVideoServer = null
+            controlServer = null
+            framePump = null
+            requestSyncFrame = null
             status = Status.IDLE
             groupName = null
             usedExistingGroup = false
@@ -115,6 +166,9 @@ object ControllerStream {
         runCatching { grp?.stop() }
         runCatching { server?.stop() }
         runCatching { pad?.stop() }
+        runCatching { udp?.stop() }
+        runCatching { control?.stop() }
+        runCatching { pump?.stop() }
     }
 
     /**
@@ -197,6 +251,18 @@ object ControllerStream {
 
     @Volatile
     private var padServer: P2pPadServer? = null
+
+    @Volatile
+    internal var udpVideoServer: UdpVideoServer? = null
+        private set
+
+    @Volatile
+    internal var controlServer: UdpControlServer? = null
+        private set
+
+    @Volatile
+    internal var framePump: SteadyFramePump? = null
+        private set
 }
 
 /** Which stream parts a session start adds: the encoder only when the controller stream was prepared, the pad server + group for a second player without preparation, nothing otherwise. */

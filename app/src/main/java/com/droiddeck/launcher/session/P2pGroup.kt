@@ -75,7 +75,27 @@ class P2pGroup(
         manager = mgr
         val t = HandlerThread("p2p-group").apply { start() }
         thread = t
-        val ch = runCatching { mgr.initialize(context, t.looper, null) }.getOrNull()
+        // HandlerThread.getLooper() blocks on a real device but can return
+        // null under Robolectric before the thread prepares its looper; wait
+        // briefly so the channel init and the detection timeout below never
+        // see a null looper. On a device this exits on the first check.
+        val looper = runCatching {
+            var ready = t.looper
+            val deadline = System.currentTimeMillis() + 1_000
+            while (ready == null && System.currentTimeMillis() < deadline) {
+                Thread.sleep(1)
+                ready = t.looper
+            }
+            ready
+        }.getOrNull()
+        if (looper == null) {
+            startReason = "p2p-looper-not-ready"
+            status = Status.FAILED
+            failureReason = startReason
+            t.quitSafely()
+            return startReason
+        }
+        val ch = runCatching { mgr.initialize(context, looper, null) }.getOrNull()
         if (ch == null) {
             startReason = "p2p-init-failed"
             status = Status.FAILED

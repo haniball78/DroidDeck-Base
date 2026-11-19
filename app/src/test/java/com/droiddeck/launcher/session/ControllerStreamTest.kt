@@ -59,6 +59,12 @@ class ControllerStreamTest {
             // The servers are actually listening: a USB receiver could connect.
             assertTrue(canConnect(UsbTether.USB_STREAM_PORT))
             assertTrue(canConnect(UsbTether.USB_PAD_PORT))
+            assertTrue(canConnect(UsbTether.USB_CONTROL_PORT))
+            assertNotNull(ControllerStream.udpVideoServer)
+            assertNotNull(ControllerStream.controlServer)
+            assertNotNull(ControllerStream.framePump)
+            // A UDP subscribe reaches the video server.
+            assertTrue(subscribeUdp())
         } finally {
             ControllerStream.stop()
         }
@@ -67,6 +73,10 @@ class ControllerStreamTest {
         // Nothing left listening after stop.
         assertFalse(canConnect(UsbTether.USB_STREAM_PORT))
         assertFalse(canConnect(UsbTether.USB_PAD_PORT))
+        assertFalse(canConnect(UsbTether.USB_CONTROL_PORT))
+        assertNull(ControllerStream.udpVideoServer)
+        assertNull(ControllerStream.controlServer)
+        assertNull(ControllerStream.framePump)
     }
 
     @Test
@@ -120,5 +130,12 @@ class ControllerStreamTest {
         return runCatching {
             Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 1_000); it.isConnected }
         }.getOrDefault(false)
+    }
+
+    /** Records a subscribe for the video server (the VM sandbox blocks real UDP sends). */
+    private fun subscribeUdp(): Boolean {
+        val server = ControllerStream.udpVideoServer ?: return false
+        server.onSubscribeDatagram(InetSocketAddress("127.0.0.1", 40000))
+        return server.hasClient()
     }
 }

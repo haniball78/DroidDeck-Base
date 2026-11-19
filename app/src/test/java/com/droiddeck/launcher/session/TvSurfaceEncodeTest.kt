@@ -75,6 +75,30 @@ class TvSurfaceEncodeTest {
     }
 
     @Test
+    fun `encode format drops the periodic idr and adds intra refresh`() {
+        val part = TvSurfaceEncode(File(context.filesDir, "venc/surface.h264"))
+        val format = part.buildFormat(1920, 1080, 34)
+        assertEquals(300, format.getInteger(MediaFormat.KEY_I_FRAME_INTERVAL))
+        assertEquals(30, format.getInteger(MediaFormat.KEY_INTRA_REFRESH_PERIOD))
+        assertEquals(1, format.getInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES))
+    }
+
+    @Test
+    fun `encode format keeps the periodic idr out of the old api shape`() {
+        val part = TvSurfaceEncode(File(context.filesDir, "venc/surface.h264"))
+        val format = part.buildFormat(1920, 1080, 28)
+        assertEquals(300, format.getInteger(MediaFormat.KEY_I_FRAME_INTERVAL))
+        assertFalse(format.containsKey(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES))
+    }
+
+    @Test
+    fun `requesting a sync frame is safe before the encoder runs`() {
+        val part = TvSurfaceEncode(File(context.filesDir, "venc/surface.h264"))
+        part.requestSyncFrame()
+        part.stop()
+    }
+
+    @Test
     fun `vk present outcome maps native result codes`() {
         assertEquals(VkPresentOutcome.PRESENTED, vkPresentOutcome(1))
         assertEquals(VkPresentOutcome.PRESENTED, vkPresentOutcome(90))

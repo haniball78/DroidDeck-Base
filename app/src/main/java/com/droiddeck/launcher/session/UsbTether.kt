@@ -7,6 +7,8 @@ import java.net.NetworkInterface
 object UsbTether {
     const val USB_STREAM_PORT = 28752
     const val USB_PAD_PORT = 28753
+    const val USB_VIDEO_UDP_PORT = 28754
+    const val USB_CONTROL_PORT = 28755
 
     /** Bounded wait for the USB-tethered link to come up. */
     const val USB_LINK_WAIT_MS = 15_000L
