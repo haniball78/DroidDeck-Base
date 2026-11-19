@@ -9,8 +9,8 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class UdpFrameAssemblerTest {
-    private fun frame(index: Int, size: Int = 3000): StreamFrame =
-        StreamFrame(index, 1000L + index * 33, index == 0, ByteArray(size) { (it * 7 + index % 251).toByte() })
+    private fun frame(index: Int, size: Int = 3000, isKeyFrame: Boolean = index == 0): StreamFrame =
+        StreamFrame(index, 1000L + index * 33, isKeyFrame, ByteArray(size) { (it * 7 + index % 251).toByte() })
 
     @Test
     fun `frames arrive in order even when packets are shuffled`() {
@@ -31,13 +31,50 @@ class UdpFrameAssemblerTest {
     }
 
     @Test
+    fun `frames are held until the keyframe arrives`() {
+        val delivered = ArrayList<Int>()
+        val assembler = UdpFrameAssembler(
+            onFrame = { index, _, _ -> delivered.add(index) },
+            onFrameLost = { throw AssertionError("no frame may be lost") },
+        )
+        // A later frame's packets arrive first: nothing may overtake the keyframe.
+        packetizeFrame(frame(1)).forEach { assembler.offer(it) }
+        assertTrue(delivered.isEmpty())
+        packetizeFrame(frame(2)).forEach { assembler.offer(it) }
+        assertTrue(delivered.isEmpty())
+        packetizeFrame(frame(0)).forEach { assembler.offer(it) }
+        assertEquals(listOf(0, 1, 2), delivered)
+        assertEquals(3, assembler.framesReceived)
+    }
+
+    @Test
+    fun `without a keyframe the oldest frame is released after the stale timeout`() {
+        var now = 0L
+        val delivered = ArrayList<Int>()
+        val lost = ArrayList<Int>()
+        val assembler = UdpFrameAssembler(
+            onFrame = { index, _, _ -> delivered.add(index) },
+            onFrameLost = { lost.add(it) },
+            clockMs = { now },
+        )
+        packetizeFrame(frame(5)).forEach { assembler.offer(it) }
+        assertTrue(delivered.isEmpty())
+        now += 200
+        assembler.sweepStale(now)
+        assertEquals(listOf(4), lost)
+        assertEquals(listOf(5), delivered)
+        assertEquals(1, assembler.framesLost)
+        assertEquals(1, assembler.framesReceived)
+    }
+
+    @Test
     fun `a single lost data packet is recovered from parity`() {
         val delivered = ArrayList<ByteArray>()
         val assembler = UdpFrameAssembler(
             onFrame = { _, _, bytes -> delivered.add(bytes) },
             onFrameLost = { throw AssertionError("the frame must recover") },
         )
-        val f = frame(5)
+        val f = frame(5, isKeyFrame = true)
         val packets = packetizeFrame(f)
         val dropped = packets.first { !it.isParity }
         packets.filter { it !== dropped }.forEach { assembler.offer(it) }
@@ -57,7 +94,7 @@ class UdpFrameAssemblerTest {
             onFrameLost = { lost.add(it) },
             clockMs = { now },
         )
-        val first = frame(10)
+        val first = frame(10, isKeyFrame = true)
         val packets = packetizeFrame(first)
         val data = packets.filter { !it.isParity }
         // Drop two of three data packets: one parity shard cannot rebuild two.
@@ -81,7 +118,7 @@ class UdpFrameAssemblerTest {
             onFrame = { index, _, _ -> delivered.add(index) },
             onFrameLost = { throw AssertionError("no frame may be lost") },
         )
-        val packets = packetizeFrame(frame(20))
+        val packets = packetizeFrame(frame(20, isKeyFrame = true))
         packets.forEach { assembler.offer(it) }
         packets.forEach { assembler.offer(it) }
         assertEquals(listOf(20), delivered)
@@ -97,7 +134,7 @@ class UdpFrameAssemblerTest {
             onFrameLost = { lost.add(it) },
             clockMs = { now },
         )
-        val packets = packetizeFrame(frame(30))
+        val packets = packetizeFrame(frame(30, isKeyFrame = true))
         assembler.offer(packets.first { !it.isParity })
         assembler.sweepStale(now + 50)
         assertTrue(lost.isEmpty())
@@ -117,7 +154,7 @@ class UdpFrameAssemblerTest {
             onFrameLost = { lost.add(it) },
             clockMs = { now },
         )
-        val first = packetizeFrame(frame(40))
+        val first = packetizeFrame(frame(40, isKeyFrame = true))
         val second = packetizeFrame(frame(41))
         assembler.offer(first.first { !it.isParity })
         second.forEach { assembler.offer(it) }

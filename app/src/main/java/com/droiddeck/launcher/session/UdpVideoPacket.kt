@@ -19,6 +19,7 @@ object UdpVideo {
     const val FLAG_PARITY: Byte = 0x01
     const val FLAG_EOF: Byte = 0x02
     const val FLAG_SOF: Byte = 0x04
+    const val FLAG_KEYFRAME: Byte = 0x08
 
     /** Data packets per FEC block; with 20% parity the block stays under the 255-shard limit. */
     const val MAX_DATA_PACKETS_PER_BLOCK = 200
@@ -84,6 +85,7 @@ data class UdpVideoPacket(
     val isParity: Boolean get() = flags.toInt() and UdpVideo.FLAG_PARITY.toInt() != 0
     val isSof: Boolean get() = flags.toInt() and UdpVideo.FLAG_SOF.toInt() != 0
     val isEof: Boolean get() = flags.toInt() and UdpVideo.FLAG_EOF.toInt() != 0
+    val isKeyFrame: Boolean get() = flags.toInt() and UdpVideo.FLAG_KEYFRAME.toInt() != 0
 
     fun encode(): ByteArray {
         val out = ByteBuffer.allocate(UdpVideo.HEADER_BYTES + payload.size).order(ByteOrder.BIG_ENDIAN)
@@ -183,9 +185,10 @@ fun packetizeFrame(frame: StreamFrame): List<UdpVideoPacket> {
         for (i in 0 until dataCount) {
             // EOF lands on the last parity packet of the last block; parity is never zero.
             val sof = if (blockIndex == 0 && i == 0) UdpVideo.FLAG_SOF.toInt() else 0
+            val key = if (frame.isKeyFrame) UdpVideo.FLAG_KEYFRAME.toInt() else 0
             packets.add(
                 UdpVideoPacket(
-                    flags = sof.toByte(),
+                    flags = (sof or key).toByte(),
                     blockIndex = blockIndex,
                     blockCount = blockCount,
                     packetIndex = i,
@@ -200,9 +203,10 @@ fun packetizeFrame(frame: StreamFrame): List<UdpVideoPacket> {
         }
         for (p in 0 until parityCount) {
             val lastPacket = blockIndex == blockCount - 1 && p == parityCount - 1
+            val key = if (frame.isKeyFrame) UdpVideo.FLAG_KEYFRAME.toInt() else 0
             packets.add(
                 UdpVideoPacket(
-                    flags = (UdpVideo.FLAG_PARITY.toInt() or if (lastPacket) UdpVideo.FLAG_EOF.toInt() else 0).toByte(),
+                    flags = (UdpVideo.FLAG_PARITY.toInt() or key or if (lastPacket) UdpVideo.FLAG_EOF.toInt() else 0).toByte(),
                     blockIndex = blockIndex,
                     blockCount = blockCount,
                     packetIndex = dataCount + p,

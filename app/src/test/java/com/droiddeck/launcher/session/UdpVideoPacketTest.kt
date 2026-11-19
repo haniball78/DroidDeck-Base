@@ -56,8 +56,10 @@ class UdpVideoPacketTest {
         assertEquals(1, packets[0].parityPackets)
         assertTrue(packets[0].isSof)
         assertFalse(packets[0].isParity)
+        assertTrue(packets[0].isKeyFrame)
         assertTrue(packets[3].isParity)
         assertTrue(packets[3].isEof)
+        assertTrue(packets[3].isKeyFrame)
         assertEquals(7, packets[3].frameIndex)
         assertEquals(3000, packets[3].frameBytes)
     }
@@ -77,11 +79,12 @@ class UdpVideoPacketTest {
         assertTrue(packets.count { it.blockIndex == 0 } <= 240)
         assertTrue(packets.count { it.blockIndex == 1 } <= 240)
         assertEquals(41, parityPackets)
+        assertFalse(packets[0].isKeyFrame)
     }
 
     @Test
     fun `packetized frames reassemble byte for byte`() {
-        val frame = StreamFrame(3, 3000L, false, ByteArray(5000) { (it * 7 % 251).toByte() })
+        val frame = StreamFrame(3, 3000L, true, ByteArray(5000) { (it * 7 % 251).toByte() })
         val packets = packetizeFrame(frame)
         val assembler = UdpFrameAssembler(
             onFrame = { index, _, bytes ->

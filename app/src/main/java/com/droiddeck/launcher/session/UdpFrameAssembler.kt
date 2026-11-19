@@ -7,7 +7,10 @@ import android.os.SystemClock
  * A frame is emitted when all its FEC blocks are complete — directly, or
  * recovered from parity shards. A frame that cannot be recovered is
  * reported lost (the caller sends an RFI) and skipped, so a newer frame
- * never waits behind a dead one. Single-threaded: call only from the
+ * never waits behind a dead one. The first keyframe seen anchors the
+ * floor: a later frame is held until every frame from the keyframe on
+ * is resolved, so reordering can never emit a frame past a keyframe
+ * that is still in flight. Single-threaded: call only from the
  * receiver's UDP loop.
  */
 class UdpFrameAssembler(
@@ -23,15 +26,19 @@ class UdpFrameAssembler(
         private set
 
     fun offer(packet: UdpVideoPacket) {
+        if (packet.isKeyFrame && floorIndex == null) {
+            floorIndex = packet.frameIndex
+            if (nextIndex == null) nextIndex = packet.frameIndex
+        }
         val next = nextIndex
-        if (next == null) {
-            nextIndex = packet.frameIndex
-        } else if (packet.frameIndex - next < 0) {
+        if (next != null && packet.frameIndex - next < 0) {
             // An older frame than the next expected one: before anything has
-            // been emitted or lost it is just reordering, so re-anchor;
-            // after that it is a late duplicate and is ignored.
-            if (framesReceived == 0L && framesLost == 0L) {
+            // been emitted or lost only an earlier keyframe re-anchors (a
+            // stray P-frame from an older GOP is ignored); after that it
+            // is a late duplicate and is ignored.
+            if (packet.isKeyFrame && framesReceived == 0L && framesLost == 0L) {
                 nextIndex = packet.frameIndex
+                floorIndex = packet.frameIndex
             } else {
                 return
             }
@@ -66,8 +73,24 @@ class UdpFrameAssembler(
 
     /** Drops incomplete frames older than the stale deadline; call on socket-timeout ticks. */
     fun sweepStale(nowMs: Long = clockMs()) {
+        var floorSet = false
+        if (floorIndex == null) {
+            // No keyframe ever arrived: give up waiting for it once the
+            // oldest held frame is stale. The floor becomes the smallest
+            // frame seen, and the presumed keyframe just below it is
+            // reported lost so the caller asks for a fresh one.
+            val oldest = frames.values.minByOrNull { it.firstSeenMs }
+            if (oldest != null && nowMs - oldest.firstSeenMs > STALE_MS) {
+                val floor = frames.keys.minOrNull() ?: return
+                floorIndex = floor
+                nextIndex = floor
+                framesLost++
+                onFrameLost(floor - 1)
+                floorSet = true
+            }
+        }
         val stale = frames.values.filter { !it.completed && !it.lost && nowMs - it.firstSeenMs > STALE_MS }
-        if (stale.isEmpty()) return
+        if (stale.isEmpty() && !floorSet) return
         for (frame in stale) declareLost(frame)
         emitReady()
     }
@@ -134,6 +157,7 @@ class UdpFrameAssembler(
     }
 
     private var nextIndex: Int? = null
+    private var floorIndex: Int? = null
     private val frames = HashMap<Int, FrameState>()
 
     private class FrameState(
