@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.IntSize
 import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.layout.offset
@@ -93,6 +94,7 @@ import androidx.compose.animation.core.Spring
 import com.droiddeck.launcher.core.GameEnvironment
 import com.droiddeck.launcher.session.ProfileValue
 import com.droiddeck.launcher.session.SelectedGameProfile
+import com.droiddeck.launcher.session.wifiIpAddress
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.semantics.stateDescription
@@ -543,6 +545,14 @@ internal fun SessionDrawer(open: Boolean, requestedPage: SessionDrawerPage, cont
                             if (!a.glassesOutput) CardboardGroup(host, a) { key -> focus.track(page, key) }
                         }
                         SessionDrawerPage.CONTROLLER -> {
+                            val controllerCtx = LocalContext.current
+                            var controllerWifiIp by remember { mutableStateOf(wifiIpAddress(controllerCtx)) }
+                            LaunchedEffect(Unit) {
+                                while (isActive) {
+                                    delay(5_000)
+                                    controllerWifiIp = wifiIpAddress(controllerCtx)
+                                }
+                            }
                             SettingsGroup(stringResource(R.string.drawer_page_controller)) {
                                 a.padType?.let { type ->
                                     ChoiceRow(host, "pad-type", stringResource(R.string.mode_controller), null,
@@ -598,6 +608,10 @@ internal fun SessionDrawer(open: Boolean, requestedPage: SessionDrawerPage, cont
                                 ToggleRow(host, "second-player", stringResource(R.string.second_player),
                                     stringResource(R.string.second_player_hint), a.secondPlayer,
                                     chipModifier = focus.track(page, "second-player"), onChange = a.onSecondPlayer)
+                                val drawerWifiIp = controllerWifiIp
+                                if (a.secondPlayer && drawerWifiIp != null) {
+                                    Note(stringResource(R.string.second_player_controller_ip, drawerWifiIp))
+                                }
                                 ToggleRow(host, "physical-pad-player2", stringResource(R.string.physical_pad_player2),
                                     stringResource(R.string.physical_pad_player2_hint), a.physicalPadPlayer2,
                                     chipModifier = focus.track(page, "physical-pad-player2"), onChange = a.onPhysicalPadPlayer2)

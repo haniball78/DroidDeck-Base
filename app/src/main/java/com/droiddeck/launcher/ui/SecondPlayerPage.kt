@@ -22,6 +22,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -31,9 +33,14 @@ import com.droiddeck.launcher.input.PadBridge
 import com.droiddeck.launcher.input.PadState
 import com.droiddeck.launcher.session.GamepadInput
 import com.droiddeck.launcher.session.P2pPadClient
+import com.droiddeck.launcher.session.PadTransport
 import com.droiddeck.launcher.session.USB_DISCOVERY_TIMEOUT_MS
 import com.droiddeck.launcher.session.UsbTether
 import com.droiddeck.launcher.session.discoverNsdController
+import com.droiddeck.launcher.session.discoverNsdEndpoints
+import com.droiddeck.launcher.session.isLanAddress
+import com.droiddeck.launcher.session.isP2pAddress
+import com.droiddeck.launcher.session.preferEndpoint
 import java.io.File
 import kotlinx.coroutines.delay
 
@@ -50,7 +57,8 @@ fun SecondPlayerPage(onBack: () -> Unit) {
     var padStatus by remember { mutableStateOf("Idle — pick a player below, then Start.") }
     var padRef by remember { mutableStateOf<P2pPadClient?>(null) }
     var gamepadSlot by remember { mutableStateOf(1) }
-    var useUsb by remember { mutableStateOf(false) }
+    var transport by remember { mutableStateOf(PadTransport.LAN) }
+    var manualIp by remember { mutableStateOf("") }
 
     val padBridge = remember {
         PadBridge(File(ctx.cacheDir, "droiddeck-pad")).also { it.setBuiltinPad(true) }
@@ -68,12 +76,22 @@ fun SecondPlayerPage(onBack: () -> Unit) {
         padRef = null
     }
 
+    fun installClient(client: P2pPadClient, statusText: String) {
+        padRef = client
+        GamepadInput.install(padBridge, client)
+        padStatus = statusText
+        padBridge.setTouchRoute(object : PadBridge.TouchRoute {
+            override fun active() = padRunning
+            override fun accept(state: PadState) = GamepadInput.onTouchState(state)
+        })
+    }
+
     fun startPad() {
         if (padRunning) return
         padRunning = true
         padStatus = "Searching for a controller…"
         Thread({
-            if (useUsb) {
+            if (transport == PadTransport.USB) {
                 val host = discoverNsdController(ctx, USB_DISCOVERY_TIMEOUT_MS)?.takeIf { UsbTether.isTetherAddress(it.first) }?.first
                     ?: UsbTether.systemGateway() ?: UsbTether.DEFAULT_GATEWAY
                 val client = P2pPadClient(gamepadSlot)
@@ -82,17 +100,31 @@ fun SecondPlayerPage(onBack: () -> Unit) {
                     padRunning = false
                     return@Thread
                 }
-                padRef = client
-                GamepadInput.install(padBridge, client)
-                padStatus = "Connected as player ${gamepadSlot + 1} over USB — use the touch pad below."
-                padBridge.setTouchRoute(object : PadBridge.TouchRoute {
-                    override fun active() = padRunning
-                    override fun accept(state: PadState) = GamepadInput.onTouchState(state)
-                })
+                installClient(client, "Connected as player ${gamepadSlot + 1} over USB — use the touch pad below.")
                 return@Thread
             }
-            val endpoint = discoverNsdController(ctx, 15_000)
+            val typedIp = manualIp.trim()
+            if (typedIp.isNotEmpty()) {
+                val client = P2pPadClient(gamepadSlot)
+                if (!client.connect(typedIp, UsbTether.USB_PAD_PORT)) {
+                    padStatus = "Could not reach $typedIp — check the IP and that both phones are on the same Wi-Fi."
+                    padRunning = false
+                    return@Thread
+                }
+                installClient(client, "Connected as player ${gamepadSlot + 1} at $typedIp — use the touch pad below.")
+                return@Thread
+            }
+            // The controller advertises twice (home Wi-Fi + Wi-Fi Direct), so
+            // collect every endpoint and prefer the one for this transport.
+            val endpoints = discoverNsdEndpoints(ctx, 15_000) { endpoint ->
+                when (transport) {
+                    PadTransport.LAN -> isLanAddress(endpoint.first)
+                    PadTransport.P2P -> isP2pAddress(endpoint.first)
+                    PadTransport.USB -> false
+                }
+            }
             if (!padRunning) return@Thread
+            val endpoint = preferEndpoint(endpoints, transport)
             if (endpoint == null) {
                 padStatus = "Controller not found (controller-not-found)"
                 padRunning = false
@@ -105,20 +137,15 @@ fun SecondPlayerPage(onBack: () -> Unit) {
                 padRunning = false
                 return@Thread
             }
-            padRef = client
-            GamepadInput.install(padBridge, client)
-            padStatus = "Connected as player ${gamepadSlot + 1} — use the touch pad below."
-            padBridge.setTouchRoute(object : PadBridge.TouchRoute {
-                override fun active() = padRunning
-                override fun accept(state: PadState) = GamepadInput.onTouchState(state)
-            })
+            val over = if (isLanAddress(host)) "home Wi-Fi" else "Wi-Fi Direct"
+            installClient(client, "Connected as player ${gamepadSlot + 1} over $over — use the touch pad below.")
         }, "gamepad-start").start()
     }
 
-    fun switchTransport(usb: Boolean) {
-        if (usb == useUsb) return
+    fun switchTransport(next: PadTransport) {
+        if (next == transport) return
         if (padRunning) stopPad()
-        useUsb = usb
+        transport = next
     }
 
     fun missingP2pPermissions(): Array<String> {
@@ -145,6 +172,12 @@ fun SecondPlayerPage(onBack: () -> Unit) {
     }
 
     fun ensurePermissionsAndStartPad() {
+        // Only the Wi-Fi Direct path needs location permission; home Wi-Fi
+        // discovery and USB need none.
+        if (transport != PadTransport.P2P) {
+            startPad()
+            return
+        }
         val needed = missingP2pPermissions()
         if (needed.isEmpty()) startPad() else permissionLauncher.launch(needed)
     }
@@ -182,16 +215,22 @@ fun SecondPlayerPage(onBack: () -> Unit) {
 
         SettingsGroup("Gamepad") {
             SettingsRow(
+                label = stringResource(R.string.second_player_home_wifi),
+                hint = stringResource(R.string.second_player_home_wifi_hint),
+            ) {
+                ToggleSwitch(checked = transport == PadTransport.LAN, onChange = { on -> if (on) switchTransport(PadTransport.LAN) })
+            }
+            SettingsRow(
                 label = "Wi-Fi Direct",
                 hint = "Find the controller phone over Wi-Fi Direct.",
             ) {
-                ToggleSwitch(checked = !useUsb, onChange = { on -> if (on) switchTransport(false) })
+                ToggleSwitch(checked = transport == PadTransport.P2P, onChange = { on -> if (on) switchTransport(PadTransport.P2P) })
             }
             SettingsRow(
                 label = "USB cable",
                 hint = "Join over a USB cable instead of Wi-Fi.",
             ) {
-                ToggleSwitch(checked = useUsb, onChange = { on -> if (on) switchTransport(true) })
+                ToggleSwitch(checked = transport == PadTransport.USB, onChange = { on -> if (on) switchTransport(PadTransport.USB) })
             }
             SettingsRow(
                 label = "Player 1 — this phone is the first controller",
@@ -216,12 +255,26 @@ fun SecondPlayerPage(onBack: () -> Unit) {
                 })
             }
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (useUsb) {
+                if (transport == PadTransport.USB) {
                     Text(
                         "Connect the cable, then turn on USB tethering on the game phone (Settings → Hotspot → " +
                         "USB tethering — the app cannot turn it on itself). This phone must be the USB host: with a " +
                         "C-to-C cable the roles negotiate — if it does not connect, switch \"USB controlled by\" to this " +
                         "device, or use a C-to-A cable + A-to-C adapter, which fixes this device as host.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (transport != PadTransport.USB) {
+                    AdbTextField(
+                        value = manualIp, onValueChange = { manualIp = it },
+                        label = stringResource(R.string.second_player_manual_ip),
+                        keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done,
+                        placeholder = "192.168.1.122", compact = true,
+                        onDone = { ensurePermissionsAndStartPad() },
+                    )
+                    Text(
+                        stringResource(R.string.second_player_manual_ip_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -238,7 +291,7 @@ fun SecondPlayerPage(onBack: () -> Unit) {
                 if (padRunning) {
                     SecondaryButton("Stop", modifier = Modifier.fillMaxWidth()) { stopPad() }
                 } else {
-                    PrimaryButton("Start", fill = true, large = true, modifier = Modifier.fillMaxWidth()) { if (useUsb) startPad() else ensurePermissionsAndStartPad() }
+                    PrimaryButton("Start", fill = true, large = true, modifier = Modifier.fillMaxWidth()) { ensurePermissionsAndStartPad() }
                 }
             }
         }

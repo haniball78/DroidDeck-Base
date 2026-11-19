@@ -114,6 +114,7 @@ import com.droiddeck.launcher.input.PadSlotMap
 import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.session.SessionService
 import com.droiddeck.launcher.session.SessionState
+import com.droiddeck.launcher.session.wifiIpAddress
 import com.droiddeck.launcher.stores.download.StoreDownloadTier
 import com.droiddeck.launcher.R
 
@@ -409,6 +410,15 @@ internal fun SetupPanel(
                                 secondPlayer = on
                                 SessionPrefs.setSecondPlayer(ctx, on)
                             }
+                            var controllerWifiIp by remember { mutableStateOf<String?>(null) }
+                            LaunchedEffect(Unit) {
+                                while (isActive) {
+                                    controllerWifiIp = wifiIpAddress(ctx)
+                                    delay(5_000)
+                                }
+                            }
+                            val setupWifiIp = controllerWifiIp
+                            if (secondPlayer && setupWifiIp != null) Note(stringResource(R.string.second_player_controller_ip, setupWifiIp))
                             var physicalPadPlayer2 by remember { mutableStateOf(SessionPrefs.physicalPadPlayer2(ctx)) }
                             ToggleRow(host, "controller-physical-pad-player2", stringResource(R.string.physical_pad_player2), stringResource(R.string.physical_pad_player2_hint), physicalPadPlayer2) { on ->
                                 physicalPadPlayer2 = on

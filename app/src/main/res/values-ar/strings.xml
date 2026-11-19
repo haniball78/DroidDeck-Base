@@ -768,6 +768,11 @@
     <string name="second_player_hint">هاتف آخر ينضم كلاعب ثانٍ — يعمل مع اللعب العادي والتلفاز والكمبيوتر.</string>
     <string name="second_player_add">أضف لاعباً آخر</string>
     <string name="second_player_on">مفعّل — يمكن لهاتف آخر الانضمام كلاعب ثانٍ</string>
+    <string name="second_player_home_wifi">واي فاي المنزل</string>
+    <string name="second_player_home_wifi_hint">ابحث عن هاتف المتحكم على شبكة واي فاي المنزل.</string>
+    <string name="second_player_manual_ip">IP المتحكم</string>
+    <string name="second_player_manual_ip_hint">اكتب IP واي فاي هاتف المتحكم للاتصال مباشرة بدون بحث.</string>
+    <string name="second_player_controller_ip">IP المتحكم على الواي فاي: %1$s</string>
     <string name="physical_pad_player2">القبضة الأولى هي اللاعب الثاني</string>
     <string name="physical_pad_player2_hint">لوحة اللمس تبقى اللاعب الأول؛ والقبضة الموصولة تصبح اللاعب الثاني. أطفئه لتكون القبضة هي اللاعب الأول.</string>
     <string name="physical_pad_none">لا توجد قبضة موصولة</string>

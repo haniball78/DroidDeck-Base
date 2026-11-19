@@ -541,15 +541,16 @@ class SessionService : Service() {
         return name.contains("710-720") || name.contains("710_720")
     }
 
-    /** The parts a second player adds: the pad server plus the group that advertises it. */
+    /** The parts a second player adds: the pad server, the group that advertises it over Wi-Fi Direct, and the LAN advertiser for home Wi-Fi. */
     private fun secondPlayerParts(): List<SessionPart> =
-        components.filter { it is P2pPadServer || it is P2pGroup }
+        components.filter { it is P2pPadServer || it is P2pGroup || it is LanPadAdvertiser }
 
     private fun addSecondPlayerParts() {
         if (secondPlayerParts().isNotEmpty()) return
         val padServer = P2pPadServer(UsbTether.USB_PAD_PORT).also { it.attach(this) }
         components.add(padServer)
         components.add(P2pGroup(padServer).also { it.attach(this) })
+        components.add(LanPadAdvertiser(padServer).also { it.attach(this) })
     }
 
     private fun startSecondPlayerParts() {

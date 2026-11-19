@@ -136,28 +136,70 @@ internal const val NSD_SERVICE_TYPE = "_droiddeck-tv._tcp"
 /** Short NSD discovery window for USB mode: the cable link is either there or it is not. */
 internal const val USB_DISCOVERY_TIMEOUT_MS = 3_000L
 
+/** Which link the joining phone uses to reach the controller. */
+enum class PadTransport { LAN, P2P, USB }
+
+/** True when the host is on the Wi-Fi Direct group subnet (192.168.49.0/24). */
+internal fun isP2pAddress(host: String): Boolean {
+    val octets = host.split('.')
+    return octets.size == 4 && octets[0] == "192" && octets[1] == "168" && octets[2] == "49"
+}
+
+/** True when the host is a plain LAN address: not the P2P group subnet, not USB tethering. */
+internal fun isLanAddress(host: String): Boolean = !isP2pAddress(host) && !UsbTether.isTetherAddress(host)
+
 /**
- * Discovers one controller service over plain NSD and resolves it; the host and
- * port come from resolution, never from the registration callback (which
- * reports port 0 on this device). Null on timeout or failure. Stops discovery
+ * Picks the best discovered controller for the chosen transport; falls back
+ * to the first endpoint when none matches, so a lone controller is always tried.
+ */
+internal fun preferEndpoint(endpoints: List<Pair<String, Int>>, transport: PadTransport): Pair<String, Int>? {
+    if (endpoints.isEmpty()) return null
+    return when (transport) {
+        PadTransport.LAN -> endpoints.firstOrNull { isLanAddress(it.first) }
+        PadTransport.P2P -> endpoints.firstOrNull { isP2pAddress(it.first) }
+        PadTransport.USB -> endpoints.firstOrNull { UsbTether.isTetherAddress(it.first) }
+    } ?: endpoints.first()
+}
+
+/**
+ * Discovers all controller services over plain NSD and resolves them; the
+ * controller advertises twice (LAN NSD + P2P DNS-SD), so more than one
+ * endpoint can come back. Returns early when an endpoint matching
+ * [earlyExit] resolves, otherwise waits out [timeoutMs]. Stops discovery
  * before returning on every path.
  */
-internal fun discoverNsdController(context: Context, timeoutMs: Long): Pair<String, Int>? {
-    val manager = context.getSystemService(Context.NSD_SERVICE) as? NsdManager ?: return null
-    var endpoint: Pair<String, Int>? = null
-    val found = CountDownLatch(1)
+internal fun discoverNsdEndpoints(
+    context: Context,
+    timeoutMs: Long,
+    earlyExit: (Pair<String, Int>) -> Boolean = { false },
+): List<Pair<String, Int>> {
+    val manager = context.getSystemService(Context.NSD_SERVICE) as? NsdManager ?: return emptyList()
+    val found = ArrayList<Pair<String, Int>>()
+    val done = CountDownLatch(1)
+    val exited = AtomicBoolean(false)
     val listener = object : NsdManager.DiscoveryListener {
         override fun onDiscoveryStarted(serviceType: String) = Unit
         override fun onServiceFound(serviceInfo: NsdServiceInfo) {
             if (serviceInfo.serviceType?.contains(NSD_SERVICE_TYPE) != true) return
-            runCatching { manager.resolveService(serviceInfo, nsdResolveListener(found) { endpoint = it }) }
+            runCatching {
+                manager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
+                    override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = Unit
+                    override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
+                        val endpoint = nsdEndpoint(serviceInfo.host?.hostAddress, serviceInfo.port) ?: return
+                        synchronized(found) {
+                            if (found.none { it == endpoint }) found += endpoint
+                        }
+                        if (earlyExit(endpoint) && exited.compareAndSet(false, true)) done.countDown()
+                    }
+                })
+            }
         }
 
         override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
         override fun onDiscoveryStopped(serviceType: String) = Unit
         override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
             Log.w("P2pPadClient", "discovery failed: $errorCode")
-            found.countDown()
+            done.countDown()
         }
 
         override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
@@ -165,23 +207,21 @@ internal fun discoverNsdController(context: Context, timeoutMs: Long): Pair<Stri
     runCatching { manager.discoverServices("$NSD_SERVICE_TYPE.", NsdManager.PROTOCOL_DNS_SD, listener) }
         .onFailure {
             Log.w("P2pPadClient", "discoverServices failed", it)
-            return null
+            return emptyList()
         }
-    runCatching { found.await(timeoutMs, TimeUnit.MILLISECONDS) }
+    runCatching { done.await(timeoutMs, TimeUnit.MILLISECONDS) }
     runCatching { manager.stopServiceDiscovery(listener) }
-    return endpoint
+    return synchronized(found) { found.toList() }
 }
 
-internal fun nsdResolveListener(found: CountDownLatch, onResolved: (Pair<String, Int>) -> Unit) =
-    object : NsdManager.ResolveListener {
-        override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = Unit
-        override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-            nsdEndpoint(serviceInfo.host?.hostAddress, serviceInfo.port)?.let {
-                onResolved(it)
-                found.countDown()
-            }
-        }
-    }
+/**
+ * Discovers one controller service over plain NSD and resolves it; the host and
+ * port come from resolution, never from the registration callback (which
+ * reports port 0 on this device). Null on timeout or failure. Stops discovery
+ * before returning on every path.
+ */
+internal fun discoverNsdController(context: Context, timeoutMs: Long): Pair<String, Int>? =
+    discoverNsdEndpoints(context, timeoutMs) { true }.firstOrNull()
 
 /** A resolved NSD endpoint; null when the host is missing or the port is unusable (0 is the registration-callback quirk, never a real port). */
 internal fun nsdEndpoint(host: String?, port: Int): Pair<String, Int>? {

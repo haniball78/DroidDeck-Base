@@ -802,6 +802,11 @@
     <string name="second_player_hint">Another phone joins as player 2 — works for normal play, TV and computer.</string>
     <string name="second_player_add">Add another player</string>
     <string name="second_player_on">On — a second phone can join as player 2</string>
+    <string name="second_player_home_wifi">Home Wi-Fi</string>
+    <string name="second_player_home_wifi_hint">Find the controller phone on your home Wi-Fi network.</string>
+    <string name="second_player_manual_ip">Controller IP</string>
+    <string name="second_player_manual_ip_hint">Type the controller phone\'s Wi-Fi IP to connect directly, without discovery.</string>
+    <string name="second_player_controller_ip">Controller IP on Wi-Fi: %1$s</string>
     <string name="physical_pad_player2">First gamepad is player 2</string>
     <string name="physical_pad_player2_hint">The touch pad stays player 1; a connected gamepad becomes player 2. Turn off for the gamepad to be player 1.</string>
     <string name="physical_pad_none">No gamepad connected</string>
