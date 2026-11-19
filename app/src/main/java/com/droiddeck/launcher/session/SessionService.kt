@@ -734,20 +734,12 @@ class SessionService : Service() {
         networkLink.attach(this)
         networkLink.publish()
         components.add(networkLink)
-        // The stream starts only when the controller stream was prepared from the
-        // Receiver page; a normal session adds nothing, and a second player
-        // without preparation gets the pad server + group exactly as before.
-        when (sessionStreamPlan(ControllerStream.isPrepared, SessionPrefs.secondPlayer(this))) {
+        // A second player gets the pad server + group; a normal session adds nothing.
+        when (sessionStreamPlan(SessionPrefs.secondPlayer(this))) {
             StreamPlan.PAD_AND_GROUP -> {
                 val padServer = P2pPadServer(UsbTether.USB_PAD_PORT).also { it.attach(this) }
                 components.add(padServer)
                 components.add(P2pGroup(padServer).also { it.attach(this) })
-            }
-            StreamPlan.ENCODER_ONLY -> {
-                val streamFile = File(filesDir, "venc/surface.h264")
-                val encoder = TvSurfaceEncode(streamFile, ControllerStream.streamSink).also { it.attach(this) }
-                ControllerStream.requestSyncFrame = { encoder.requestSyncFrame() }
-                components.add(encoder)
             }
             StreamPlan.NONE -> Unit
         }
@@ -2539,7 +2531,6 @@ class SessionService : Service() {
             }
         }
         components.clear()
-        ControllerStream.stop()
         FakeInputWriter.releaseAllRingSlots()
         com.droiddeck.launcher.input.SteamTouchDevice.release()
         val steamClientMayRun = SessionState.mode == MODE_STEAM || SessionState.mode == MODE_DESKTOP

@@ -63,19 +63,18 @@ class P2pGroupTest {
     }
 
     @Test
-    fun `txt record carries the bound stream port`() {
-        val record = txtRecord(-1, 28752, 1920 to 1080)
-        assertEquals("28752", record["video"])
-        assertEquals("1920", record["w"])
-        assertEquals("1080", record["h"])
+    fun `txt record carries the pad port`() {
+        val record = txtRecord(28753)
+        assertEquals("28753", record["pad"])
         assertEquals("controller", record["role"])
+        assertNull(record["video"])
     }
 
     @Test
-    fun `txt record omits the video port when there is no stream server`() {
-        val record = txtRecord(28753, -1, 1920 to 1080)
-        assertNull(record["video"])
-        assertEquals("28753", record["pad"])
+    fun `txt record omits the pad port when there is no pad server`() {
+        val record = txtRecord(-1)
+        assertNull(record["pad"])
+        assertEquals("controller", record["role"])
     }
 
     @Test

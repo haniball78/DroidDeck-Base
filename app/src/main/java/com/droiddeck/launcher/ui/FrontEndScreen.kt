@@ -447,7 +447,7 @@ private fun FrontEndScreenBody(s: FrontEndState, a: FrontEndActions, page: (@Com
         selected.startsWith("app:") -> "games"
         selected.startsWith("emu:") || selected.startsWith("rom:") || selected.startsWith("user:") || selected == "store" -> "desktop"
         selected == "updates" -> "setup"
-        selected == "tv" || selected == "computer" || selected == "receiver" -> "connections"
+        selected == "tv" || selected == "computer" || selected == "second_player" -> "connections"
         else -> s.pageKey ?: selected
     }
     var railPicks by remember { mutableStateOf(0) }

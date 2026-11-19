@@ -2208,12 +2208,6 @@ private fun AdvancedSetupTab(
                 stringResource(R.string.setup_adv_configure),
                 onClick = { onSelect("computer") },
             )
-            ActionRow(
-                stringResource(R.string.receiver_settings),
-                stringResource(R.string.receiver_settings_hint),
-                stringResource(R.string.setup_adv_configure),
-                onClick = { onSelect("receiver") },
-            )
         }
     }
 

@@ -4,6 +4,7 @@ import android.view.KeyEvent
 import com.droiddeck.launcher.input.PadState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -205,5 +206,24 @@ class P2pPadClientTest {
                 // Expected.
             }
         }
+    }
+
+    @Test
+    fun `nsd endpoint takes host and port from resolution`() {
+        assertEquals("192.168.49.1" to 40001, nsdEndpoint("192.168.49.1", 40001))
+    }
+
+    @Test
+    fun `nsd endpoint rejects the port 0 registration quirk`() {
+        assertNull(nsdEndpoint("192.168.49.1", 0))
+    }
+
+    @Test
+    fun `nsd endpoint rejects a missing host or an unusable port`() {
+        assertNull(nsdEndpoint(null, 40001))
+        assertNull(nsdEndpoint("", 40001))
+        assertNull(nsdEndpoint("  ", 40001))
+        assertNull(nsdEndpoint("192.168.49.1", -1))
+        assertNull(nsdEndpoint("192.168.49.1", 65536))
     }
 }

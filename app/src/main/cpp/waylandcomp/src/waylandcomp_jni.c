@@ -349,30 +349,6 @@ Java_com_droiddeck_launcher_wayland_WaylandCompositor_nativeEncodeAvailable(JNIE
     return (jboolean)ahb_swapchain_advertised();
 }
 
-JNIEXPORT jint JNICALL
-Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeVkEncodeStart(JNIEnv *env, jclass clazz,
-                                                                        jobject surface, jint width,
-                                                                        jint height) {
-    (void)clazz;
-    if (!surface || width <= 0 || height <= 0) return -1;
-    ANativeWindow *win = ANativeWindow_fromSurface(env, surface);
-    if (!win) return -2;
-    return vk_encode_start(win, (int)width, (int)height);
-}
-
-JNIEXPORT jint JNICALL
-Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeVkEncodePresentFrame(JNIEnv *env, jclass clazz,
-                                                                              jlong ahbPtr, jint fenceFd) {
-    (void)env; (void)clazz;
-    return vk_encode_present_frame((AHardwareBuffer *)(uintptr_t)ahbPtr, (int)fenceFd);
-}
-
-JNIEXPORT void JNICALL
-Java_com_droiddeck_launcher_session_TvSurfaceEncode_nativeVkEncodeStop(JNIEnv *env, jclass clazz) {
-    (void)env; (void)clazz;
-    vk_encode_stop();
-}
-
 JNIEXPORT void JNICALL
 Java_com_droiddeck_launcher_wayland_WaylandCompositor_nativeSetUbwc(JNIEnv *env, jclass clazz, jboolean on) {
     g_ubwc = on ? 1 : 0;

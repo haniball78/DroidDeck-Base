@@ -253,8 +253,8 @@ private fun Content(
         ComputerSettingsPage(onBack = { onSelect("setup") })
         return
     }
-    if (selected == "receiver") {
-        ReceiverSettingsPage(onBack = { onSelect("setup") }, onGoToGames = { onSelect("games") })
+    if (selected == "second_player") {
+        SecondPlayerPage(onBack = { onSelect("setup") })
         return
     }
     if (selected == "connections") {

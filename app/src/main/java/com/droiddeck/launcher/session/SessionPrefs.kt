@@ -83,35 +83,7 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("tvControllerMode", on).apply()
     }
 
-    fun tvSurfaceEncodeTest(context: Context): Boolean = prefs(context).getBoolean("tvSurfaceEncodeTest", false)
-
-    fun setTvSurfaceEncodeTest(context: Context, on: Boolean) {
-        prefs(context).edit().putBoolean("tvSurfaceEncodeTest", on).apply()
-    }
-
-    fun tvStreamTest(context: Context): Boolean = prefs(context).getBoolean("tvStreamTest", false)
-
-    fun setTvStreamTest(context: Context, on: Boolean) {
-        prefs(context).edit().putBoolean("tvStreamTest", on).apply()
-    }
-
-    const val RECEIVER_MODE_OFF = "off"
-    const val RECEIVER_MODE_CONTROLLER = "controller"
-    const val RECEIVER_MODE_RECEIVER = "receiver"
-    const val RECEIVER_MODE_GAMEPAD = "gamepad"
-
-    /** Which side of Receiver mode this device plays: off, controller (runs the game and streams it), receiver (shows a stream), or gamepad (second controller for a controller phone). */
-    fun receiverMode(context: Context): String =
-        prefs(context).getString("receiverMode", RECEIVER_MODE_OFF)
-            .takeIf { it == RECEIVER_MODE_CONTROLLER || it == RECEIVER_MODE_RECEIVER || it == RECEIVER_MODE_GAMEPAD }
-            ?: RECEIVER_MODE_OFF
-
-    fun setReceiverMode(context: Context, mode: String) {
-        require(mode == RECEIVER_MODE_OFF || mode == RECEIVER_MODE_CONTROLLER || mode == RECEIVER_MODE_RECEIVER || mode == RECEIVER_MODE_GAMEPAD)
-        prefs(context).edit().putString("receiverMode", mode).apply()
-    }
-
-    /** A second phone may join as player 2 in any session, not just Controller mode: the phone creates the DroidDeck-TV group at session start. */
+    /** A second phone may join as player 2 in any session: the phone creates the DroidDeck-TV group at session start. */
     fun secondPlayer(context: Context): Boolean = prefs(context).getBoolean("secondPlayer", false)
 
     fun setSecondPlayer(context: Context, on: Boolean) {
@@ -123,13 +95,6 @@ object SessionPrefs {
 
     fun setPhysicalPadPlayer2(context: Context, on: Boolean) {
         prefs(context).edit().putBoolean("physicalPadPlayer2", on).apply()
-    }
-
-    /** A receiver device also drives the game from its own touch pad / plugged-in inputs, while it shows the video. */
-    fun receiverSendInput(context: Context): Boolean = prefs(context).getBoolean("receiverSendInput", false)
-
-    fun setReceiverSendInput(context: Context, on: Boolean) {
-        prefs(context).edit().putBoolean("receiverSendInput", on).apply()
     }
 
     fun tvRender4k(context: Context): Boolean = prefs(context).getBoolean("tvRender4k", false)

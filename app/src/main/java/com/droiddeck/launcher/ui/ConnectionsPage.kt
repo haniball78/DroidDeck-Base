@@ -16,7 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.ScreenShare
-import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -52,15 +51,10 @@ internal fun ConnectionsPage(onSelect: (String) -> Unit, modifier: Modifier) {
                 stringResource(R.string.tv_settings_hint),
             ) { onSelect("tv") }
             ConnectionCard(
-                Icons.Outlined.Smartphone,
-                stringResource(R.string.receiver_settings),
-                stringResource(R.string.receiver_settings_hint),
-            ) { onSelect("receiver") }
-            ConnectionCard(
                 Icons.Outlined.SportsEsports,
                 stringResource(R.string.connections_second_player),
                 stringResource(R.string.connections_second_player_hint),
-            ) { onSelect("receiver") }
+            ) { onSelect("second_player") }
         }
     }
 }

@@ -13,8 +13,8 @@ import com.droiddeck.launcher.core.privileged.TvDiagnosticsLog
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Controller-side Wi-Fi Direct group for Receiver mode: the phone becomes the group
- * owner so a receiver can discover and join it, or uses the group already up
+ * Controller-side Wi-Fi Direct group for a second player: the phone becomes the group
+ * owner so a second phone can join as player 2, or uses the group already up
  * (e.g. made from Settings) instead of asking the framework to create one.
  * No Play Services dependency. begin() returns after kicking off group
  * detection/creation; formation and advertising finish asynchronously (the
@@ -22,7 +22,6 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class P2pGroup(
     private val padServer: P2pPadServer? = null,
-    private val streamPort: Int = -1,
 ) : SessionPart() {
     enum class Status { IDLE, FORMING, READY, FAILED }
 
@@ -203,7 +202,7 @@ class P2pGroup(
         if (stopped.get()) return
         val info = WifiP2pDnsSdServiceInfo.newInstance(
             SERVICE_INSTANCE, SERVICE_TYPE,
-            txtRecord(padServer?.port ?: -1, streamPort, SessionState.outputSize),
+            txtRecord(padServer?.port ?: -1),
         )
         manager?.addLocalService(channel, info, object : WifiP2pManager.ActionListener {
             override fun onSuccess() = markReady()
@@ -285,16 +284,12 @@ internal fun isValidPassphrase(passphrase: String): Boolean =
     passphrase.length in 8..63 && passphrase.all { it.code in 0x20..0x7e }
 
 /**
- * TXT record for the controller's DNS-SD service: the video size so the receiver can configure
- * its decoder before the first frame arrives, the pad-server port so a second phone can join
- * as player 2, and the stream-server port so the receiver connects to the bound port.
+ * TXT record for the controller's DNS-SD service: the pad-server port so a
+ * second phone can join as player 2.
  */
-internal fun txtRecord(padPort: Int, streamPort: Int, size: Pair<Int, Int>): Map<String, String> {
-    val record = mutableMapOf(
-        "role" to "controller", "w" to size.first.toString(), "h" to size.second.toString(),
-    )
+internal fun txtRecord(padPort: Int): Map<String, String> {
+    val record = mutableMapOf("role" to "controller")
     if (padPort > 0) record["pad"] = padPort.toString()
-    if (streamPort > 0) record["video"] = streamPort.toString()
     return record
 }
 
