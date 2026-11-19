@@ -6,6 +6,8 @@ import java.net.NetworkInterface
 object UsbTether {
     const val USB_STREAM_PORT = 28752
     const val USB_PAD_PORT = 28753
+    const val USB_VIDEO_UDP_PORT = 28754
+    const val USB_CONTROL_PORT = 28755
 
     // Android's USB tethering gateway: the game phone is always .129 on 192.168.42.0/24.
     const val DEFAULT_GATEWAY = "192.168.42.129"

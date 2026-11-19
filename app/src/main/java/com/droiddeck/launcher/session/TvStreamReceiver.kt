@@ -8,12 +8,16 @@ import android.media.MediaFormat
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
+import android.os.Process
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import com.droiddeck.launcher.R
 import java.io.DataInputStream
 import java.io.EOFException
 import java.net.ConnectException
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.NoRouteToHostException
 import java.net.Socket
@@ -56,11 +60,13 @@ class TvStreamReceiver(
     fun stop() {
         destroyed.set(true)
         runCatching { currentSocket?.close() }
+        runCatching { udpSocket?.close() }
         runCatching { decoder?.release() }
         worker?.interrupt()
     }
 
     private fun runLoop() {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
         while (!destroyed.get()) {
             val endpoint = fixedEndpoint ?: discover()
             if (endpoint == null) {
@@ -68,22 +74,8 @@ class TvStreamReceiver(
                 continue
             }
             resolvedEndpoint = endpoint
-            val connectStartNanos = System.nanoTime()
             val host = hostOverride ?: endpoint.first
-            var failure: Throwable? = null
-            val socket = runCatching {
-                Socket().apply {
-                    tcpNoDelay = true
-                    connect(InetSocketAddress(host, endpoint.second), CONNECT_TIMEOUT_MS)
-                }
-            }.onFailure { failure = it }.getOrNull()
-            if (socket == null) {
-                onStatus?.invoke(context.getString(connectFailureStringId(failure), host, endpoint.second))
-                sleepQuietly(RETRY_MS)
-                continue
-            }
-            currentSocket = socket
-            onStatus?.invoke("connected to $host:${endpoint.second}")
+            val connectStartNanos = System.nanoTime()
             val dec = VideoDecoder(surface, width, height) {
                 val n = framesDecoded.incrementAndGet()
                 if (firstFrameMs.get() == -1L) {
@@ -93,20 +85,130 @@ class TvStreamReceiver(
             }
             if (!dec.start()) {
                 onStatus?.invoke("no H.264 decoder on this device")
-                runCatching { socket.close() }
-                currentSocket = null
                 sleepQuietly(RETRY_MS)
                 continue
             }
             decoder = dec
-            val input = DataInputStream(socket.getInputStream())
-            readUnits(input, { destroyed.get() || socket.isClosed }) { dec.feed(it) }
-            runCatching { socket.close() }
-            currentSocket = null
+            val pacer = VsyncPacer(render = { dec.render(it) }, drop = { dec.drop(it) })
+            dec.frameSink = pacer
+            pacer.start()
+            val gate = KeyframeGate()
+            // UDP first; TCP is the fallback until UDP is proven on this link.
+            val udpOk = runUdpSession(endpoint, host, dec, gate)
+            if (!destroyed.get() && !udpOk) {
+                runTcpSession(endpoint, host, dec, gate)
+            }
+            pacer.stop()
             runCatching { dec.release() }
             decoder = null
             if (!destroyed.get()) onStatus?.invoke("disconnected, searching again")
         }
+    }
+
+    /**
+     * One UDP session: subscribes, reassembles frames with FEC recovery,
+     * and feeds them to the decoder. False when UDP never produced a
+     * frame, stalled, or lost its control channel — the caller falls back
+     * to TCP. True only when the loop ended because the receiver stopped.
+     */
+    private fun runUdpSession(
+        endpoint: Pair<String, Int>,
+        host: String,
+        dec: VideoDecoder,
+        gate: KeyframeGate,
+    ): Boolean {
+        val udpPort = UdpVideo.videoPort(endpoint.second)
+        val controlPort = UdpVideo.controlPort(endpoint.second)
+        val control = UdpControlClient()
+        if (!control.connect(host, controlPort)) return false
+        val socket = runCatching { DatagramSocket() }.getOrNull() ?: run {
+            control.close()
+            return false
+        }
+        socket.soTimeout = UDP_SOCKET_TIMEOUT_MS
+        udpSocket = socket
+        gate.reset()
+        var firstFrameAtMs = -1L
+        var lastFrameAtMs = -1L
+        var controlDead = false
+        val assembler = UdpFrameAssembler(
+            onFrame = { _, timestampMs, bytes ->
+                if (firstFrameAtMs < 0) firstFrameAtMs = SystemClock.elapsedRealtime()
+                lastFrameAtMs = SystemClock.elapsedRealtime()
+                val scanner = AnnexBScanner()
+                for (unit in scanner.feed(bytes) + scanner.flush()) {
+                    gate.offer(unit) { dec.feed(it, timestampMs) }
+                }
+            },
+            onFrameLost = { index ->
+                if (!control.sendRfi(index, index)) controlDead = true
+            },
+        )
+        val subscribe = UdpVideo.subscribeDatagram()
+        val subscribedAtMs = SystemClock.elapsedRealtime()
+        var lastSubscribeMs = subscribedAtMs
+        sendSubscribe(socket, host, udpPort, subscribe)
+        val buf = ByteArray(UdpVideo.HEADER_BYTES + UdpVideo.PAYLOAD_BYTES)
+        try {
+            while (!destroyed.get() && !controlDead) {
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastSubscribeMs >= SUBSCRIBE_INTERVAL_MS) {
+                    sendSubscribe(socket, host, udpPort, subscribe)
+                    lastSubscribeMs = now
+                }
+                val packet = DatagramPacket(buf, buf.size)
+                val received = runCatching { socket.receive(packet) }.isSuccess
+                if (!received) {
+                    assembler.sweepStale(now)
+                    if (firstFrameAtMs < 0 && now - subscribedAtMs > UDP_FIRST_FRAME_TIMEOUT_MS) return false
+                    if (firstFrameAtMs >= 0 && now - lastFrameAtMs > UDP_STALL_MS) return false
+                    continue
+                }
+                val video = UdpVideoPacket.decode(packet.data, packet.length) ?: continue
+                assembler.offer(video)
+            }
+        } finally {
+            runCatching { socket.close() }
+            udpSocket = null
+            control.close()
+        }
+        return destroyed.get() && !controlDead
+    }
+
+    private fun sendSubscribe(socket: DatagramSocket, host: String, port: Int, datagram: ByteArray) {
+        runCatching {
+            socket.send(DatagramPacket(datagram, datagram.size, InetSocketAddress(host, port)))
+        }
+    }
+
+    /** One TCP session (the fallback): the existing length-prefixed stream, keyframe-gated. */
+    private fun runTcpSession(
+        endpoint: Pair<String, Int>,
+        host: String,
+        dec: VideoDecoder,
+        gate: KeyframeGate,
+    ) {
+        var failure: Throwable? = null
+        val socket = runCatching {
+            Socket().apply {
+                tcpNoDelay = true
+                connect(InetSocketAddress(host, endpoint.second), CONNECT_TIMEOUT_MS)
+            }
+        }.onFailure { failure = it }.getOrNull()
+        if (socket == null) {
+            onStatus?.invoke(context.getString(connectFailureStringId(failure), host, endpoint.second))
+            sleepQuietly(RETRY_MS)
+            return
+        }
+        currentSocket = socket
+        onStatus?.invoke("connected to $host:${endpoint.second}")
+        gate.reset()
+        val input = DataInputStream(socket.getInputStream())
+        readUnits(input, { destroyed.get() || socket.isClosed }) { unit ->
+            gate.offer(unit) { dec.feed(it) }
+        }
+        runCatching { socket.close() }
+        currentSocket = null
     }
 
     /** Discovers one _droiddeck-tv._tcp service over NSD; null on timeout. */
@@ -124,12 +226,19 @@ class TvStreamReceiver(
     private var currentSocket: Socket? = null
 
     @Volatile
+    private var udpSocket: DatagramSocket? = null
+
+    @Volatile
     private var decoder: VideoDecoder? = null
 
     private companion object {
         const val DISCOVERY_TIMEOUT_MS = 10_000L
         const val CONNECT_TIMEOUT_MS = 5_000
         const val RETRY_MS = 2_000L
+        const val UDP_SOCKET_TIMEOUT_MS = 100
+        const val SUBSCRIBE_INTERVAL_MS = 1_000L
+        const val UDP_FIRST_FRAME_TIMEOUT_MS = 3_000L
+        const val UDP_STALL_MS = 2_000L
     }
 }
 
@@ -210,70 +319,115 @@ internal fun connectFailureStringId(error: Throwable?): Int = when (classifyConn
 /**
  * Decoder format; low-latency keys only when the OS defines them and the
  * codec supports them (mirrors the encoder's API-gated buildFormat).
+ * The vendor key is set in addition to the generic one: on Qualcomm,
+ * Exynos and other vendors the generic key alone is a no-op.
  */
 internal fun buildDecoderFormat(
     width: Int,
     height: Int,
     sdkInt: Int = Build.VERSION.SDK_INT,
     lowLatency: Boolean = false,
+    vendorKey: String? = null,
 ): MediaFormat =
     MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
         if (sdkInt >= Build.VERSION_CODES.M) setInteger(MediaFormat.KEY_PRIORITY, 0)
         if (lowLatency && sdkInt >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+        if (lowLatency && sdkInt >= Build.VERSION_CODES.R && vendorKey != null) {
+            setInteger(vendorKey, 1)
+        }
     }
+
+/**
+ * The vendor low-latency key for a decoder name, or null when the vendor
+ * is unknown. The generic KEY_LOW_LATENCY alone does not engage the
+ * low-latency path on several vendors' decoders.
+ */
+internal fun decoderVendorLowLatencyKey(codecName: String?): String? {
+    if (codecName == null) return null
+    val name = codecName.lowercase()
+    return when {
+        "qcom" in name || "qti" in name -> "vendor.qti-ext-dec-low-latency.enable"
+        "exynos" in name -> "vendor.rtc-ext-dec-low-latency.enable"
+        "hisi" in name -> "vendor.hisi-ext-dec-low-latency.enable"
+        "amlogic" in name -> "vendor.low-latency.enable"
+        else -> null
+    }
+}
+
+/**
+ * The preferred hardware AVC decoder's name when it advertises
+ * low-latency decoding (API 30+); null otherwise. False on any failure.
+ */
+internal fun findLowLatencyDecoderName(sdkInt: Int = Build.VERSION.SDK_INT): String? {
+    if (sdkInt < Build.VERSION_CODES.R) return null
+    val list = runCatching { MediaCodecList(MediaCodecList.REGULAR_CODECS) }.getOrNull() ?: return null
+    // findDecoderForFormat returns the preferred decoder's NAME, not its info.
+    val name = runCatching {
+        list.findDecoderForFormat(MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 1920, 1080))
+    }.getOrNull() ?: return null
+    val info = runCatching { list.codecInfos.firstOrNull { it.name == name } }.getOrNull() ?: return null
+    val supported = runCatching {
+        info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            .isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)
+    }.getOrDefault(false)
+    return if (supported) name else null
+}
 
 /**
  * True when a hardware AVC decoder on this device advertises low-latency
  * decoding (API 30+). False on any failure — the plain format is always safe.
  */
-internal fun decoderSupportsLowLatency(sdkInt: Int = Build.VERSION.SDK_INT): Boolean {
-    if (sdkInt < Build.VERSION_CODES.R) return false
-    val list = runCatching { MediaCodecList(MediaCodecList.REGULAR_CODECS) }.getOrNull() ?: return false
-    // findDecoderForFormat returns the preferred decoder's NAME, not its info.
-    val name = runCatching {
-        list.findDecoderForFormat(MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 1920, 1080))
-    }.getOrNull() ?: return false
-    val info = runCatching { list.codecInfos.firstOrNull { it.name == name } }.getOrNull() ?: return false
-    return runCatching {
-        info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
-            .isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)
-    }.getOrDefault(false)
+internal fun decoderSupportsLowLatency(sdkInt: Int = Build.VERSION.SDK_INT): Boolean =
+    findLowLatencyDecoderName(sdkInt) != null
+
+/** Receives decoded frames; the pacer releases them to the screen at the next vsync where they are due. */
+internal fun interface FrameSink {
+    fun onDecoded(index: Int, timestampMs: Int)
 }
 
-/** Hardware H.264 decoder rendering to a surface; calls onFrame per released frame. */
+/** Hardware H.264 decoder rendering to a surface; calls onFrame per displayed frame. */
 internal class VideoDecoder(
     private val surface: Surface,
     private val width: Int,
     private val height: Int,
     private val onFrame: () -> Unit,
 ) {
+    /** When set, decoded frames go to the sink (the vsync pacer) instead of straight to the screen. */
+    var frameSink: FrameSink? = null
+
     private var decoder: MediaCodec? = null
+    private var decoderName: String? = null
 
     /** Creates and starts the decoder; false when this device has no AVC decoder. */
     fun start(): Boolean {
-        val lowLatency = decoderSupportsLowLatency()
+        val lowLatencyName = findLowLatencyDecoderName()
+        val vendorKey = decoderVendorLowLatencyKey(lowLatencyName)
         val first = runCatching { MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC) }.getOrNull()
             ?: return false
-        if (tryStart(first, lowLatency)) {
+        decoderName = runCatching { first.name }.getOrNull()
+        if (tryStart(first, lowLatencyName != null, vendorKey)) {
             decoder = first
             return true
         }
         // A rejected low-latency configure can leave the codec in its error
         // state, so the plain-format retry uses a fresh decoder.
         runCatching { first.release() }
-        if (!lowLatency) return false
+        decoderName = null
+        if (lowLatencyName == null) return false
         val plain = runCatching { MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC) }.getOrNull()
             ?: return false
-        if (tryStart(plain, false)) {
+        decoderName = runCatching { plain.name }.getOrNull()
+        if (tryStart(plain, false, null)) {
             decoder = plain
             return true
         }
         runCatching { plain.release() }
+        decoderName = null
         return false
     }
 
-    private fun tryStart(dec: MediaCodec, lowLatency: Boolean): Boolean = runCatching {
-        dec.configure(buildDecoderFormat(width, height, lowLatency = lowLatency), surface, null, 0)
+    private fun tryStart(dec: MediaCodec, lowLatency: Boolean, vendorKey: String?): Boolean = runCatching {
+        dec.configure(buildDecoderFormat(width, height, lowLatency = lowLatency, vendorKey = vendorKey), surface, null, 0)
         dec.start()
     }.isSuccess
 
@@ -281,46 +435,115 @@ internal class VideoDecoder(
         runCatching { decoder?.stop() }
         runCatching { decoder?.release() }
         decoder = null
+        decoderName = null
     }
 
-    /** Queues one NAL unit and drains decoded frames; oversized units are skipped. */
-    fun feed(unit: ByteArray) {
+    /** Releases a decoded frame to the screen and counts it. */
+    fun render(index: Int) {
+        runCatching { decoder?.releaseOutputBuffer(index, true) }
+        onFrame()
+    }
+
+    /** Drops a decoded frame without showing it; the decoder keeps its reference. */
+    fun drop(index: Int) {
+        runCatching { decoder?.releaseOutputBuffer(index, false) }
+    }
+
+    /**
+     * Queues one NAL unit and drains decoded frames. [timestampMs] is the
+     * sender timestamp of the frame the unit belongs to (the receiver's
+     * clock for TCP units); the sink uses it to pace the display.
+     */
+    fun feed(unit: ByteArray, timestampMs: Int = (SystemClock.elapsedRealtime() and 0xFFFFFFFF).toInt()) {
         val dec = decoder ?: return
+        val fixed = if (isQualcommDecoder() && firstNalType(unit) == 7) {
+            SpsFixup.rewriteNumRefFrames(unit)
+        } else {
+            unit
+        }
         val ptsUs = System.nanoTime() / 1000
         val index = runCatching { dec.dequeueInputBuffer(INPUT_TIMEOUT_US) }.getOrDefault(-1)
         if (index >= 0) {
             val buf = dec.getInputBuffer(index)
             if (buf != null) {
-                if (unit.size > buf.remaining()) {
-                    Log.w(TAG, "skipping oversized unit: ${unit.size}")
+                if (fixed.size > buf.remaining()) {
+                    Log.w(TAG, "skipping oversized unit: ${fixed.size}")
                     runCatching { dec.queueInputBuffer(index, 0, 0, ptsUs, 0) }
                 } else {
                     buf.clear()
-                    buf.put(unit)
-                    dec.queueInputBuffer(index, 0, unit.size, ptsUs, 0)
+                    buf.put(fixed)
+                    dec.queueInputBuffer(index, 0, fixed.size, ptsUs, 0)
                 }
             } else {
                 runCatching { dec.queueInputBuffer(index, 0, 0, ptsUs, 0) }
             }
         }
-        drain(dec)
+        drain(dec, timestampMs)
     }
 
-    private fun drain(dec: MediaCodec) {
+    private fun isQualcommDecoder(): Boolean {
+        val name = decoderName?.lowercase() ?: return false
+        return "qcom" in name || "qti" in name
+    }
+
+    private fun drain(dec: MediaCodec, timestampMs: Int) {
         val info = MediaCodec.BufferInfo()
+        val sink = frameSink
         while (true) {
             val index = runCatching { dec.dequeueOutputBuffer(info, 0) }.getOrDefault(MediaCodec.INFO_TRY_AGAIN_LATER)
             if (index == MediaCodec.INFO_TRY_AGAIN_LATER) return
             if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) continue
             if (index < 0) return
-            runCatching { dec.releaseOutputBuffer(index, true) }
-            onFrame()
+            if (sink != null) {
+                sink.onDecoded(index, timestampMs)
+            } else {
+                render(index)
+            }
         }
     }
 
     private companion object {
         const val TAG = "TvStreamReceiver"
         const val INPUT_TIMEOUT_US = 10_000L
+    }
+}
+
+/**
+ * Drops units until the first keyframe, keeping the SPS/PPS that precede
+ * it: a tablet joining mid-stream must not feed the decoder a P-frame
+ * with no reference. Resets on every transport switch.
+ */
+internal class KeyframeGate {
+    fun reset() {
+        pending.clear()
+        sawKeyFrame = false
+    }
+
+    fun offer(unit: ByteArray, sink: (ByteArray) -> Unit) {
+        if (sawKeyFrame) {
+            sink(unit)
+            return
+        }
+        when (firstNalType(unit)) {
+            5 -> {
+                sawKeyFrame = true
+                for (held in pending) sink(held)
+                pending.clear()
+                sink(unit)
+            }
+            7, 8 -> {
+                pending.add(unit)
+                if (pending.size > MAX_PENDING) pending.removeAt(0)
+            }
+            else -> Unit
+        }
+    }
+
+    private val pending = ArrayList<ByteArray>()
+    private var sawKeyFrame = false
+
+    companion object {
+        const val MAX_PENDING = 8
     }
 }
 

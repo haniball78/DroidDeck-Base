@@ -101,6 +101,7 @@ class TvStreamServer(private val bindPort: Int = 0) : SessionPart() {
                 app(), "tv", "stream",
                 fields = mapOf("step" to "client-connected", "ip" to (socket.inetAddress?.hostAddress.orEmpty())),
             )
+            runCatching { onClientConnected?.invoke() }
             val sender = Thread({ sendLoop(socket) }, "tv-stream-send").apply { start() }
             synchronized(clientLock) { senderThread = sender }
         }
@@ -154,6 +155,9 @@ class TvStreamServer(private val bindPort: Int = 0) : SessionPart() {
     internal val queueSize: Int get() = chunkQueue.size
 
     internal fun hasClient(): Boolean = currentClient != null
+
+    /** Called when a receiver connects (the controller asks the encoder for a keyframe then). */
+    var onClientConnected: (() -> Unit)? = null
 
     /** Sends one length-prefixed NAL; false when the client is gone. */
     private fun writeUnit(out: DataOutputStream, unit: ByteArray): Boolean {

@@ -96,6 +96,54 @@ class TvStreamReceiverTest {
     }
 
     @Test
+    fun `vendor low-latency key maps qualcomm exynos hisilicon and amlogic`() {
+        assertEquals("vendor.qti-ext-dec-low-latency.enable", decoderVendorLowLatencyKey("c2.qti.avc.decoder"))
+        assertEquals("vendor.qti-ext-dec-low-latency.enable", decoderVendorLowLatencyKey("OMX.qcom.video.decoder.avc"))
+        assertEquals("vendor.rtc-ext-dec-low-latency.enable", decoderVendorLowLatencyKey("c2.exynos.avc.decoder"))
+        assertEquals("vendor.hisi-ext-dec-low-latency.enable", decoderVendorLowLatencyKey("OMX.hisi.video.decoder.avc"))
+        assertEquals("vendor.low-latency.enable", decoderVendorLowLatencyKey("c2.amlogic.avc.decoder"))
+        assertNull(decoderVendorLowLatencyKey("c2.android.avc.decoder"))
+        assertNull(decoderVendorLowLatencyKey(null))
+    }
+
+    @Test
+    fun `decoder format sets the vendor key only with low latency on API 30+`() {
+        val key = "vendor.qti-ext-dec-low-latency.enable"
+        val flagged = buildDecoderFormat(1920, 1080, Build.VERSION_CODES.R, true, key)
+        assertEquals(1, flagged.getInteger(key))
+        assertEquals(1, flagged.getInteger(MediaFormat.KEY_LOW_LATENCY))
+        val noLowLatency = buildDecoderFormat(1920, 1080, Build.VERSION_CODES.R, false, key)
+        assertFalse(noLowLatency.containsKey(key))
+        val oldApi = buildDecoderFormat(1920, 1080, Build.VERSION_CODES.Q, true, key)
+        assertFalse(oldApi.containsKey(key))
+    }
+
+    @Test
+    fun `keyframe gate drops p-frames until the first keyframe and keeps its headers`() {
+        val gate = KeyframeGate()
+        val fed = ArrayList<ByteArray>()
+        val sps = byteArrayOf(0, 0, 0, 1, 0x67, 0x42, 0x01)
+        val pps = byteArrayOf(0, 0, 1, 0x68, 0x01)
+        val pFrame = byteArrayOf(0, 0, 0, 1, 0x41, 0x33)
+        val idr = byteArrayOf(0, 0, 0, 1, 0x65, 0x11, 0x22)
+        gate.offer(pFrame) { fed.add(it) }
+        gate.offer(sps) { fed.add(it) }
+        gate.offer(pps) { fed.add(it) }
+        assertTrue(fed.isEmpty())
+        gate.offer(idr) { fed.add(it) }
+        assertEquals(3, fed.size)
+        assertArrayEquals(sps, fed[0])
+        assertArrayEquals(pps, fed[1])
+        assertArrayEquals(idr, fed[2])
+        gate.offer(pFrame) { fed.add(it) }
+        assertEquals(4, fed.size)
+        gate.reset()
+        fed.clear()
+        gate.offer(pFrame) { fed.add(it) }
+        assertTrue(fed.isEmpty())
+    }
+
+    @Test
     fun `decoder format omits low-latency below API 30 even when supported`() {
         val fmt = buildDecoderFormat(1920, 1080, Build.VERSION_CODES.Q, true)
         assertFalse(fmt.containsKey(MediaFormat.KEY_LOW_LATENCY))
