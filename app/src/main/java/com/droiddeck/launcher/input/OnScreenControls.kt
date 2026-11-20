@@ -98,6 +98,7 @@ class OnScreenControls(
     private var keyboardPressedBy = -1
     private var forwardedPointerBits = 0
     var onTouchMiss: ((MotionEvent) -> Unit)? = null
+    var onPointerCaptureChange: ((Boolean) -> Unit)? = null
     private var settings = ControllerPrefs.read(context)
     private var snap = settings.snap
     private var safe = Rect()
@@ -615,6 +616,11 @@ class OnScreenControls(
             }
         }
         return false
+    }
+
+    override fun onPointerCaptureChange(hasCapture: Boolean) {
+        super.onPointerCaptureChange(hasCapture)
+        onPointerCaptureChange?.invoke(hasCapture)
     }
 
     private fun forwardMiss(event: MotionEvent, x: Float, y: Float): Boolean {

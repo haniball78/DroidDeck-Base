@@ -807,6 +807,7 @@
     <string name="second_player_manual_ip">Controller IP</string>
     <string name="second_player_manual_ip_hint">Type the controller phone\'s Wi-Fi IP to connect directly, without discovery.</string>
     <string name="second_player_controller_ip">Controller IP on Wi-Fi: %1$s</string>
+    <string name="second_player_exit_fullscreen">Exit full screen</string>
     <string name="physical_pad_player2">First gamepad is player 2</string>
     <string name="physical_pad_player2_hint">The touch pad stays player 1; a connected gamepad becomes player 2. Turn off for the gamepad to be player 1.</string>
     <string name="physical_pad_none">No gamepad connected</string>

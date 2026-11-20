@@ -14,7 +14,7 @@ import com.droiddeck.launcher.input.PadState
  * plugged into this phone is forwarded the same way, as key/mouse messages.
  */
 object GamepadInput {
-    fun install(bridge: PadBridge, client: P2pPadClient) {
+    fun install(bridge: PadBridge?, client: P2pPadClient) {
         this.bridge = bridge
         this.client = client
     }
@@ -25,6 +25,55 @@ object GamepadInput {
         touchState.clear()
         hwState.clear()
         merged.clear()
+        lastMouseX = null
+        lastMouseY = null
+        capturedMouseButtons = 0
+    }
+
+    /**
+     * Pointer-captured mouse input (second phone, fullscreen pad): the
+     * captured event already carries relative deltas, like the controller
+     * phone's onCapturedPointer — x/y plus historical values, so the cursor
+     * never hits a screen edge and 360-degree turns are unbounded.
+     */
+    fun onCapturedPointer(event: MotionEvent): Boolean {
+        val client = client ?: return false
+        if (!event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE)) return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_MOVE -> {
+                var dx = event.x
+                var dy = event.y
+                for (i in 0 until event.historySize) {
+                    dx += event.getHistoricalX(i)
+                    dy += event.getHistoricalY(i)
+                }
+                client.sendMouse(dx, dy, capturedMouseButtons, 0f)
+            }
+            MotionEvent.ACTION_BUTTON_PRESS, MotionEvent.ACTION_BUTTON_RELEASE -> {
+                // buttonState already holds the pressed set after the
+                // transition, with the same 1/2/4 bits as the wire mask.
+                val buttons = event.buttonState and 0x7
+                if (buttons != capturedMouseButtons) {
+                    capturedMouseButtons = buttons
+                    client.sendMouse(0f, 0f, capturedMouseButtons, 0f)
+                }
+            }
+            MotionEvent.ACTION_SCROLL -> {
+                val wheel = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+                if (wheel != 0f) client.sendMouse(0f, 0f, capturedMouseButtons, wheel)
+            }
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP -> {}
+            else -> return false
+        }
+        return true
+    }
+
+    /** Capture lost: drop any held captured buttons so the game never sees a stuck click, and re-anchor the absolute path. */
+    fun onPointerCaptureLost() {
+        if (capturedMouseButtons != 0) {
+            client?.sendMouse(0f, 0f, 0, 0f)
+        }
+        capturedMouseButtons = 0
         lastMouseX = null
         lastMouseY = null
     }
@@ -102,4 +151,5 @@ object GamepadInput {
     private val merged = PadState()
     private var lastMouseX: Float? = null
     private var lastMouseY: Float? = null
+    private var capturedMouseButtons = 0
 }

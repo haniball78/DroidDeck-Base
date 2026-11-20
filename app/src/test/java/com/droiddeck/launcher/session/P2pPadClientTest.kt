@@ -92,6 +92,78 @@ class P2pPadClientTest {
     }
 
     @Test
+    fun `a quick press and release both arrive`() {
+        val server = ServerSocket(0, 1, null)
+        val received = ArrayList<PadState>()
+        val gotBoth = CountDownLatch(2)
+        val accept = Thread({
+            val socket = server.accept()
+            val input = DataInputStream(socket.getInputStream())
+            try {
+                while (true) {
+                    val length = input.readInt()
+                    val payload = ByteArray(length)
+                    input.readFully(payload)
+                    received += PadWire.decode((InputWire.parse(payload) as InputMessage.Pad).payload)!!.second
+                    gotBoth.countDown()
+                }
+            } catch (_: Exception) {
+                // Client closed.
+            }
+            socket.close()
+        }, "pad-client-test-tap").apply { start() }
+        try {
+            val client = P2pPadClient()
+            assertTrue(client.connect("127.0.0.1", server.localPort))
+            client.send(PadState().apply { press(PadState.A, true) })
+            client.send(PadState())
+            assertTrue(gotBoth.await(5, TimeUnit.SECONDS))
+            client.close()
+            assertEquals(2, received.size)
+            assertTrue(received[0].isDown(PadState.A))
+            assertFalse(received[1].isDown(PadState.A))
+        } finally {
+            accept.join(2_000)
+            server.close()
+        }
+    }
+
+    @Test
+    fun `an unchanged state is not resent after delivery`() {
+        val server = ServerSocket(0, 1, null)
+        val count = AtomicInteger(0)
+        val gotFirst = CountDownLatch(1)
+        val accept = Thread({
+            val socket = server.accept()
+            val input = DataInputStream(socket.getInputStream())
+            try {
+                while (true) {
+                    val length = input.readInt()
+                    input.skipBytes(length)
+                    if (count.incrementAndGet() == 1) gotFirst.countDown()
+                }
+            } catch (_: Exception) {
+                // Client closed.
+            }
+            socket.close()
+        }, "pad-client-test-noresend").apply { start() }
+        try {
+            val client = P2pPadClient()
+            assertTrue(client.connect("127.0.0.1", server.localPort))
+            val state = PadState().apply { press(PadState.A, true) }
+            client.send(state)
+            assertTrue(gotFirst.await(5, TimeUnit.SECONDS))
+            client.send(state)
+            Thread.sleep(400)
+            assertEquals(1, count.get())
+            client.close()
+        } finally {
+            accept.join(2_000)
+            server.close()
+        }
+    }
+
+    @Test
     fun `connect returns false when nothing listens`() {
         val client = P2pPadClient()
         assertFalse(client.connect("127.0.0.1", 1))

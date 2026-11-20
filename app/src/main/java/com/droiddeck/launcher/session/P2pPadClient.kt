@@ -15,9 +15,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Gamepad-phone side of the second-controller link: connects to the
  * controller phone's pad server (group-owner address + the "pad" port from
- * the P2P TXT record) and streams the local touch-pad state. send() only
- * stores the latest state — a sender thread writes it, and only when it
- * changed, so touch events on the UI thread never block on the network.
+ * the P2P TXT record) and streams the local touch-pad state. send() queues
+ * each distinct state and wakes the sender thread at once, so a quick
+ * press+release is never collapsed into one state; a sender thread writes
+ * the queue, so touch events on the UI thread never block on the network.
  */
 class P2pPadClient(private val slot: Int = 1) {
     init {
@@ -46,7 +47,13 @@ class P2pPadClient(private val slot: Int = 1) {
     }
 
     fun send(state: PadState) {
-        latest = InputWire.wrap(InputWire.KIND_PAD, PadWire.encode(state, slot))
+        val bytes = InputWire.wrap(InputWire.KIND_PAD, PadWire.encode(state, slot))
+        synchronized(queueLock) {
+            val last = padQueue.lastOrNull() ?: lastPadBytes
+            if (last != null && bytes.contentEquals(last)) return
+            padQueue.addLast(bytes)
+            queueLock.notifyAll()
+        }
     }
 
     /** Keyboard/mouse input is queued in order and never coalesced. */
@@ -59,12 +66,16 @@ class P2pPadClient(private val slot: Int = 1) {
     }
 
     private fun enqueue(bytes: ByteArray) {
-        synchronized(queueLock) { messageQueue.addLast(bytes) }
+        synchronized(queueLock) {
+            messageQueue.addLast(bytes)
+            queueLock.notifyAll()
+        }
     }
 
     fun close() {
         if (!stopping.compareAndSet(false, true)) return
         connected.set(false)
+        synchronized(queueLock) { queueLock.notifyAll() }
         runCatching { socket?.close() }
         senderThread?.join(STOP_JOIN_MS)
     }
@@ -75,6 +86,12 @@ class P2pPadClient(private val slot: Int = 1) {
             return
         }
         while (!stopping.get() && connected.get()) {
+            synchronized(queueLock) {
+                while (messageQueue.isEmpty() && padQueue.isEmpty() && !stopping.get() && connected.get()) {
+                    runCatching { queueLock.wait() }
+                }
+            }
+            if (stopping.get() || !connected.get()) break
             // Queued key/mouse messages first, in order — a quick down+up tap
             // must never be lost to the pad-state dedupe below.
             var failed = false
@@ -86,12 +103,15 @@ class P2pPadClient(private val slot: Int = 1) {
                 }
             }
             if (failed) break
-            val bytes = latest
-            if (bytes != null && !bytes.contentEquals(lastSent)) {
-                if (!write(out, bytes)) break
-                lastSent = bytes
+            while (true) {
+                val pad = synchronized(queueLock) { padQueue.removeFirstOrNull() } ?: break
+                lastPadBytes = pad
+                if (!write(out, pad)) {
+                    failed = true
+                    break
+                }
             }
-            runCatching { Thread.sleep(SEND_POLL_MS) }
+            if (failed) break
         }
         connected.set(false)
         runCatching { socket?.close() }
@@ -107,13 +127,11 @@ class P2pPadClient(private val slot: Int = 1) {
     val connected = AtomicBoolean(false)
 
     @Volatile
-    private var latest: ByteArray? = null
+    private var lastPadBytes: ByteArray? = null
 
-    @Volatile
-    private var lastSent: ByteArray? = null
-
-    private val queueLock = Any()
+    private val queueLock = Object()
     private val messageQueue = ArrayDeque<ByteArray>()
+    private val padQueue = ArrayDeque<ByteArray>()
 
     @Volatile
     private var socket: Socket? = null
@@ -125,7 +143,6 @@ class P2pPadClient(private val slot: Int = 1) {
         const val CONNECT_TIMEOUT_MS = 5_000
         const val CONNECT_ATTEMPTS = 3
         const val RETRY_DELAY_MS = 500L
-        const val SEND_POLL_MS = 10L
         const val STOP_JOIN_MS = 2_000L
     }
 }

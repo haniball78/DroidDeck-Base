@@ -773,6 +773,7 @@
     <string name="second_player_manual_ip">IP المتحكم</string>
     <string name="second_player_manual_ip_hint">اكتب IP واي فاي هاتف المتحكم للاتصال مباشرة بدون بحث.</string>
     <string name="second_player_controller_ip">IP المتحكم على الواي فاي: %1$s</string>
+    <string name="second_player_exit_fullscreen">الخروج من ملء الشاشة</string>
     <string name="physical_pad_player2">القبضة الأولى هي اللاعب الثاني</string>
     <string name="physical_pad_player2_hint">لوحة اللمس تبقى اللاعب الأول؛ والقبضة الموصولة تصبح اللاعب الثاني. أطفئه لتكون القبضة هي اللاعب الأول.</string>
     <string name="physical_pad_none">لا توجد قبضة موصولة</string>

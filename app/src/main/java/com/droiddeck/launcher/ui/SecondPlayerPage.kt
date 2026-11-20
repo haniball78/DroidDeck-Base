@@ -3,13 +3,24 @@ package com.droiddeck.launcher.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.view.InputDevice
+import android.view.View
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,7 +30,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -54,6 +69,8 @@ fun SecondPlayerPage(onBack: () -> Unit) {
     val host = rememberMenuHost()
 
     var padRunning by remember { mutableStateOf(false) }
+    var padFullscreen by remember { mutableStateOf(false) }
+    var padView by remember { mutableStateOf<OnScreenControls?>(null) }
     var padStatus by remember { mutableStateOf("Idle — pick a player below, then Start.") }
     var padRef by remember { mutableStateOf<P2pPadClient?>(null) }
     var gamepadSlot by remember { mutableStateOf(1) }
@@ -69,6 +86,7 @@ fun SecondPlayerPage(onBack: () -> Unit) {
 
     fun stopPad() {
         padRunning = false
+        padFullscreen = false
         GamepadInput.clear()
         runCatching { padBridge.setTouchRoute(null) }
         runCatching { padRef?.close() }
@@ -80,6 +98,7 @@ fun SecondPlayerPage(onBack: () -> Unit) {
         padRef = client
         GamepadInput.install(padBridge, client)
         padStatus = statusText
+        padFullscreen = true
         padBridge.setTouchRoute(object : PadBridge.TouchRoute {
             override fun active() = padRunning
             override fun accept(state: PadState) = GamepadInput.onTouchState(state)
@@ -192,108 +211,180 @@ fun SecondPlayerPage(onBack: () -> Unit) {
         }
     }
 
+    // Pointer capture for a mouse plugged into this phone, fullscreen only:
+    // captured deltas are unbounded (360-degree turns), unlike the absolute
+    // cursor, which stops at the screen edge. Lost capture falls back to
+    // the absolute path on its own — nothing here breaks the pad.
+    LaunchedEffect(padRunning, padFullscreen, padView) {
+        val view = padView ?: return@LaunchedEffect
+        try {
+            while (padRunning && padFullscreen) {
+                if (mouseAttached()) {
+                    if (!view.hasPointerCapture()) {
+                        view.requestFocus()
+                        view.requestPointerCapture()
+                    }
+                } else if (view.hasPointerCapture()) {
+                    view.releasePointerCapture()
+                }
+                delay(1000)
+            }
+        } finally {
+            runCatching { view.releasePointerCapture() }
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose { stopPad() }
     }
 
-    SettingsPage(
-        host = host,
-        title = stringResource(R.string.connections_second_player),
-        eyebrow = "Join As Player 1 Or 2",
-        onBack = onBack,
-        scrollContent = true,
-    ) {
-        SettingsGroup("What is this?") {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    stringResource(R.string.connections_second_player_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    if (padFullscreen) {
+        Box(Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { context ->
+                    OnScreenControls(context, padBridge).also { view ->
+                        view.isFocusableInTouchMode = true
+                        view.setOnCapturedPointerListener(View.OnCapturedPointerListener { _, event ->
+                            GamepadInput.onCapturedPointer(event)
+                        })
+                        view.onPointerCaptureChange = { hasCapture ->
+                            if (!hasCapture) GamepadInput.onPointerCaptureLost()
+                        }
+                    }
+                },
+                update = { view -> padView = view },
+                onRelease = { view ->
+                    runCatching { view.releasePointerCapture() }
+                    if (padView === view) padView = null
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopStart,
+            ) {
+                Box(
+                    modifier = Modifier.padding(top = 8.dp, start = 8.dp).size(32.dp)
+                        .alpha(0.55f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .clickable { padFullscreen = false },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = stringResource(R.string.second_player_exit_fullscreen),
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
+    } else {
+        SettingsPage(
+            host = host,
+            title = stringResource(R.string.connections_second_player),
+            eyebrow = "Join As Player 1 Or 2",
+            onBack = onBack,
+            scrollContent = true,
+        ) {
+            SettingsGroup("What is this?") {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        stringResource(R.string.connections_second_player_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
 
-        SettingsGroup("Gamepad") {
-            SettingsRow(
-                label = stringResource(R.string.second_player_home_wifi),
-                hint = stringResource(R.string.second_player_home_wifi_hint),
-            ) {
-                ToggleSwitch(checked = transport == PadTransport.LAN, onChange = { on -> if (on) switchTransport(PadTransport.LAN) })
-            }
-            SettingsRow(
-                label = "Wi-Fi Direct",
-                hint = "Find the controller phone over Wi-Fi Direct.",
-            ) {
-                ToggleSwitch(checked = transport == PadTransport.P2P, onChange = { on -> if (on) switchTransport(PadTransport.P2P) })
-            }
-            SettingsRow(
-                label = "USB cable",
-                hint = "Join over a USB cable instead of Wi-Fi.",
-            ) {
-                ToggleSwitch(checked = transport == PadTransport.USB, onChange = { on -> if (on) switchTransport(PadTransport.USB) })
-            }
-            SettingsRow(
-                label = "Player 1 — this phone is the first controller",
-                hint = "Use when the controller phone's USB port is busy with the TV cable: a gamepad plugged into this phone drives player 1.",
-            ) {
-                ToggleSwitch(checked = gamepadSlot == 0, onChange = { on ->
-                    if (on) {
-                        if (padRunning) stopPad()
-                        gamepadSlot = 0
+            SettingsGroup("Gamepad") {
+                SettingsRow(
+                    label = stringResource(R.string.second_player_home_wifi),
+                    hint = stringResource(R.string.second_player_home_wifi_hint),
+                ) {
+                    ToggleSwitch(checked = transport == PadTransport.LAN, onChange = { on -> if (on) switchTransport(PadTransport.LAN) })
+                }
+                SettingsRow(
+                    label = "Wi-Fi Direct",
+                    hint = "Find the controller phone over Wi-Fi Direct.",
+                ) {
+                    ToggleSwitch(checked = transport == PadTransport.P2P, onChange = { on -> if (on) switchTransport(PadTransport.P2P) })
+                }
+                SettingsRow(
+                    label = "USB cable",
+                    hint = "Join over a USB cable instead of Wi-Fi.",
+                ) {
+                    ToggleSwitch(checked = transport == PadTransport.USB, onChange = { on -> if (on) switchTransport(PadTransport.USB) })
+                }
+                SettingsRow(
+                    label = "Player 1 — this phone is the first controller",
+                    hint = "Use when the controller phone's USB port is busy with the TV cable: a gamepad plugged into this phone drives player 1.",
+                ) {
+                    ToggleSwitch(checked = gamepadSlot == 0, onChange = { on ->
+                        if (on) {
+                            if (padRunning) stopPad()
+                            gamepadSlot = 0
+                        }
+                    })
+                }
+                SettingsRow(
+                    label = "Player 2 — this phone is the second controller",
+                    hint = "This phone's touch pad drives player 2.",
+                ) {
+                    ToggleSwitch(checked = gamepadSlot == 1, onChange = { on ->
+                        if (on) {
+                            if (padRunning) stopPad()
+                            gamepadSlot = 1
+                        }
+                    })
+                }
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (transport == PadTransport.USB) {
+                        Text(
+                            "Connect the cable, then turn on USB tethering on the game phone (Settings → Hotspot → " +
+                            "USB tethering — the app cannot turn it on itself). This phone must be the USB host: with a " +
+                            "C-to-C cable the roles negotiate — if it does not connect, switch \"USB controlled by\" to this " +
+                            "device, or use a C-to-A cable + A-to-C adapter, which fixes this device as host.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                })
-            }
-            SettingsRow(
-                label = "Player 2 — this phone is the second controller",
-                hint = "This phone's touch pad drives player 2.",
-            ) {
-                ToggleSwitch(checked = gamepadSlot == 1, onChange = { on ->
-                    if (on) {
-                        if (padRunning) stopPad()
-                        gamepadSlot = 1
+                    if (transport != PadTransport.USB) {
+                        AdbTextField(
+                            value = manualIp, onValueChange = { manualIp = it },
+                            label = stringResource(R.string.second_player_manual_ip),
+                            keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done,
+                            placeholder = "192.168.1.122", compact = true,
+                            onDone = { ensurePermissionsAndStartPad() },
+                        )
+                        Text(
+                            stringResource(R.string.second_player_manual_ip_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                })
-            }
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (transport == PadTransport.USB) {
+                    AndroidView(
+                        factory = { context -> OnScreenControls(context, padBridge) },
+                        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                    )
                     Text(
-                        "Connect the cable, then turn on USB tethering on the game phone (Settings → Hotspot → " +
-                        "USB tethering — the app cannot turn it on itself). This phone must be the USB host: with a " +
-                        "C-to-C cable the roles negotiate — if it does not connect, switch \"USB controlled by\" to this " +
-                        "device, or use a C-to-A cable + A-to-C adapter, which fixes this device as host.",
+                        padStatus,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                }
-                if (transport != PadTransport.USB) {
-                    AdbTextField(
-                        value = manualIp, onValueChange = { manualIp = it },
-                        label = stringResource(R.string.second_player_manual_ip),
-                        keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done,
-                        placeholder = "192.168.1.122", compact = true,
-                        onDone = { ensurePermissionsAndStartPad() },
-                    )
-                    Text(
-                        stringResource(R.string.second_player_manual_ip_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                AndroidView(
-                    factory = { context -> OnScreenControls(context, padBridge) },
-                    modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
-                )
-                Text(
-                    padStatus,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (padRunning) {
-                    SecondaryButton("Stop", modifier = Modifier.fillMaxWidth()) { stopPad() }
-                } else {
-                    PrimaryButton("Start", fill = true, large = true, modifier = Modifier.fillMaxWidth()) { ensurePermissionsAndStartPad() }
+                    if (padRunning) {
+                        SecondaryButton("Stop", modifier = Modifier.fillMaxWidth()) { stopPad() }
+                    } else {
+                        PrimaryButton("Start", fill = true, large = true, modifier = Modifier.fillMaxWidth()) { ensurePermissionsAndStartPad() }
+                    }
                 }
             }
         }
     }
+}
+
+private fun mouseAttached(): Boolean = InputDevice.getDeviceIds().any { id ->
+    val d = InputDevice.getDevice(id)
+    d != null && !d.isVirtual && d.supportsSource(InputDevice.SOURCE_MOUSE)
 }
