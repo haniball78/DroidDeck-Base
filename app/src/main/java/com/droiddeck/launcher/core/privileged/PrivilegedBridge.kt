@@ -75,10 +75,12 @@ internal object BoostUncertainty {
 // fixed-performance journal item may be removed only when the getter
 // is proven unsupported (not merely unreadable, exit -1), because
 // only then is its recorded original unverifiable. A supported
-// getter, or no item at all, must keep the item.
+// getter, or no item at all, must keep the item. An assumed item is
+// never removed: its original was never claimed from the getter, and
+// removing it would drop the restore-to-false record.
 internal object PoisonedFixedPerformanceItem {
-    fun mayRemove(hasItem: Boolean, getterExitCode: Int, getterOutput: String?): Boolean {
-        if (!hasItem) return false
+    fun mayRemove(hasItem: Boolean, getterExitCode: Int, getterOutput: String?, assumedItem: Boolean = false): Boolean {
+        if (!hasItem || assumedItem) return false
         val (decision, _) = FixedPerformanceGetterDecision.decide(getterExitCode, getterOutput ?: "")
         return decision == FixedPerformanceGetter.UNSUPPORTED
     }
@@ -104,6 +106,17 @@ internal object FixedPerformanceState {
             generation = generation,
         )
     }
+
+    // No getter on this ROM, so the original is assumed "false" and the
+    // restore is verified by the setter's exit code only (UNVERIFIED),
+    // never by the missing getter — a getter-verified item would fail
+    // every rollback. The assumed original is visible in the log at
+    // journal time; see GameModeEngine.apply.
+    fun assumedItem(generation: Int): JournalItem =
+        item("false", generation).copy(verifyCmd = null, verifyMode = JournalVerifyMode.UNVERIFIED)
+
+    fun isAssumed(item: JournalItem): Boolean =
+        item.key == "fixed-performance" && item.verifyMode == JournalVerifyMode.UNVERIFIED
 }
 
 object PrivilegedBridge {
@@ -375,12 +388,13 @@ object PrivilegedBridge {
 
     // Option A cleanup: remove a pre-existing fixed-performance
     // journal item only on proof (see PoisonedFixedPerformanceItem).
-    // This removes the record, not a phone setting, and never sets
-    // fixed-performance to true without a readable original.
+    // This removes the record, not a phone setting. An assumed item
+    // is kept: it was never getter-read, so it is not poisoned, and
+    // removing it would drop the restore-to-false record.
     fun removePoisonedFixedPerformanceItem(context: Context): Boolean {
-        if (!Tweaks.hasKey(context, "fixed-performance")) return false
+        val item = Tweaks.journalSnapshot(context).firstOrNull { it.key == "fixed-performance" } ?: return false
         val read = executeChecked("cmd power get-fixed-performance-mode-enabled")
-        if (!PoisonedFixedPerformanceItem.mayRemove(true, read.exitCode, read.output)) return false
+        if (!PoisonedFixedPerformanceItem.mayRemove(true, read.exitCode, read.output, assumedItem = FixedPerformanceState.isAssumed(item))) return false
         val removed = Tweaks.removeKey(context, "fixed-performance")
         if (removed) DiagnosticsLog.log(context, "safety.journal", "fixed-performance-poisoned-removed")
         return removed
@@ -393,14 +407,22 @@ object PrivilegedBridge {
         if (aggressive) {
             if (Tweaks.hasKey(context, "fixed-performance")) {
                 // A poisoned item must not justify setting true with an
-                // unverifiable original: remove it and refuse the boost,
-                // exactly as the no-item unsupported case already does.
+                // unverifiable original: remove it and refuse the boost.
+                // An assumed-false item is kept and the boost proceeds.
                 if (removePoisonedFixedPerformanceItem(context)) return false
             } else {
                 val read = executeChecked("cmd power get-fixed-performance-mode-enabled")
-                val original = if (read.exitCode == 0) FixedPerformanceState.parse(read.output) else null
-                if (original == null) return false
-                if (!Tweaks.recordItem(context, FixedPerformanceState.item(original, 0))) return false
+                val (decision, original) = FixedPerformanceGetterDecision.decide(read.exitCode, read.output)
+                when (decision) {
+                    FixedPerformanceGetter.SUPPORTED -> {
+                        if (!Tweaks.recordItem(context, FixedPerformanceState.item(original!!, 0))) return false
+                    }
+                    FixedPerformanceGetter.UNSUPPORTED -> {
+                        Log.w(TAG, "fixed-performance getter unsupported on this ROM, original assumed false; restore will set it false at session end")
+                        if (!Tweaks.recordItem(context, FixedPerformanceState.assumedItem(0))) return false
+                    }
+                    FixedPerformanceGetter.UNREADABLE -> return false
+                }
             }
             val boosted = boostAndProtectSession(targetPid, aggressive = true)
             if (!boosted) {

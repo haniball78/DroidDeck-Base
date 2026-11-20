@@ -106,6 +106,16 @@ internal fun buildAppTierCommands(
 internal fun treePinMask(tier: DynamicAdaptiveGovernor.AdaptiveTier): String =
     if (tier == DynamicAdaptiveGovernor.AdaptiveTier.HEADROOM_BOOST) "fc" else "7c"
 
+// Tier-entry only: true when the governor moves INTO cooling relief
+// from any other tier. False while already in relief, so the 15s
+// heartbeat never re-fires the re-suspend pass mid-relief.
+internal fun isCoolingReliefEntry(
+    prev: DynamicAdaptiveGovernor.AdaptiveTier,
+    next: DynamicAdaptiveGovernor.AdaptiveTier,
+): Boolean =
+    prev != DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF &&
+        next == DynamicAdaptiveGovernor.AdaptiveTier.COOLING_RELIEF
+
 internal fun runAppTierCommand(cmd: String, timeoutMs: Long = 4000L): Int {
     return try {
         val process = ProcessBuilder("/system/bin/sh", "-c", cmd).redirectErrorStream(true).start()
@@ -294,11 +304,11 @@ object DynamicAdaptiveGovernor {
             currentTier = nextTier
             lastTransitionTime = now
             Log.i(TAG, "governor transition: $prev -> $nextTier [temp=${batteryTemp}°C, thermal=$thermalStatus, headroom=$headroom]")
-            applyTierAction(context, nextTier, activePid, activeSessionGen)
+            applyTierAction(context, nextTier, activePid, activeSessionGen, enteringCoolingRelief = isCoolingReliefEntry(prev, nextTier))
         }
     }
 
-    private fun applyTierAction(context: Context, tier: AdaptiveTier, pid: Int, sessionGen: Int) {
+    private fun applyTierAction(context: Context, tier: AdaptiveTier, pid: Int, sessionGen: Int, enteringCoolingRelief: Boolean = false) {
         val limit = when (tier) {
             AdaptiveTier.COOLING_RELIEF -> "2"
             AdaptiveTier.BALANCED_COOL -> "4"
@@ -318,6 +328,27 @@ object DynamicAdaptiveGovernor {
                         context, "device.change", "governor-tier",
                         fields = mapOf("tier" to tier.name, "limit" to limit, "renice" to "skipped"),
                     )
+                    // On cooling-relief entry only, freeze first: re-suspend
+                    // the session's frozen list so hogs that restarted after
+                    // a previous kill-all are frozen again before kill-all
+                    // runs for non-listed background junk. Best effort: a
+                    // failed pass is logged and the tier action continues.
+                    if (enteringCoolingRelief) {
+                        runCatching {
+                            val refreeze = AppFreezerEngine.reSuspend(context, sessionGen)
+                            com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                                context, "device.change", "governor-refreeze",
+                                fields = mapOf(
+                                    "tier" to tier.name,
+                                    "targets" to refreeze.targets.toString(),
+                                    "suspended" to refreeze.suspended.toString(),
+                                    "failed_chunks" to refreeze.chunksFailed.toString(),
+                                ),
+                            )
+                        }.onFailure { t ->
+                            Log.w(TAG, "governor refreeze failed, continuing tier action", t)
+                        }
+                    }
                     // One exec per command: a single script exit cannot name the failing step.
                     for ((name, cmd) in buildDaemonTierCommands(tier)) {
                         val exit = PrivilegedBridge.executeChecked(cmd, PrivilegedBridge.DEFAULT_TIMEOUT_MS).exitCode

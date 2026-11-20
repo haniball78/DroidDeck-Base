@@ -13,20 +13,50 @@ internal fun parseCpuLoad(raw: String?): String {
     return first
 }
 
-internal fun readCpuLoad(loadavgPath: String = "/proc/loadavg"): String {
+internal data class CpuLoadResult(val value: String, val reason: String)
+
+internal fun cpuLoadFromDaemonResult(result: PrivilegedResult?): CpuLoadResult {
+    if (result == null) return CpuLoadResult("unknown", "daemon-error")
+    if (result.exitCode != 0 || result.output.isBlank()) {
+        val reason = when {
+            result.exitCode == 0 -> "parse-failed"
+            result.output == "UNAUTHORIZED" -> "daemon-unauthorized"
+            result.output.contains("timed out", ignoreCase = true) -> "timeout"
+            result.mode == PrivilegedMode.NONE -> "daemon-unavailable"
+            else -> "daemon-error"
+        }
+        return CpuLoadResult("unknown", reason)
+    }
+    val value = parseCpuLoad(result.output)
+    return CpuLoadResult(value, if (value == "unknown") "parse-failed" else "daemon")
+}
+
+internal fun readCpuLoadWithReason(loadavgPath: String = "/proc/loadavg"): CpuLoadResult {
     val raw = runCatching { File(loadavgPath).readText() }.getOrNull()
-    if (raw != null) return parseCpuLoad(raw)
+    if (raw != null) {
+        val value = parseCpuLoad(raw)
+        return CpuLoadResult(value, if (value == "unknown") "parse-failed" else "direct")
+    }
     // /proc/loadavg is unreadable from the app's UID on Android 16, so a
     // direct read always fails on device; the privileged daemon runs as
     // shell and can read it. Only for the real device path, so unit tests
     // passing a synthetic path never touch the bridge.
-    if (loadavgPath != "/proc/loadavg" || !PrivilegedBridge.isPrivilegedAvailable()) return "unknown"
-    val result = runCatching { PrivilegedBridge.executeChecked("cat /proc/loadavg", 2000) }.getOrNull()
-    if (result == null || result.exitCode != 0 || result.output.isBlank()) return "unknown"
-    return parseCpuLoad(result.output)
+    if (loadavgPath != "/proc/loadavg") return CpuLoadResult("unknown", "direct-unreadable")
+    // No isPrivilegedAvailable() gate here: executeChecked refreshes the
+    // bridge when its cached status is NONE, and the gate only blocked
+    // that recovery, so a snapshot taken before the session-start refresh
+    // silently stayed "unknown" while the daemon was up.
+    val result = runCatching {
+        PrivilegedBridge.executeChecked("cat /proc/loadavg", PrivilegedBridge.DEFAULT_TIMEOUT_MS)
+    }.getOrNull()
+    return cpuLoadFromDaemonResult(result)
 }
 
-internal data class RamSnapshot(val availMb: Long, val cpuLoad: String)
+internal fun readCpuLoad(loadavgPath: String = "/proc/loadavg"): String {
+    return readCpuLoadWithReason(loadavgPath).value
+}
+
+internal data class RamSnapshot(val availMb: Long, val cpuLoad: String, val cpuLoadReason: String = "unknown")
 
 internal fun readAvailRamMb(context: Context?): Long {
     return try {
@@ -40,7 +70,8 @@ internal fun readAvailRamMb(context: Context?): Long {
 }
 
 internal fun readRamSnapshot(context: Context?, loadavgPath: String = "/proc/loadavg"): RamSnapshot {
-    return RamSnapshot(availMb = readAvailRamMb(context), cpuLoad = readCpuLoad(loadavgPath))
+    val cpuLoad = readCpuLoadWithReason(loadavgPath)
+    return RamSnapshot(availMb = readAvailRamMb(context), cpuLoad = cpuLoad.value, cpuLoadReason = cpuLoad.reason)
 }
 
 internal fun ramReportFields(
@@ -56,8 +87,11 @@ internal fun ramReportFields(
         "suspended_count" to suspendedCount.toString(),
         "cpu_load_before" to before.cpuLoad,
         "cpu_load_after" to after.cpuLoad,
+        "cpu_load_before_reason" to before.cpuLoadReason,
+        "cpu_load_after_reason" to after.cpuLoadReason,
         "restored_avail_mb" to if (restored == null || restored.availMb < 0) "unknown" else restored.availMb.toString(),
         "restored_cpu_load" to (restored?.cpuLoad ?: "unknown"),
+        "restored_cpu_load_reason" to (restored?.cpuLoadReason ?: "unknown"),
     )
 }
 

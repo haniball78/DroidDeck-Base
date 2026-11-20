@@ -43,11 +43,13 @@ internal data class GameModeStep(
     val verifyCmd: String?,
     val expected: String?,
     val fixedPerformance: Boolean,
+    val freqVerify: Boolean = false,
 )
 
 internal object GameModeStepVerify {
-    fun verified(putExitCode: Int, read: PrivilegedResult?, expected: String?, fixedPerformance: Boolean): Boolean {
+    fun verified(putExitCode: Int, read: PrivilegedResult?, expected: String?, fixedPerformance: Boolean, freqSamples: List<String> = emptyList()): Boolean {
         if (putExitCode != 0) return false
+        if (fixedPerformance && freqSamples.isNotEmpty()) return FixedPerformanceFreqCheck.verified(freqSamples)
         if (expected == null) return true
         if (read == null || read.exitCode != 0) return false
         return if (fixedPerformance) {
@@ -55,6 +57,36 @@ internal object GameModeStepVerify {
         } else {
             SafetyChecks.parseBackgroundLimit(read.output) == expected
         }
+    }
+}
+
+// Frequency proof for fixed-performance on ROMs without the getter:
+// `cat` over every core's scaling_cur_freq, one value per line in cpu
+// order. Device-proven on SM-S928B: with the mode on, cpu2 held
+// 1,920,000 and cpu7 held 1,939,200 across 3 samples, while the
+// baseline fluctuated 614k-2.63M; cpu5 dipped once, so only cpu2/cpu7
+// are required. A core parked at its idle floor can also read stable,
+// so a stable value must also clear 1 MHz to count as pinned.
+internal object FixedPerformanceFreqCheck {
+    const val FREQ_READ_CMD = "cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null"
+    const val SAMPLE_COUNT = 3
+    const val SAMPLE_DELAY_MS = 150L
+    const val PINNED_MIN_KHZ = 1_000_000L
+
+    fun parseFreqs(output: String): List<Long> =
+        output.lineSequence().mapNotNull { it.trim().toLongOrNull() }.toList()
+
+    fun verified(samples: List<String>): Boolean {
+        if (samples.size < 2) return false
+        val parsed = samples.map { parseFreqs(it) }
+        if (parsed.any { it.size < 8 }) return false
+        return isPinned(parsed, 2) && isPinned(parsed, 7)
+    }
+
+    private fun isPinned(parsed: List<List<Long>>, core: Int): Boolean {
+        val first = parsed[0][core]
+        if (first < PINNED_MIN_KHZ) return false
+        return parsed.all { it[core] == first }
     }
 }
 
@@ -209,6 +241,10 @@ object GameModeEngine {
     private const val UNSUPPORTED_PREFS = "game-mode-fixed-performance"
     private const val KEY_UNSUPPORTED = "unsupported"
 
+    // The flag records that the fixed-performance *getter* is absent on
+    // this ROM, not that the feature is unusable: with no getter the
+    // apply path uses an assumed-false original and verifies by CPU
+    // frequency instead of skipping the piece.
     fun isFixedPerformanceUnsupported(context: Context): Boolean =
         context.getSharedPreferences(UNSUPPORTED_PREFS, Context.MODE_PRIVATE).getBoolean(KEY_UNSUPPORTED, false)
 
@@ -251,6 +287,7 @@ object GameModeEngine {
         val aggressive = SessionPrefs.gameModeAggressive(context)
         aggressiveActive = aggressive
         var fixedPerformanceSupported = true
+        var fixedPerformanceAssumed = false
         val pkg = context.packageName
 
         val items = mutableListOf<JournalItem>()
@@ -277,16 +314,19 @@ object GameModeEngine {
         if (aggressive) {
             if (!Tweaks.hasKey(context, "fixed-performance")) {
                 if (isFixedPerformanceUnsupported(context)) {
-                    fixedPerformanceSupported = false
+                    Log.w(TAG, "game mode: fixed-performance getter unsupported on this ROM, original assumed false")
+                    items.add(FixedPerformanceState.assumedItem(sessionGen))
+                    fixedPerformanceAssumed = true
                 } else {
                     val read = execChecked(context, "cmd power get-fixed-performance-mode-enabled")
                     val (decision, original) = FixedPerformanceGetterDecision.decide(read.exitCode, read.output)
                     when (decision) {
                         FixedPerformanceGetter.SUPPORTED -> items.add(FixedPerformanceState.item(original!!, sessionGen))
                         FixedPerformanceGetter.UNSUPPORTED -> {
-                            fixedPerformanceSupported = false
                             markFixedPerformanceUnsupported(context)
-                            Log.w(TAG, "game mode: fixed-performance getter unsupported on this ROM, skipping fixed-performance")
+                            Log.w(TAG, "game mode: fixed-performance getter unsupported on this ROM, original assumed false; restore will set it false at session end")
+                            items.add(FixedPerformanceState.assumedItem(sessionGen))
+                            fixedPerformanceAssumed = true
                         }
                         FixedPerformanceGetter.UNREADABLE -> {
                             Log.w(TAG, "apply aborted: fixed-performance original unreadable")
@@ -295,6 +335,10 @@ object GameModeEngine {
                         }
                     }
                 }
+            } else {
+                fixedPerformanceAssumed = Tweaks.journalSnapshot(context)
+                    .firstOrNull { it.key == "fixed-performance" }
+                    ?.let { FixedPerformanceState.isAssumed(it) } == true
             }
             for ((key, readCmd) in listOf(
                 "sem_enhanced_cpu_responsiveness" to "settings get global sem_enhanced_cpu_responsiveness",
@@ -339,14 +383,30 @@ object GameModeEngine {
             steps.add(GameModeStep("settings put global sem_enhanced_cpu_responsiveness 1", "settings get global sem_enhanced_cpu_responsiveness", "1", false))
             steps.add(GameModeStep("settings put global restricted_device_performance 0,0", "settings get global restricted_device_performance", "0,0", false))
             if (fixedPerformanceSupported) {
-                steps.add(GameModeStep("cmd power set-fixed-performance-mode-enabled true", "cmd power get-fixed-performance-mode-enabled", "true", true))
+                if (fixedPerformanceAssumed) {
+                    steps.add(GameModeStep("cmd power set-fixed-performance-mode-enabled true", FixedPerformanceFreqCheck.FREQ_READ_CMD, null, true, freqVerify = true))
+                } else {
+                    steps.add(GameModeStep("cmd power set-fixed-performance-mode-enabled true", "cmd power get-fixed-performance-mode-enabled", "true", true))
+                }
             }
             steps.add(GameModeStep("settings put global adaptive_battery_management_enabled 0", "settings get global adaptive_battery_management_enabled", "0", false))
         }
         for (step in steps) {
             val put = execChecked(context, step.command)
-            val verified = GameModeStepVerify.verified(put.exitCode, step.verifyCmd?.let { execChecked(context, it) }, step.expected, step.fixedPerformance)
+            val verified = if (step.freqVerify) {
+                verifyFixedPerformanceByFreq(context, put.exitCode, step.verifyCmd)
+            } else {
+                GameModeStepVerify.verified(put.exitCode, step.verifyCmd?.let { execChecked(context, it) }, step.expected, step.fixedPerformance)
+            }
             if (!verified) {
+                if (step.fixedPerformance) {
+                    Log.w(TAG, "game mode: fixed-performance step failed or unverified, restoring just this piece and continuing without it: ${step.command}")
+                    fixedPerformanceSupported = false
+                    if (!Tweaks.rollbackOne(context, "fixed-performance")) {
+                        Log.w(TAG, "game mode: fixed-performance piece rollback failed, journal kept for session-end restore")
+                    }
+                    continue
+                }
                 Log.w(TAG, "game mode: checked step failed, rolling back: ${step.command}")
                 aggressiveActive = false
                 val rolledBack = Tweaks.rollback(context)
@@ -367,6 +427,7 @@ object GameModeEngine {
                 mapOf(
                     "mode" to "TURBO",
                     "fixed_performance_supported" to fixedPerformanceSupported.toString(),
+                    "fixed_performance_assumed" to fixedPerformanceAssumed.toString(),
                 )
             } else {
                 mapOf("mode" to "COOL_LOAD_REDUCER")
@@ -657,6 +718,25 @@ object GameModeEngine {
 
     fun deleteLegacyMarker(context: Context) {
         try { File(context.filesDir, MARKER_FILE).delete() } catch (_: Exception) {}
+    }
+
+    private fun verifyFixedPerformanceByFreq(context: Context, putExitCode: Int, freqCmd: String?): Boolean {
+        if (putExitCode != 0 || freqCmd == null) return false
+        val samples = ArrayList<String>()
+        repeat(FixedPerformanceFreqCheck.SAMPLE_COUNT) { index ->
+            if (index > 0) {
+                try {
+                    Thread.sleep(FixedPerformanceFreqCheck.SAMPLE_DELAY_MS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+            }
+            val sample = execChecked(context, freqCmd)
+            if (sample.exitCode != 0) return false
+            samples.add(sample.output)
+        }
+        return GameModeStepVerify.verified(putExitCode, null, null, true, freqSamples = samples)
     }
 
     private fun exec(context: Context, cmd: String): String {

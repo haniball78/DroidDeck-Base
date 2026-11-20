@@ -112,6 +112,17 @@ internal fun killSuspendScripts(running: List<String>, nonRunning: List<String>,
 internal fun killSuspendScript(running: List<String>, nonRunning: List<String>, sticky: Set<String> = AppFreezerEngine.STICKY_PACKAGES): String =
     killSuspendScripts(running, nonRunning, sticky).joinToString("")
 
+// Re-suspend pass for the governor's COOLING_RELIEF entry: suspend-only,
+// no force-stop, no disable, no kill — a hog that restarted after
+// kill-all is frozen again, not killed. Chunked at 50 like the
+// non-running apply batch, so every script stays far under the 32768
+// server EXEC line limit. The restore journal recorded at apply time
+// already unsuspends these packages, so no new journal entry is needed.
+internal fun resuspendScripts(targets: List<String>): List<String> =
+    targets.chunked(50).map { chunk ->
+        "cmd package suspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; "
+    }
+
 // Wake receiver per package, proven on device 2026-11-13: Firebase for
 // WhatsApp and Facebook, Fbns for Instagram.
 internal fun wakeReceiverFor(packageName: String): String =
@@ -156,6 +167,16 @@ internal data class AppliedVerification(
     val killed: Int,
     val suspended: Int,
     val survivors: List<String>,
+)
+
+// Outcome of a governor re-suspend pass: suspended is the verified
+// count from a fresh dumpsys re-read, -1 when the re-read could not
+// verify (a timeout is not proof nothing ran, so it is reported as
+// unknown, never as zero).
+internal data class ResuspendResult(
+    val targets: Int,
+    val suspended: Int,
+    val chunksFailed: Int,
 )
 
 // Measured freeze outcome from the post-apply re-read: killed counts the
@@ -793,6 +814,48 @@ object AppFreezerEngine {
     }
 
     fun getSuspendedList(): List<String> = suspendedPackages.toList()
+
+    /**
+     * Re-suspend the session's frozen list (governor COOLING_RELIEF
+     * entry): hogs that restarted after kill-all are frozen again.
+     * Suspend-only — no force-stop, no disable, no kill — over the
+     * apply-time list, re-filtered against the protected set, so the
+     * game, Steam, launcher and foreground app are never touched.
+     * Best effort and bounded: one retried EXEC per 50-package chunk,
+     * then a fresh dumpsys re-read for the verified count. A failure
+     * never throws and never touches the journal — the apply-time
+     * journal already restores these packages. Not synchronized: it
+     * must not hold the engine monitor across daemon calls and block
+     * restore() at teardown; instead the generation token is re-checked
+     * before every chunk, and restore() clears the token first, so a
+     * pass that starts mid-teardown aborts instead of re-freezing
+     * packages restore just unsuspended.
+     */
+    internal fun reSuspend(context: Context, sessionGen: Int = 0): ResuspendResult {
+        val snapshot = getSuspendedList()
+        if (!applied || snapshot.isEmpty()) return ResuspendResult(0, -1, 0)
+        if (sessionGen != 0 && activeGen.get() != sessionGen) return ResuspendResult(0, -1, 0)
+        val protectedSet = mergeProtectedPackages(cachedProtectedPackages, emptySet(), context.packageName)
+        val targets = filterSuspendTargets(snapshot, protectedSet)
+        if (targets.isEmpty()) return ResuspendResult(0, -1, 0)
+        var chunksFailed = 0
+        for (script in resuspendScripts(targets)) {
+            if (!applied || (sessionGen != 0 && activeGen.get() != sessionGen)) break
+            val exit = runBatchWithRetry(script, execute = { cmd -> execChecked(context, cmd) }).exitCode
+            if (exit != 0) chunksFailed++
+        }
+        var suspended = -1
+        val outputs = ArrayList<String>()
+        var verifyFailed = false
+        for (cmd in packagesVerifyChunkCmds(targets)) {
+            val read = execChecked(context, cmd)
+            if (read.exitCode != 0) { verifyFailed = true; break }
+            outputs.add(read.output)
+        }
+        if (!verifyFailed) suspended = PackagesVerifyChunks.sumCounts(outputs) ?: -1
+        Log.i(TAG, "app freezer: re-suspend done, targets=${targets.size}, suspended=$suspended, failedChunks=$chunksFailed")
+        return ResuspendResult(targets.size, suspended, chunksFailed)
+    }
 
     /** Live diagnostics for Debug Monitor. */
     fun runDiagnostic(context: Context): Map<String, String> {

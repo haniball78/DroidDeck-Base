@@ -129,4 +129,102 @@ class SessionRamReportTest {
         )
         assertEquals("unknown", defaulted["cpu_load"])
     }
+
+    @Test
+    fun cpuLoadReasonIsDirectWhenFileReads() {
+        val file = File.createTempFile("loadavg", ".txt")
+        try {
+            file.writeText("2.50 1.00 0.50 1/400 9999")
+            val result = readCpuLoadWithReason(file.absolutePath)
+            assertEquals("2.50", result.value)
+            assertEquals("direct", result.reason)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun cpuLoadReasonIsParseFailedWhenFileIsGarbage() {
+        val file = File.createTempFile("loadavg", ".txt")
+        try {
+            file.writeText("garbage 2.10 1.50")
+            val result = readCpuLoadWithReason(file.absolutePath)
+            assertEquals("unknown", result.value)
+            assertEquals("parse-failed", result.reason)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun cpuLoadReasonIsDirectUnreadableWhenFileMissing() {
+        val result = readCpuLoadWithReason("/nonexistent/loadavg")
+        assertEquals("unknown", result.value)
+        assertEquals("direct-unreadable", result.reason)
+    }
+
+    @Test
+    fun daemonResultReasons() {
+        assertEquals(CpuLoadResult("unknown", "daemon-error"), cpuLoadFromDaemonResult(null))
+        assertEquals(
+            CpuLoadResult("3.86", "daemon"),
+            cpuLoadFromDaemonResult(PrivilegedResult(0, "3.86 2.10 1.50 2/500 12345", PrivilegedMode.EMBEDDED_DAEMON)),
+        )
+        assertEquals(
+            CpuLoadResult("unknown", "parse-failed"),
+            cpuLoadFromDaemonResult(PrivilegedResult(0, "garbage", PrivilegedMode.EMBEDDED_DAEMON)),
+        )
+        assertEquals(
+            CpuLoadResult("unknown", "parse-failed"),
+            cpuLoadFromDaemonResult(PrivilegedResult(0, "", PrivilegedMode.EMBEDDED_DAEMON)),
+        )
+        assertEquals(
+            CpuLoadResult("unknown", "daemon-unavailable"),
+            cpuLoadFromDaemonResult(PrivilegedResult(-1, "No privileged backend active.", PrivilegedMode.NONE)),
+        )
+        assertEquals(
+            CpuLoadResult("unknown", "daemon-unauthorized"),
+            cpuLoadFromDaemonResult(PrivilegedResult(-1, "UNAUTHORIZED", PrivilegedMode.EMBEDDED_DAEMON)),
+        )
+        assertEquals(
+            CpuLoadResult("unknown", "timeout"),
+            cpuLoadFromDaemonResult(PrivilegedResult(-1, "Daemon error: Read timed out", PrivilegedMode.EMBEDDED_DAEMON)),
+        )
+        assertEquals(
+            CpuLoadResult("unknown", "daemon-error"),
+            cpuLoadFromDaemonResult(PrivilegedResult(-1, "Daemon error: Connection refused", PrivilegedMode.EMBEDDED_DAEMON)),
+        )
+    }
+
+    @Test
+    fun snapshotCarriesCpuLoadReason() {
+        val missing = readRamSnapshot(null, "/nonexistent/loadavg")
+        assertEquals("unknown", missing.cpuLoad)
+        assertEquals("direct-unreadable", missing.cpuLoadReason)
+        val file = File.createTempFile("loadavg", ".txt")
+        try {
+            file.writeText("2.50 1.00 0.50 1/400 9999")
+            val snapshot = readRamSnapshot(null, file.absolutePath)
+            assertEquals("2.50", snapshot.cpuLoad)
+            assertEquals("direct", snapshot.cpuLoadReason)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun ramReportFieldsCarriesCpuLoadReasons() {
+        val fields = ramReportFields(
+            before = RamSnapshot(availMb = 4000L, cpuLoad = "unknown", cpuLoadReason = "daemon-unavailable"),
+            after = RamSnapshot(availMb = 5200L, cpuLoad = "0.80", cpuLoadReason = "daemon"),
+            suspendedCount = 164,
+            restored = null,
+        )
+        assertEquals("unknown", fields["cpu_load_before"])
+        assertEquals("daemon-unavailable", fields["cpu_load_before_reason"])
+        assertEquals("0.80", fields["cpu_load_after"])
+        assertEquals("daemon", fields["cpu_load_after_reason"])
+        assertEquals("unknown", fields["restored_cpu_load"])
+        assertEquals("unknown", fields["restored_cpu_load_reason"])
+    }
 }
