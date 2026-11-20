@@ -535,6 +535,10 @@ class FrontEndActivity : ComponentActivity() {
     }
 
     private fun launchGame(game: Library.SteamGame, returnHome: Boolean = false): Boolean {
+        if (com.droiddeck.launcher.session.GamePackStore.isPacked(this, game) || com.droiddeck.launcher.session.GamePackJobs.isRunning(game.appId)) {
+            com.droiddeck.launcher.ui.GamesDialogState.packBlocked = game
+            return true
+        }
         if (protons.protonBusyId != null || ProtonExtras.installInProgress || pkgStage != null) {
             android.widget.Toast.makeText(this, R.string.main_wait_install_game, android.widget.Toast.LENGTH_SHORT).show()
             return false

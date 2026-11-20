@@ -3052,6 +3052,8 @@ class SessionService : Service() {
         fun launchGame(context: Context, gameId: String): Boolean {
             if (!GameLaunchLink.validId(gameId) || !SessionState.running ||
                 SessionState.mode != MODE_STEAM || SessionState.stopRequested) return false
+            val appId = packAppId(gameId)
+            if (appId != null && (GamePackStore.isPacked(context, appId) || GamePackJobs.isRunning(appId))) return false
             return runCatching {
                 context.startService(
                     Intent(context, SessionService::class.java)

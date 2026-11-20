@@ -42,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import kotlinx.coroutines.flow.first
@@ -62,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.droiddeck.launcher.frontend.Library
+import com.droiddeck.launcher.session.GamePackJobs
 import com.droiddeck.launcher.stores.epic.EpicClient
 import kotlinx.coroutines.launch
 
@@ -166,25 +168,41 @@ private fun GameFileFolderActions(s: FrontEndState, a: FrontEndActions) {
 
 @Composable
 private fun GameActions(g: Library.SteamGame, s: FrontEndState, a: FrontEndActions, onEdit: (Library.SteamGame) -> Unit, launch: (Library.SteamGame) -> Unit) {
-    Actions {
-        PrimaryButton(stringResource(if (s.shortcutPicker) R.string.game_shortcut_choose else R.string.games_launch), enabled = !s.busy, main = true, icon = Icons.Filled.PlayArrow) { launch(g) }
-        if (g.library == Library.EPIC_LAUNCHER) {
-            if (!s.shortcutPicker) UninstallEpicLauncher(s, a)
+    val packSnap = rememberGamePackSnapshot(g)
+    val packJobs by GamePackJobs.jobs.collectAsState()
+    val packJob = packJobs[g.appId]
+    val packed = packSnap?.isPacked == true
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Actions {
+            PrimaryButton(stringResource(if (s.shortcutPicker) R.string.game_shortcut_choose else R.string.games_launch), enabled = !s.busy && !packed, main = true, icon = Icons.Filled.PlayArrow) { launch(g) }
+            if (g.library == Library.EPIC_LAUNCHER) {
+                if (!s.shortcutPicker) UninstallEpicLauncher(s, a)
+                BusyChip(s)
+                return@Actions
+            }
+            g.gameFiles?.takeIf { it.isDirectory }?.let { dir ->
+                SecondaryButton(stringResource(R.string.games_files), compact = true) { a.onBrowseFiles(dir) }
+            }
+            g.protonPrefix?.takeIf { it.isDirectory }?.let { dir ->
+                SecondaryButton(stringResource(R.string.games_prefix), compact = true) { a.onBrowseFiles(dir) }
+                if (g.library == Library.ADDED) ManageSaves(g, dir, a)
+            }
+            if (!s.shortcutPicker && g.gameFiles?.isDirectory == true) {
+                val label = when {
+                    packJob != null && !packJob.done -> stringResource(if (packJob.unpack) R.string.gamepack_unpacking else R.string.gamepack_packing)
+                    packed -> stringResource(R.string.gamepack_unpack)
+                    else -> stringResource(R.string.gamepack_pack)
+                }
+                val progress = if (packJob != null && !packJob.done) packJob.fraction else null
+                SecondaryButton(label, compact = true, progress = progress) { GamesDialogState.packGame = g }
+            }
+            if (!s.shortcutPicker) GameShortcutMenu(g, a)
+            if (!s.shortcutPicker && g.library == Library.ADDED && g.source == Library.ADDED && g.gameFiles != null) EditGameButton { onEdit(g) }
+            else if (!s.shortcutPicker && g.library != Library.ADDED && g.source == Library.SOURCE_STEAM) EditGameButton { GamesDialogState.steamArt = g }
+            else if (!s.shortcutPicker && g.library == Library.ADDED && g.source != Library.ADDED && g.gameFiles != null) EditGameButton { GamesDialogState.storeArt = g }
             BusyChip(s)
-            return@Actions
         }
-        g.gameFiles?.takeIf { it.isDirectory }?.let { dir ->
-            SecondaryButton(stringResource(R.string.games_files), compact = true) { a.onBrowseFiles(dir) }
-        }
-        g.protonPrefix?.takeIf { it.isDirectory }?.let { dir ->
-            SecondaryButton(stringResource(R.string.games_prefix), compact = true) { a.onBrowseFiles(dir) }
-            if (g.library == Library.ADDED) ManageSaves(g, dir, a)
-        }
-        if (!s.shortcutPicker) GameShortcutMenu(g, a)
-        if (!s.shortcutPicker && g.library == Library.ADDED && g.source == Library.ADDED && g.gameFiles != null) EditGameButton { onEdit(g) }
-        else if (!s.shortcutPicker && g.library != Library.ADDED && g.source == Library.SOURCE_STEAM) EditGameButton { GamesDialogState.steamArt = g }
-        else if (!s.shortcutPicker && g.library == Library.ADDED && g.source != Library.ADDED && g.gameFiles != null) EditGameButton { GamesDialogState.storeArt = g }
-        BusyChip(s)
+        if (packed) Note(stringResource(R.string.gamepack_note_packed))
     }
 }
 
@@ -414,6 +432,8 @@ internal object GamesDialogState {
     var checking by androidx.compose.runtime.mutableStateOf<String?>(null)
     var steamArt by androidx.compose.runtime.mutableStateOf<Library.SteamGame?>(null)
     var storeArt by androidx.compose.runtime.mutableStateOf<Library.SteamGame?>(null)
+    var packGame by androidx.compose.runtime.mutableStateOf<Library.SteamGame?>(null)
+    var packBlocked by androidx.compose.runtime.mutableStateOf<Library.SteamGame?>(null)
     var behindEditor: Pair<List<com.droiddeck.launcher.frontend.AddedGames.Game>, Int>? = null
 }
 
@@ -467,6 +487,18 @@ private fun GamesDialogs(a: FrontEndActions, games: List<Library.SteamGame>) {
             onClose = { st.editing = null },
             onChanged = { a.onAddedGamesChanged(listOf(request.folder)) },
             onRemove = { folder, appId, name -> a.onAddedGameRemoved(folder, appId, name) },
+        )
+    }
+    st.packGame?.let { game ->
+        GamePackSheet(game) { st.packGame = null }
+    }
+    st.packBlocked?.let { game ->
+        ConfirmDialog(
+            title = stringResource(R.string.gamepack_blocked_title),
+            text = stringResource(R.string.gamepack_blocked_body),
+            confirm = stringResource(R.string.gamepack_blocked_unpack),
+            onConfirm = { st.packBlocked = null; st.packGame = game },
+            onDismiss = { st.packBlocked = null },
         )
     }
 }
