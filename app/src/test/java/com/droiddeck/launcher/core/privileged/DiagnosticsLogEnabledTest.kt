@@ -13,10 +13,10 @@ class DiagnosticsLogEnabledTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
 
     @Test
-    fun `diagnostics log is off by default`() {
+    fun `diagnostics log is on by default`() {
         context.getSharedPreferences("droiddeck-diagnostics", Context.MODE_PRIVATE)
             .edit().remove("enabled").apply()
-        assertFalse(DiagnosticsLog.isEnabled(context))
+        assertTrue(DiagnosticsLog.isEnabled(context))
     }
 
     @Test

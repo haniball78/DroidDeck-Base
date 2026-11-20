@@ -41,7 +41,7 @@ class SafetyMonitor(
     private val bridgeProbe: BridgeProbe,
     private val clock: Clock,
     private val listener: SafetyListener,
-    private val pollMs: Long = 5000L,
+    private val pollMs: Long = 45000L,
     private val heartbeatMs: Long = 15000L,
     private val thresholds: SafetyThresholds = SafetyThresholds(),
     private val countdownSeconds: Int = SafetyPolicy.COUNTDOWN_SECONDS,

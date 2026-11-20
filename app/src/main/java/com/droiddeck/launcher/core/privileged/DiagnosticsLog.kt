@@ -135,11 +135,10 @@ object DiagnosticsLog {
     private const val PREFS = "droiddeck-diagnostics"
     private const val KEY_ENABLED = "enabled"
 
-    // Default off: the diagnostics log records only when the user turns it on.
     fun isEnabled(context: Context): Boolean {
         return runCatching {
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
-        }.getOrDefault(false)
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, true)
+        }.getOrDefault(true)
     }
 
     fun setEnabled(context: Context, enabled: Boolean) {
