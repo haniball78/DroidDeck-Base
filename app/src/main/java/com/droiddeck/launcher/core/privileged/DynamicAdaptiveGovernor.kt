@@ -256,19 +256,6 @@ object DynamicAdaptiveGovernor {
         Log.i(TAG, "governor: stopped")
     }
 
-    // One-shot starting tier from a learned game profile, applied when
-    // the game launches: the tier's actions run now, and the 30 s
-    // hysteresis hold keeps it until live readings take over.
-    fun applyStartingTier(context: Context, tier: AdaptiveTier) {
-        if (!running) return
-        if (tier == currentTier) return
-        val prev = currentTier
-        currentTier = tier
-        lastTransitionTime = android.os.SystemClock.elapsedRealtime()
-        Log.i(TAG, "governor starting tier: $prev -> $tier (game profile)")
-        applyTierAction(context, tier, activePid, activeSessionGen, enteringCoolingRelief = isCoolingReliefEntry(prev, tier))
-    }
-
     // ── Adaptive State Logic & Hysteresis ──────────────────────────────────────
 
     private fun evaluateState(context: Context, thermalStatus: Int, force: Boolean) {

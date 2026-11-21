@@ -604,13 +604,6 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("dynamicGovernor", on).apply()
     }
 
-    /** Per-game profiles + A/B comparison — learned starting tier per game, off by default (current shape). */
-    fun gameProfilesEnabled(context: Context): Boolean = prefs(context).getBoolean("gameProfilesEnabled", false)
-
-    fun setGameProfilesEnabled(context: Context, on: Boolean) {
-        prefs(context).edit().putBoolean("gameProfilesEnabled", on).apply()
-    }
-
     /** Raise thermal safety threshold — de-escalation starts at level 4 instead of 3. Off by default; enabling shows a warning. */
     fun thermalRaiseTo4(context: Context): Boolean = prefs(context).getBoolean("thermalRaiseTo4", false)
 

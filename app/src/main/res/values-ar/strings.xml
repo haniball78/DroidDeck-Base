@@ -730,8 +730,6 @@
     <string name="setup_adv_aggressive_hint">تثبيت كافة أنوية الأداء والنواة الخارقة (0xfc) وتفعيل المعالجة المعززة من سامسونج (يزيد الحرارة واستهلاك البطارية)</string>
     <string name="setup_adv_dynamic_gov">الموازن الذكي التكيفي (Dynamic Balancer)</string>
     <string name="setup_adv_dynamic_gov_hint">مراقبة مستمرة لحرارة المعالج وتعديل حمل النظام وقوة المعالجة ذاتياً وبشكل ديناميكي فوري أثناء اللعب</string>
-    <string name="setup_adv_game_profiles">بروفايل لكل لعبة (مقارنة A/B)</string>
-    <string name="setup_adv_game_profiles_hint">يحفظ أداء كل لعبة المقاس ويبدأ جلستها التالية بمستوى الحاكم المناسب لها، مع تقرير مقارنة لكل جلسة ضد الشكل الحالي</string>
     <string name="setup_adv_thermal_raise">رفع حد الحرارة إلى 4 (خطير)</string>
     <string name="setup_adv_thermal_raise_hint">تبدأ حماية الحرارة من المستوى 4 بدل 3. الهاتف يسخن أكثر، ويصل للمستوى 4 أسرع، والبطارية تتعب أسرع.</string>
     <string name="setup_adv_thermal_raise_warn_title">رفع حد الحرارة؟</string>

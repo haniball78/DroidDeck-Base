@@ -320,7 +320,7 @@ public final class LinuxRuntime {
         return firstReadable(kgsl + "temp", kgsl + "devfreq/temp", thermalZone("gpu"));
     }
 
-    public static String gpuLoadSource() {
+    private static String gpuLoadSource() {
         String kgsl = "/sys/class/kgsl/kgsl-3d0/";
         return firstReadable(kgsl + "gpu_busy_percentage", kgsl + "devfreq/gpu_load");
     }

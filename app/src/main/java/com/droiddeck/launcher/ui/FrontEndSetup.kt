@@ -1400,7 +1400,6 @@ private fun AdvancedSetupTab(
     var gameModeEngine by remember { mutableStateOf(SessionPrefs.gameModeEngine(ctx)) }
     var gameModeAggressive by remember { mutableStateOf(SessionPrefs.gameModeAggressive(ctx)) }
     var dynamicGovernor by remember { mutableStateOf(SessionPrefs.dynamicGovernor(ctx)) }
-    var gameProfiles by remember { mutableStateOf(SessionPrefs.gameProfilesEnabled(ctx)) }
     var thermalRaiseTo4 by remember { mutableStateOf(SessionPrefs.thermalRaiseTo4(ctx)) }
     var showThermalRaiseWarning by remember { mutableStateOf(false) }
     var deepSystemDoze by remember { mutableStateOf(SessionPrefs.deepSystemDoze(ctx)) }
@@ -1959,17 +1958,6 @@ private fun AdvancedSetupTab(
             ) { on ->
                 dynamicGovernor = on
                 SessionPrefs.setDynamicGovernor(ctx, on)
-            }
-            ToggleRow(
-                host = host,
-                key = "adv-game-profiles",
-                label = stringResource(R.string.setup_adv_game_profiles),
-                hint = stringResource(R.string.setup_adv_game_profiles_hint),
-                checked = gameProfiles,
-                enabled = com.droiddeck.launcher.core.privileged.AdvancedTogglePolicy.enabled(masterEnabled, s.sessionRunning, gameModeEngine),
-            ) { on ->
-                gameProfiles = on
-                SessionPrefs.setGameProfilesEnabled(ctx, on)
             }
             ToggleRow(
                 host = host,
