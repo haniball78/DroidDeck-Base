@@ -1151,6 +1151,7 @@
     <string name="games_play_steamvr">تشغيل SteamVR</string>
     <string name="games_launch_settings">إعدادات التشغيل</string>
     <string name="games_launch">تشغيل</string>
+    <string name="steam_resume_playing">استئناف اللعب</string>
     <string name="games_files">ملفات اللعبة</string>
     <string name="games_prefix">بادئة Proton</string>
     <string name="gamepack_pack">ضغط اللعبة</string>

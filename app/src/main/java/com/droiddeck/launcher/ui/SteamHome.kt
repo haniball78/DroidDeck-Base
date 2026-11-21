@@ -1,7 +1,21 @@
 package com.droiddeck.launcher.ui
 
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.Text
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.droiddeck.launcher.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -41,12 +55,15 @@ import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.droiddeck.launcher.frontend.Library
 import com.droiddeck.launcher.glasses.GlassesMenuMirror
@@ -75,7 +92,25 @@ import kotlinx.coroutines.withContext
 private const val WALL_MIN_GAMES = 4
 private const val WALL_DISTINCT = 40
 
+private val GoldBrush = Brush.linearGradient(listOf(AttentionAmber, Color(0xFFE8960B)))
+private val GoldInk = Color(0xFF2B1A00)
+
+private val Crimson = Color(0xFFB3123B)
+private val CrimsonBrush = Brush.linearGradient(listOf(Crimson, Color(0xFF7A0C26)))
+private val CrimsonTint = Crimson.copy(alpha = 0.16f)
+
 private const val DRIFT_STEP_NS = 15_000_000L
+
+@Composable
+private fun lastPlayedText(lastPlayed: Long): String? =
+    playedSpan(lastPlayed)?.let { stringResource(R.string.games_last_played, it.replaceFirstChar { c -> c.lowercase() }) }
+
+private fun playedSpan(lastPlayed: Long): String? {
+    if (lastPlayed <= 0L) return null
+    return android.text.format.DateUtils.getRelativeTimeSpanString(
+        lastPlayed * 1000L, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS,
+    ).toString()
+}
 
 @Composable
 internal fun SteamHome(s: FrontEndState, a: FrontEndActions, modifier: Modifier) {
@@ -87,6 +122,9 @@ internal fun SteamHome(s: FrontEndState, a: FrontEndActions, modifier: Modifier)
         value = if (!signedIn) emptyList() else withContext(Dispatchers.IO) { runCatching { Library.steamLibraryArt(ctx).shuffled() }.getOrDefault(emptyList()) }
     }
     val games = remember(s.steamGames) { s.steamGames.sortedWith(compareByDescending<Library.SteamGame> { it.lastPlayed }.thenBy { it.gameId }) }
+    val hero = games.firstOrNull { it.lastPlayed > 0L }
+    val shelf = games.filter { it.lastPlayed > 0L }.take(3)
+    val showRuntime = s.busy || !s.ready || (s.available != null && s.available != s.installed)
     val narrow = LocalNarrowPane.current
     var words by remember { mutableStateOf<Rect?>(null) }
     val mode = com.droiddeck.launcher.session.SessionService.MODE_STEAM
@@ -129,8 +167,12 @@ internal fun SteamHome(s: FrontEndState, a: FrontEndActions, modifier: Modifier)
         onOpen = a.onSteamSettings, onPrimary = a.onPlay,
         modifier = modifier.clipToBounds(),
         start = if (narrow) 20.dp else 44.dp, bottom = if (narrow) 20.dp else 44.dp,
+        lipAccent = AttentionAmber,
+        lipBeside = !narrow,
+        lipTint = CrimsonTint,
         background = {
             when {
+                hero != null -> HeroBackdrop(hero)
                 games.isEmpty() -> EmptyLibrary(
                     avoid = words,
                     wall = if (owned.isEmpty() && featured.isEmpty()) null else { { CapsuleWall(emptyList(), owned = owned, featured = featured) } },
@@ -139,21 +181,160 @@ internal fun SteamHome(s: FrontEndState, a: FrontEndActions, modifier: Modifier)
                 else -> CapsuleWall(games, owned = owned, featured = featured)
             }
         },
-        scrim = { if (games.size >= WALL_MIN_GAMES) WallFade() },
+        scrim = { if (hero == null && games.size >= WALL_MIN_GAMES) WallFade() },
         words = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.onPlaced { words = it.boundsInParent() },
-            ) {
-                Wordmark(if (narrow) 30.dp else 40.dp)
-                if (s.busy || !s.ready || (s.available != null && s.available != s.installed)) RuntimeChip(s)
+            if (hero != null) {
+                SteamHeroWords(hero, shelf, s, a, narrow)
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.onPlaced { words = it.boundsInParent() },
+                ) {
+                    if (showRuntime) RuntimeChip(s)
+                }
             }
         },
         button = { click ->
-            PrimaryButton(stringResource(R.string.games_play_steam), enabled = !s.busy, main = true, large = true, icon = Icons.Filled.PlayArrow, modifier = Modifier.testTag("play-steam"), onClick = click)
+            PrimaryButton(stringResource(R.string.games_play_steam), enabled = !s.busy, main = true, large = true, icon = Icons.Filled.PlayArrow,
+                brush = CrimsonBrush, ink = Color.White, modifier = Modifier.testTag("play-steam"), onClick = click)
+        },
+        beside = {
+            if (hero != null) {
+                val show = LocalShowSection.current
+                QuickPill(stringResource(R.string.rail_desktop), narrow) { show("desktop") }
+                QuickPill(stringResource(R.string.connections_second_player), narrow) { show("second_player") }
+            }
         },
         rows = { tab -> a.modeSheet(mode, tab, extras) },
     )
+}
+
+@Composable
+private fun HeroBackdrop(hero: Library.SteamGame) {
+    val colors = MaterialTheme.colorScheme
+    val art = hero.hero ?: hero.art
+    Box(Modifier.fillMaxSize()) {
+        if (art != null) {
+            AsyncImage(model = art, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else {
+            Box(Modifier.fillMaxSize().background(artBrush(hueOf(hero.name))))
+        }
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.horizontalGradient(
+                    0f to colors.background.copy(alpha = 0.93f),
+                    0.30f to colors.background.copy(alpha = 0.55f),
+                    0.62f to colors.background.copy(alpha = 0.12f),
+                    1f to colors.background.copy(alpha = 0.45f),
+                ),
+            ),
+        )
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    0f to colors.background.copy(alpha = 0.70f),
+                    0.30f to colors.background.copy(alpha = 0.08f),
+                    0.62f to colors.background.copy(alpha = 0.25f),
+                    1f to colors.background.copy(alpha = 0.95f),
+                ),
+            ),
+        )
+    }
+}
+
+@Composable
+private fun SteamHeroWords(hero: Library.SteamGame, shelf: List<Library.SteamGame>, s: FrontEndState, a: FrontEndActions, narrow: Boolean) {
+    val show = LocalShowSection.current
+    val colors = MaterialTheme.colorScheme
+    val transition = rememberInfiniteTransition(label = "shelfBob")
+    val bobs = listOf(2800, 3200, 3600).map { ms ->
+        transition.animateFloat(0f, 1f, infiniteRepeatable(tween(ms, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "bob")
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val bubbleW = ((maxWidth - 10.dp * 2) / 3).coerceIn(96.dp, 260.dp)
+        val bubbleH = if (narrow) 104.dp else 128.dp
+        Column(Modifier.fillMaxWidth()) {
+            Text(
+                stringResource(R.string.steam_resume_playing), fontSize = if (narrow) 24.sp else 32.sp, fontWeight = FontWeight.Bold,
+                color = AttentionAmber, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                lastPlayedText(hero.lastPlayed)?.let { "$it • ${hero.name}" } ?: hero.name,
+                fontSize = 14.sp, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PrimaryButton(
+                    stringResource(R.string.games_launch), enabled = !s.busy, large = true, icon = Icons.Filled.PlayArrow,
+                    brush = GoldBrush, ink = GoldInk, modifier = Modifier.testTag("hero-play"),
+                ) { a.onSteamGame(hero) }
+                if (s.busy || !s.ready || (s.available != null && s.available != s.installed)) RuntimeChip(s)
+            }
+            Spacer(Modifier.height(18.dp))
+            Text(stringResource(R.string.stores_sort_last_played), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AttentionAmber)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                shelf.forEachIndexed { i, game ->
+                    RecentBubble(game, bubbleW, bubbleH, bobs[i % bobs.size].value) { show("app:${game.appId}") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentBubble(game: Library.SteamGame, w: Dp, h: Dp, bob: Float, onOpen: () -> Unit) {
+    val still = Motion.scale == 0f
+    val shape = RoundedCornerShape(32.dp)
+    val art = game.art ?: game.hero
+    val src = remember { MutableInteractionSource() }
+    val hot = rememberHot(src)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(w)) {
+        Box(
+            Modifier.size(w, h)
+                .graphicsLayer { translationY = if (still) 0f else -4.dp.toPx() * bob }
+                .clip(shape)
+                .background(artBrush(hueOf(game.name)))
+                .hoverable(src)
+                .clickable(interactionSource = src, indication = LocalIndication.current, role = Role.Button, onClick = onOpen)
+                .controllerConfirm(onClick = onOpen)
+                .testTag("shelf-bubble:${game.appId}"),
+        ) {
+            if (art != null) {
+                AsyncImage(
+                    model = art, contentDescription = game.name, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(shape),
+                )
+            }
+            Box(Modifier.fillMaxSize().clip(shape).background(Brush.verticalGradient(0f to Color.White.copy(alpha = 0.10f), 0.35f to Color.Transparent)))
+            Box(Modifier.fillMaxSize().border(1.dp, Color.White.copy(alpha = if (hot) 0.45f else 0.25f), shape))
+        }
+        Text(
+            game.name, fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        )
+    }
+}
+
+@Composable
+private fun QuickPill(label: String, narrow: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val src = remember { MutableInteractionSource() }
+    val hot = rememberHot(src)
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.heightIn(min = 44.dp).clip(shape)
+            .background(CrimsonTint)
+            .glideBorder(hot, shape, AttentionAmber, AttentionAmber.copy(alpha = 0.35f))
+            .hoverable(src)
+            .clickable(interactionSource = src, indication = LocalIndication.current, role = Role.Button, onClick = onClick)
+            .controllerConfirm(onClick = onClick)
+            .padding(horizontal = if (narrow) 12.dp else 16.dp, vertical = 8.dp),
+    ) {
+        Text(label, fontSize = if (narrow) 13.sp else 14.sp, fontWeight = FontWeight.SemiBold, color = colors.onBackground, maxLines = 1)
+    }
 }
 
 @Composable

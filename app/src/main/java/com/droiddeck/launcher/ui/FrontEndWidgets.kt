@@ -159,6 +159,8 @@ internal fun PrimaryButton(
     large: Boolean = false,
     icon: ImageVector? = null,
     fill: Boolean = false,
+    brush: Brush? = null,
+    ink: Color? = null,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -184,7 +186,7 @@ internal fun PrimaryButton(
             .then(if (frontFocus != null) Modifier.focusRequester(frontFocus.primary).onFocusChanged { if (it.isFocused) frontFocus.last = FrontFocus.PRIMARY } else Modifier)
             .graphicsLayer { alpha = if (LaunchOrigin.flooding === placed) 0f else 1f; scaleX = scale; scaleY = scale; shadowElevation = if (enabled) lift.dp.toPx() else 0f; shape = Shape12; clip = false; ambientShadowColor = pal.signal; spotShadowColor = pal.signal }
             .clip(Shape12)
-            .background(if (enabled) Brush.linearGradient(listOf(colors.primary, pal.primary2)) else Brush.linearGradient(listOf(colors.surfaceVariant, colors.surfaceVariant)))
+            .background(if (enabled) brush ?: Brush.linearGradient(listOf(colors.primary, pal.primary2)) else Brush.linearGradient(listOf(colors.surfaceVariant, colors.surfaceVariant)))
             .then(if (enabled) Modifier else Modifier.border(1.dp, pal.line2, Shape12))
             .then(if (hot) Modifier.border(2.dp, pal.signal, Shape12) else Modifier)
             .hoverable(src).clickable(role = Role.Button, interactionSource = src, indication = null, enabled = enabled) {
@@ -198,7 +200,7 @@ internal fun PrimaryButton(
                 bottom = if (large) 16.dp else if (compact) 7.dp else 11.dp,
             ),
     ) {
-        val fg = if (enabled) colors.onPrimary else colors.onSurfaceVariant
+        val fg = if (enabled) ink ?: colors.onPrimary else colors.onSurfaceVariant
         if (icon != null) Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(if (large) 20.dp else 17.dp))
         val style = LocalTextStyle.current.merge(TextStyle(
             fontSize = if (large) 17.sp else if (compact) 12.sp else 15.sp,

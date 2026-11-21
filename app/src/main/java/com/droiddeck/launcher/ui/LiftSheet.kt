@@ -13,6 +13,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -190,6 +191,9 @@ internal fun LiftHero(
     start: Dp = 44.dp,
     bottom: Dp = 44.dp,
     drop: DropSheetState? = null,
+    lipAccent: Color? = null,
+    lipBeside: Boolean = false,
+    lipTint: Color? = null,
     overlay: @Composable BoxWithConstraintsScope.(lifted: () -> Float) -> Unit = {},
 ) {
     val density = LocalDensity.current
@@ -228,6 +232,7 @@ internal fun LiftHero(
     val leftForPlay = remember { booleanArrayOf(false) }
     var heroAt by remember { mutableStateOf(Offset.Zero) }
     var rest by remember { mutableStateOf<Rect?>(null) }
+    var besideW by remember { mutableStateOf(0f) }
     fun focusPlay() { if (ff != null && inputMode.inputMode == InputMode.Keyboard) runCatching { ff.primary.requestFocus() } }
     fun close() {
         if (!open) return
@@ -608,6 +613,7 @@ internal fun LiftHero(
             Row(
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.graphicsLayer { alpha = 1f - wallSink() }
+                    .onSizeChanged { besideW = it.width.toFloat() }
                     .focusProperties { canFocus = besideShown },
             ) { if (besideShown || sink.value < 0.99f) beside() }
             }
@@ -620,7 +626,16 @@ internal fun LiftHero(
             val lift = { if (!open) open = true }
             Box(
                 Modifier
-                    .offset { IntOffset((r0.center.x - handleW / 2f).roundToInt(), (r0.bottom + raise * ride.value + (lipShow.value - 1f) * 8.dp.toPx()).roundToInt()) }
+                    .offset {
+                        if (lipBeside) {
+                            IntOffset(
+                                (r0.right + 20.dp.toPx() + besideW + (lipShow.value - 1f) * 8.dp.toPx()).roundToInt(),
+                                (r0.top + raise * ride.value + (r0.height - 44.dp.toPx()) / 2f).roundToInt(),
+                            )
+                        } else {
+                            IntOffset((r0.center.x - handleW / 2f).roundToInt(), (r0.bottom + raise * ride.value + (lipShow.value - 1f) * 8.dp.toPx()).roundToInt())
+                        }
+                    }
                     .onSizeChanged { handleW = it.width.toFloat() }
                     .graphicsLayer { alpha = lipShow.value * (1f - lipGone.value) * (1f - (drop?.sink?.value ?: 0f)) }
                     .heightIn(min = 44.dp).testTag("sheet-open")
@@ -631,8 +646,8 @@ internal fun LiftHero(
                     )
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, role = Role.Button, onClick = lift),
             ) {
-                Box(Modifier.glideBorder(lipFocused, RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp), LocalPalette.current.signal)) {
-                    Handle(lipH)
+                Box(Modifier.glideBorder(lipFocused, if (lipBeside) RoundedCornerShape(12.dp) else RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp), LocalPalette.current.signal)) {
+                    Handle(lipH, accent = lipAccent, pill = lipBeside, pillTint = lipTint)
                 }
             }
         }
@@ -641,10 +656,15 @@ internal fun LiftHero(
 }
 
 @Composable
-internal fun Handle(height: Dp, above: Boolean = false) {
+internal fun Handle(height: Dp, above: Boolean = false, accent: Color? = null, pill: Boolean = false, pillTint: Color? = null) {
     val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
-    val shape = if (above) RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp) else RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+    val tint = accent ?: colors.onSurfaceVariant
+    val shape = when {
+        pill -> RoundedCornerShape(12.dp)
+        above -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+        else -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+    }
     val still = Motion.scale == 0f
     val bob = androidx.compose.animation.core.rememberInfiniteTransition(label = "handle")
     val lift by bob.animateFloat(
@@ -662,13 +682,13 @@ internal fun Handle(height: Dp, above: Boolean = false) {
     )
     Row(
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.height(height).clip(shape).background(colors.surface)
-            .drawBorderSidesAndFoot(pal.line, 12.dp, flip = above)
+        modifier = Modifier.height(height).clip(shape).background(if (pill) pillTint ?: colors.surface else colors.surface)
+            .then(if (pill) Modifier.border(1.dp, accent ?: pal.line, shape) else Modifier.drawBorderSidesAndFoot(accent ?: pal.line, 12.dp, flip = above))
             .padding(start = 14.dp, end = 10.dp),
     ) {
-        Text(stringResource(R.string.drawer_page_settings), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurfaceVariant, maxLines = 1)
+        Text(stringResource(R.string.drawer_page_settings), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tint, maxLines = 1)
         Icon(
-            if (above) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp, null, tint = colors.onSurfaceVariant,
+            if (above) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp, null, tint = tint,
             modifier = Modifier.size(16.dp).graphicsLayer { translationY = if (still) 0f else (if (above) 3.dp else -3.dp).toPx() * lift },
         )
     }
