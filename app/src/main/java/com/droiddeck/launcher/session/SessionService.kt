@@ -162,6 +162,10 @@ class SessionService : Service() {
     private var leaveRestored = false
     private var pendingSteamGameId: String? = null
     private var pendingSteamGameGeneration = -1
+    // The game this session is playing, for the learned per-game profile:
+    // the Steam app id of the last game launched in this session, null
+    // when no game was launched (the session itself is not profiled).
+    private var sessionGameId: String? = null
     // Bumped to cancel a running game-exit watch (a new launch, or the session ending).
     @Volatile private var gameExitWatchToken = 0
     private val flushSteamGame = object : Runnable {
@@ -569,6 +573,7 @@ class SessionService : Service() {
 
     private fun runSession(gen: Int) {
         SessionTerminal.clear()
+        sessionGameId = null
         com.droiddeck.launcher.gpu.TpUbwcHint.forThisDevice(this)
         try {
             LinuxRuntime.writeAccounts(this)
@@ -1361,6 +1366,13 @@ class SessionService : Service() {
         pendingSteamGameGeneration = -1
         SessionEvents.record("steam.game_launch_requested", mapOf("gameId" to gameId, "generation" to gen))
         watchGameExit(gameId, gen)
+        sessionGameId = gameId
+        if (SessionPrefs.gameProfilesEnabled(this)) {
+            runCatching {
+                val tier = com.droiddeck.launcher.core.privileged.GameProfileStore.startingTierFor(this, gameId)
+                com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.applyStartingTier(this, tier)
+            }.onFailure { Log.w(TAG, "game profile starting tier", it) }
+        }
         Log.i(TAG, "queued Steam game $gameId for the running client")
     }
 
@@ -2117,6 +2129,7 @@ class SessionService : Service() {
         )
         safetyMonitor?.setTweaksActive(com.droiddeck.launcher.core.privileged.GameModeEngine.isActive())
         safetyMonitor?.start()
+        com.droiddeck.launcher.core.privileged.SessionProfiler.start(appContext)
     }
 
     private fun endTweaksNow() {
@@ -2522,6 +2535,20 @@ class SessionService : Service() {
         SessionEvents.record("guest.exited", mapOf("status" to status))
         safetyMonitor?.stop()
         safetyMonitor = null
+        val profilerSamples = com.droiddeck.launcher.core.privileged.SessionProfiler.stop(this)
+        runCatching {
+            val gameKey = sessionGameId
+            if (gameKey != null) {
+                com.droiddeck.launcher.core.privileged.GameProfileStore.recordSessionEnd(
+                    this,
+                    gameKey,
+                    SessionPrefs.gameProfilesEnabled(this),
+                    profilerSamples,
+                    ended,
+                )
+            }
+        }.onFailure { Log.w(TAG, "game profile record failed", it) }
+        sessionGameId = null
         com.droiddeck.launcher.core.privileged.LiveHogWatcher.stop()
         SessionExit.beginTeardown(sessionGen)
         GpuClockPin.stop(this)

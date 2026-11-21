@@ -764,6 +764,8 @@
     <string name="setup_adv_aggressive_hint">Forces all performance &amp; prime cores (0xfc) and activates Samsung Enhanced Processing (increases heat &amp; battery draw)</string>
     <string name="setup_adv_dynamic_gov">Dynamic Adaptive Balancer</string>
     <string name="setup_adv_dynamic_gov_hint">Zero-polling thermal interrupt listener that dynamically flexes background load and CPU headroom during gameplay</string>
+    <string name="setup_adv_game_profiles">Per-game profiles (A/B test)</string>
+    <string name="setup_adv_game_profiles_hint">Learns each game\'s measured performance and starts its next session at the fitting governor tier, with a per-session comparison report against the current shape</string>
     <string name="setup_adv_thermal_raise">Raise thermal limit to 4 (risky)</string>
     <string name="setup_adv_thermal_raise_hint">Thermal safety starts at level 4 instead of 3. The phone runs hotter, reaches level 4 faster, and the battery wears faster.</string>
     <string name="setup_adv_thermal_raise_warn_title">Raise the thermal limit?</string>
