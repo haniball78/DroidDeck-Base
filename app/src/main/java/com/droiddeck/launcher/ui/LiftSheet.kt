@@ -183,6 +183,7 @@ internal fun LiftHero(
     scrim: @Composable (lifted: () -> Float) -> Unit = {},
     words: @Composable () -> Unit,
     beside: @Composable () -> Unit = {},
+    afterButton: @Composable () -> Unit = {},
     button: @Composable (onClick: () -> Unit) -> Unit,
     rows: @Composable (tab: String) -> Unit,
     modifier: Modifier = Modifier,
@@ -617,10 +618,11 @@ internal fun LiftHero(
                     .focusProperties { canFocus = besideShown },
             ) { if (besideShown || sink.value < 0.99f) beside() }
             }
+            afterButton()
         }
 
         val r0 = restRect
-        if (r0 != null && (lipShow.value > 0.01f || pull.value > 0.5f || (!downOpens && !open && !shown))) {
+        if (r0 != null && r0.top >= 0f && r0.top < h && (lipShow.value > 0.01f || pull.value > 0.5f || (!downOpens && !open && !shown))) {
             var handleW by remember { mutableStateOf(0f) }
             val lipH = 32.dp + pull.value.dp
             val lift = { if (!open) open = true }

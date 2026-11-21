@@ -184,7 +184,7 @@ internal fun SteamHome(s: FrontEndState, a: FrontEndActions, modifier: Modifier)
         scrim = { if (hero == null && games.size >= WALL_MIN_GAMES) WallFade() },
         words = {
             if (hero != null) {
-                SteamHeroWords(hero, shelf, s, a, narrow)
+                SteamHeroWords(hero, s, a, narrow)
             } else {
                 Row(
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -205,6 +205,9 @@ internal fun SteamHome(s: FrontEndState, a: FrontEndActions, modifier: Modifier)
                 QuickPill(stringResource(R.string.connections_second_player), narrow) { show("second_player") }
             }
         },
+        afterButton = {
+            if (hero != null) SteamHeroShelf(shelf, narrow)
+        },
         rows = { tab -> a.modeSheet(mode, tab, extras) },
     )
 }
@@ -222,20 +225,20 @@ private fun HeroBackdrop(hero: Library.SteamGame) {
         Box(
             Modifier.fillMaxSize().background(
                 Brush.horizontalGradient(
-                    0f to colors.background.copy(alpha = 0.93f),
-                    0.30f to colors.background.copy(alpha = 0.55f),
-                    0.62f to colors.background.copy(alpha = 0.12f),
-                    1f to colors.background.copy(alpha = 0.45f),
+                    0f to colors.background.copy(alpha = 0.78f),
+                    0.30f to colors.background.copy(alpha = 0.40f),
+                    0.62f to colors.background.copy(alpha = 0.08f),
+                    1f to colors.background.copy(alpha = 0.30f),
                 ),
             ),
         )
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
-                    0f to colors.background.copy(alpha = 0.70f),
-                    0.30f to colors.background.copy(alpha = 0.08f),
-                    0.62f to colors.background.copy(alpha = 0.25f),
-                    1f to colors.background.copy(alpha = 0.95f),
+                    0f to colors.background.copy(alpha = 0.48f),
+                    0.30f to colors.background.copy(alpha = 0.05f),
+                    0.62f to colors.background.copy(alpha = 0.15f),
+                    1f to colors.background.copy(alpha = 0.88f),
                 ),
             ),
         )
@@ -243,9 +246,32 @@ private fun HeroBackdrop(hero: Library.SteamGame) {
 }
 
 @Composable
-private fun SteamHeroWords(hero: Library.SteamGame, shelf: List<Library.SteamGame>, s: FrontEndState, a: FrontEndActions, narrow: Boolean) {
-    val show = LocalShowSection.current
+private fun SteamHeroWords(hero: Library.SteamGame, s: FrontEndState, a: FrontEndActions, narrow: Boolean) {
     val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            stringResource(R.string.steam_resume_playing), fontSize = if (narrow) 24.sp else 32.sp, fontWeight = FontWeight.Bold,
+            color = AttentionAmber, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            lastPlayedText(hero.lastPlayed)?.let { "$it • ${hero.name}" } ?: hero.name,
+            fontSize = 14.sp, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            PrimaryButton(
+                stringResource(R.string.games_launch), enabled = !s.busy, large = true, icon = Icons.Filled.PlayArrow,
+                brush = GoldBrush, ink = GoldInk, modifier = Modifier.testTag("hero-play"),
+            ) { a.onSteamGame(hero) }
+            if (s.busy || !s.ready || (s.available != null && s.available != s.installed)) RuntimeChip(s)
+        }
+    }
+}
+
+@Composable
+private fun SteamHeroShelf(shelf: List<Library.SteamGame>, narrow: Boolean) {
+    val show = LocalShowSection.current
     val transition = rememberInfiniteTransition(label = "shelfBob")
     val bobs = listOf(2800, 3200, 3600).map { ms ->
         transition.animateFloat(0f, 1f, infiniteRepeatable(tween(ms, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "bob")
@@ -254,25 +280,8 @@ private fun SteamHeroWords(hero: Library.SteamGame, shelf: List<Library.SteamGam
         val bubbleW = ((maxWidth - 10.dp * 2) / 3).coerceIn(96.dp, 260.dp)
         val bubbleH = if (narrow) 104.dp else 128.dp
         Column(Modifier.fillMaxWidth()) {
-            Text(
-                stringResource(R.string.steam_resume_playing), fontSize = if (narrow) 24.sp else 32.sp, fontWeight = FontWeight.Bold,
-                color = AttentionAmber, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                lastPlayedText(hero.lastPlayed)?.let { "$it • ${hero.name}" } ?: hero.name,
-                fontSize = 14.sp, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryButton(
-                    stringResource(R.string.games_launch), enabled = !s.busy, large = true, icon = Icons.Filled.PlayArrow,
-                    brush = GoldBrush, ink = GoldInk, modifier = Modifier.testTag("hero-play"),
-                ) { a.onSteamGame(hero) }
-                if (s.busy || !s.ready || (s.available != null && s.available != s.installed)) RuntimeChip(s)
-            }
             Spacer(Modifier.height(18.dp))
-            Text(stringResource(R.string.stores_sort_last_played), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AttentionAmber)
+            Text(stringResource(R.string.steam_recently_played), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AttentionAmber)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 shelf.forEachIndexed { i, game ->
@@ -303,7 +312,7 @@ private fun RecentBubble(game: Library.SteamGame, w: Dp, h: Dp, bob: Float, onOp
         ) {
             if (art != null) {
                 AsyncImage(
-                    model = art, contentDescription = game.name, contentScale = ContentScale.Crop,
+                    model = art, contentDescription = game.name, contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().clip(shape),
                 )
             }

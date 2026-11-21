@@ -1174,6 +1174,7 @@
     <string name="games_launch_settings">Launch settings</string>
     <string name="games_launch">Launch</string>
     <string name="steam_resume_playing">Resume playing</string>
+    <string name="steam_recently_played">Recently played</string>
     <string name="games_files">Game files</string>
     <string name="games_prefix">Proton prefix</string>
     <string name="gamepack_pack">Compress game</string>

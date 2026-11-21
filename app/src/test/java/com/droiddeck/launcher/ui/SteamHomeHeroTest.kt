@@ -59,6 +59,22 @@ class SteamHomeHeroTest {
         assertEquals(-1, launchedAppId)
     }
 
+    @Test fun pillsRowComesBeforeShelf() {
+        show(listOf(game(440, "World of Sea Battle", hoursAgo(12)), game(441, "Microworks", hoursAgo(30)), game(442, "Reanimal Demo", hoursAgo(50))))
+        val playTop = compose.onNodeWithTag("play-steam").fetchSemanticsNode().boundsInRoot.top
+        val bubbleTop = compose.onNodeWithTag("shelf-bubble:440").fetchSemanticsNode().boundsInRoot.top
+        assertTrue("play-steam ($playTop) must sit above the shelf ($bubbleTop)", playTop < bubbleTop)
+    }
+
+    @Test fun shelfHeadingSitsBetweenPillsAndBubbles() {
+        show(listOf(game(440, "World of Sea Battle", hoursAgo(12)), game(441, "Microworks", hoursAgo(30))))
+        val playTop = compose.onNodeWithTag("play-steam").fetchSemanticsNode().boundsInRoot.top
+        val headingTop = compose.onNodeWithText("Recently played").fetchSemanticsNode().boundsInRoot.top
+        val bubbleTop = compose.onNodeWithTag("shelf-bubble:440").fetchSemanticsNode().boundsInRoot.top
+        assertTrue("heading ($headingTop) must sit below the pills ($playTop)", playTop < headingTop)
+        assertTrue("heading ($headingTop) must sit above the bubbles ($bubbleTop)", headingTop < bubbleTop)
+    }
+
     @Test fun pillsKeepPlaySteamAndSettingsAndNavigate() {
         show(listOf(game(440, "World of Sea Battle", hoursAgo(12)), game(441, "Microworks", hoursAgo(30))))
         compose.onNodeWithTag("play-steam").performClick()
