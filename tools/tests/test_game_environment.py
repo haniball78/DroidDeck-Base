@@ -163,11 +163,63 @@ class GameEnvironmentTest(unittest.TestCase):
             self.assertEqual(evaluate("changed"), (0, 3))
 
     def test_profile_precedence_and_unset(self):
-        env = {"KEEP": "inherited", "REMOVE": "inherited", "CUSTOM": "launch option"}
-        config = {"version": 1, "shared": {"CUSTOM": "shared"}, "games": {"42": {"REMOVE": None, "CUSTOM": "game", "EMPTY": ""}}}
-        self.assertEqual(MODULE["apply_config"](env, config, "42"), {"KEEP": "inherited", "CUSTOM": "game", "EMPTY": ""})
-        self.assertEqual(env["REMOVE"], "inherited")
-        self.assertEqual(MODULE["apply_config"](env, config, "43")["CUSTOM"], "shared")
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"HOME": tmp}):
+                env = {"KEEP": "inherited", "REMOVE": "inherited", "CUSTOM": "launch option"}
+                config = {"version": 1, "shared": {"CUSTOM": "shared"}, "games": {"42": {"REMOVE": None, "CUSTOM": "game", "EMPTY": ""}}}
+                base = Path(tmp) / ".cache/droiddeck/42"
+                pinned = {"DXVK_STATE_CACHE_PATH": str(base / "dxvk"),
+                          "VKD3D_SHADER_CACHE_PATH": str(base / "vkd3d"), "WINEDEBUG": "-all"}
+                self.assertEqual(MODULE["apply_config"](env, config, "42"),
+                                 {"KEEP": "inherited", "CUSTOM": "game", "EMPTY": "", **pinned})
+                self.assertEqual(env["REMOVE"], "inherited")
+                self.assertEqual(MODULE["apply_config"](env, config, "43")["CUSTOM"], "shared")
+
+    def test_shader_caches_are_pinned_per_game_and_wine_logging_is_quiet(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"HOME": tmp}):
+                config = {"version": 1, "shared": {}, "games": {}}
+                result = MODULE["apply_config"]({}, config, "42")
+                base = Path(tmp) / ".cache/droiddeck/42"
+                self.assertEqual(result["DXVK_STATE_CACHE_PATH"], str(base / "dxvk"))
+                self.assertEqual(result["VKD3D_SHADER_CACHE_PATH"], str(base / "vkd3d"))
+                self.assertEqual(result["WINEDEBUG"], "-all")
+                self.assertTrue((base / "dxvk").is_dir())
+                self.assertTrue((base / "vkd3d").is_dir())
+                other = MODULE["apply_config"]({}, config, "43")
+                self.assertEqual(other["DXVK_STATE_CACHE_PATH"],
+                                 str(Path(tmp) / ".cache/droiddeck/43/dxvk"))
+
+    def test_shader_cache_pinning_yields_to_user_entries_and_explicit_removal(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"HOME": tmp}):
+                shared = {"version": 1,
+                          "shared": {"DXVK_STATE_CACHE_PATH": "/shared/dxvk", "WINEDEBUG": "+relay"},
+                          "games": {}}
+                result = MODULE["apply_config"]({}, shared, "42")
+                self.assertEqual(result["DXVK_STATE_CACHE_PATH"], "/shared/dxvk")
+                self.assertEqual(result["WINEDEBUG"], "+relay")
+                self.assertIn("VKD3D_SHADER_CACHE_PATH", result)
+                game = {"version": 1, "shared": {},
+                        "games": {"42": {"VKD3D_SHADER_CACHE_PATH": "/game/vkd3d"}}}
+                self.assertEqual(MODULE["apply_config"]({}, game, "42")["VKD3D_SHADER_CACHE_PATH"],
+                                 "/game/vkd3d")
+                removed = {"version": 1, "shared": {},
+                           "games": {"42": {"DXVK_STATE_CACHE_PATH": None, "WINEDEBUG": None}}}
+                pinned = MODULE["apply_config"]({}, removed, "42")
+                self.assertNotIn("DXVK_STATE_CACHE_PATH", pinned)
+                self.assertNotIn("WINEDEBUG", pinned)
+                self.assertIn("VKD3D_SHADER_CACHE_PATH", pinned)
+
+    def test_shader_cache_pinning_needs_a_game_id(self):
+        for app_id in ("", "abc", "42x", "-1"):
+            result = MODULE["apply_config"]({}, {"version": 1}, app_id)
+            self.assertNotIn("DXVK_STATE_CACHE_PATH", result)
+            self.assertNotIn("VKD3D_SHADER_CACHE_PATH", result)
+            self.assertNotIn("WINEDEBUG", result)
 
     def test_games_get_their_own_turnip_debug_and_a_game_profile_still_wins(self):
         gpu = MODULE["game_gpu"]
@@ -181,10 +233,18 @@ class GameEnvironmentTest(unittest.TestCase):
         self.assertNotIn("TU_DEBUG", MODULE["apply_config"](env, config, "43"))
 
     def test_a_games_wine_sync_choice_also_reaches_its_setup_runs(self):
-        env = {"BL_SYNC": "1", "BL_SYNC_FALLBACK": "1", "BL_FSYNC_FIRST": "0", "OTHER": "kept"}
-        config = {"version": 1, "games": {"42": {"BL_SYNC": "0", "BL_FSYNC_FIRST": "1", "PROTON_NO_ESYNC": "1", "FEX_TSOENABLED": "1"}}}
-        chosen = MODULE["apply_config"](env, MODULE["sync_config"](config, "42"), "42")
-        self.assertEqual(chosen, {"BL_SYNC": "0", "BL_SYNC_FALLBACK": "1", "BL_FSYNC_FIRST": "1", "PROTON_NO_ESYNC": "1", "OTHER": "kept"})
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"HOME": tmp}):
+                env = {"BL_SYNC": "1", "BL_SYNC_FALLBACK": "1", "BL_FSYNC_FIRST": "0", "OTHER": "kept"}
+                config = {"version": 1, "games": {"42": {"BL_SYNC": "0", "BL_FSYNC_FIRST": "1", "PROTON_NO_ESYNC": "1", "FEX_TSOENABLED": "1"}}}
+                chosen = MODULE["apply_config"](env, MODULE["sync_config"](config, "42"), "42")
+                base = Path(tmp) / ".cache/droiddeck/42"
+                self.assertEqual(chosen, {"BL_SYNC": "0", "BL_SYNC_FALLBACK": "1", "BL_FSYNC_FIRST": "1",
+                                          "PROTON_NO_ESYNC": "1", "OTHER": "kept",
+                                          "DXVK_STATE_CACHE_PATH": str(base / "dxvk"),
+                                          "VKD3D_SHADER_CACHE_PATH": str(base / "vkd3d"),
+                                          "WINEDEBUG": "-all"})
 
     def test_component_profiles_override_general_and_restore_it_for_the_next_game(self):
         with tempfile.TemporaryDirectory() as tmp:

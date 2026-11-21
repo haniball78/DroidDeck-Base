@@ -21,7 +21,9 @@ object GameEnvironmentOptions {
         Option("BL_FSYNC_FIRST", "1", R.string.game_env_fsync_first, Type.TOGGLE, listOf("0", "1")),
         Option("DXVK_HUD", "fps", R.string.game_env_hud, Type.MULTIPLE, listOf("scale=0.5", "scale=0.7", "opacity=0.5", "opacity=0.7", "devinfo", "fps", "frametimes", "submissions", "drawcalls", "pipelines", "descriptors", "memory", "gpuload", "version", "api", "cs", "compiler", "samplers")),
         Option("DXVK_CONFIG", "dxvk.maxFrameRate = 60", R.string.game_env_dxvk_config, Type.TEXT),
+        Option("DXVK_STATE_CACHE_PATH", "", 0, Type.TEXT),
         Option("VKD3D_FRAME_RATE", "60", R.string.game_env_vkd3d_limit, Type.NUMBER),
+        Option("VKD3D_SHADER_CACHE_PATH", "", 0, Type.TEXT),
         Option("mesa_glthread", "true", R.string.game_env_glthread, Type.TOGGLE, listOf("false", "true")),
         Option("ZINK_DESCRIPTORS", "auto", 0, Type.CHOICE, listOf("auto", "lazy", "cached", "notemplates")),
         Option("ZINK_DEBUG", "nir", 0, Type.MULTIPLE, listOf("nir", "spirv", "tgsi", "validation", "sync", "compact", "noreorder")),
@@ -35,6 +37,7 @@ object GameEnvironmentOptions {
         Option("DROIDDECK_ANTICHEAT_OFFLINE", "1", R.string.game_env_anticheat_offline, Type.TOGGLE, listOf("0", "1")),
         Option("WINE_LARGE_ADDRESS_AWARE", "0", 0, Type.TOGGLE, listOf("0", "1")),
         Option("WINEDLLOVERRIDES", "", 0, Type.TEXT),
+        Option("WINEDEBUG", "-all", 0, Type.TEXT),
         Option("GALLIUM_HUD", "simple", 0, Type.MULTIPLE, listOf("simple", "fps", "frametime")),
     )
 

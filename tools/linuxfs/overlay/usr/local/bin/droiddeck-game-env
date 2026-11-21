@@ -217,6 +217,23 @@ def game_gpu(env):
     return result
 
 
+def pinned_env(app_id):
+    """Launch defaults a game does not set itself: per-game shader-cache directories
+    under the persistent guest cache, and quiet Wine logging.
+
+    DXVK names its state files after the executable, but VKD3D-Proton writes one fixed
+    vkd3d-proton.cache file, so each game needs its own directory for both caches.
+    """
+    if not app_id or not re.fullmatch(r"[0-9]+", app_id):
+        return {}
+    base = Path.home() / ".cache" / "droiddeck" / app_id
+    return {
+        "DXVK_STATE_CACHE_PATH": str(base / "dxvk"),
+        "VKD3D_SHADER_CACHE_PATH": str(base / "vkd3d"),
+        "WINEDEBUG": "-all",
+    }
+
+
 def apply_config(env, config, app_id, fixes=None):
     if config.get("version") != 1:
         raise ValueError("unsupported environment configuration")
@@ -246,6 +263,16 @@ def apply_config(env, config, app_id, fixes=None):
         if dxvk:
             own = result.get("DXVK_CONFIG", "").strip().rstrip(";").strip()
             result["DXVK_CONFIG"] = own + "; " + dxvk if own else dxvk
+    removed = {name for name, value in entries.items() if value is None}
+    for name, value in pinned_env(app_id).items():
+        if name in removed or name in result:
+            continue
+        result[name] = value
+        if name != "WINEDEBUG":
+            try:
+                Path(value).mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
     return result
 
 

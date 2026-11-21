@@ -64,7 +64,11 @@ The initial configuration enables Mesa shader caching with
 `MESA_SHADER_CACHE_DISABLE=false`, sets `VKD3D_FEATURE_LEVEL=12_2` and
 `VKD3D_SHADER_MODEL=6_9`, and preserves the selected FEX preset. Existing edits
 and explicit removals take precedence over these defaults. FEX's own default
-remains the default preset. Shader caching in VKD3D/DXVK, synchronization, ray
+remains the default preset. Each game launch also pins its DXVK and VKD3D-Proton
+shader caches to per-game directories under `~/.cache/droiddeck/<app-id>/`
+(`dxvk` and `vkd3d`) and sets `WINEDEBUG=-all`; a shared or per-game entry for
+any of these wins, and removing one leaves that runtime's default in place.
+Mesa's shader cache stays in its shared default location. Synchronization, ray
 tracing and diagnostic logging otherwise retain the runtime's defaults.
 
 On an Adreno 6xx, Turnip does not expose `storageBuffer8BitAccess`, which DXVK 3

@@ -12,6 +12,18 @@ class GameEnvironmentTest {
         assertEquals("6_9", values["VKD3D_SHADER_MODEL"])
     }
 
+    @Test fun shaderCachePathsAndWineDebugAreOfferedForOverride() {
+        for ((name, value) in mapOf(
+            "DXVK_STATE_CACHE_PATH" to "",
+            "VKD3D_SHADER_CACHE_PATH" to "",
+            "WINEDEBUG" to "-all",
+        )) {
+            val option = requireNotNull(GameEnvironmentOptions.find(name))
+            assertEquals(GameEnvironmentOptions.Type.TEXT, option.type)
+            assertEquals(value, option.value)
+        }
+    }
+
     @Test fun forceSsbsIsADefaultAGameCanTurnOff() {
         assertFalse(GameEnvironment.defaults("").containsKey(GameEnvironment.FORCE_SSBS))
         assertEquals("1", GameEnvironment.defaults("", forceSsbs = true)[GameEnvironment.FORCE_SSBS])
