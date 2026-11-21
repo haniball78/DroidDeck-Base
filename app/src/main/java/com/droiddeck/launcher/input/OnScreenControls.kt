@@ -9,11 +9,16 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -25,6 +30,7 @@ class OnScreenControls(
     private val pad: PadBridge?,
     private val editing: Boolean = false,
     private val onKeyboard: (() -> Unit)? = null,
+    private val onKey: ((KeyEvent) -> Unit)? = null,
 ) : View(context) {
 
     private class Control(
@@ -87,6 +93,9 @@ class OnScreenControls(
         Control("start", "start", -1, 20f, 0f, 0f),
         Control("guide", "guide", -1, 22f, 0f, 0f),
         Control("qam", "qam", -1, 22f, 0f, 0f),
+        Control("smart", "smart", -1, 24f, 0f, 0f),
+        Control("moveToggle", "smart", -1, 20f, 0f, 0f),
+        Control("customKey", "customKey", -1, 24f, 0f, 0f),
     )
 
     private val groups = controls.map { it.group }.distinct()
@@ -110,6 +119,47 @@ class OnScreenControls(
     private var ignoreSaved = false
     private var fit = 1f
 
+    private val gripSessionStartMs = SystemClock.uptimeMillis()
+    internal var gripNow: () -> Long = { SystemClock.uptimeMillis() }
+    private val gripSmart = GripScheme.SmartButton()
+    private val gripTrackers = HashMap<Int, GripScheme.PressTracker>()
+    private val gripLongPressCheck = HashMap<Int, Runnable>()
+    private val gripHandler = Handler(Looper.getMainLooper())
+    private var customKeys: List<GripScheme.CustomKeyButton> = emptyList()
+    var gameKey: String? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            loadCustomKeys()
+        }
+    private var customKeyDrag: Control? = null
+    private var customKeyDragMoved = false
+    private var customKeyDownX = 0f
+    private var customKeyDownY = 0f
+
+    private val gripTick = object : Runnable {
+        override fun run() {
+            if (!isAttachedToWindow) return
+            if (settings.newGrip && !editing && !buttonsOnly) {
+                invalidate()
+                gripHandler.postDelayed(this, 1000L)
+            }
+        }
+    }
+
+    private fun gripSessionElapsedMs() = gripNow() - gripSessionStartMs
+    private fun gripStickAlpha() = GripScheme.stickAlpha(gripSessionElapsedMs())
+    private fun gripSmartOpen() = gripSmart.isOpen(gripSessionElapsedMs(), gripNow())
+
+    private fun loadCustomKeys() {
+        val stored = GripScheme.CustomKeys.load(context, gameKey ?: GripScheme.DEFAULT_GAME_KEY)
+        customKeys = stored.ifEmpty {
+            listOf(GripScheme.CustomKeyButton("M", KeyEvent.KEYCODE_M, -1f, -1f))
+        }
+    }
+
+    private fun controlById(id: String) = controls.first { it.id == id }
+
     private var idleFill = 0
     private var heldFill = 0
     private var idleStroke = 0
@@ -128,12 +178,29 @@ class OnScreenControls(
     }
 
     init {
+        loadCustomKeys()
         applySettings()
     }
 
     private fun dp(value: Float) = value * resources.displayMetrics.density
 
+    private fun faded(color: Int, factor: Float): Int =
+        if (factor == 1f) color else Color.argb(
+            (Color.alpha(color) * factor).toInt().coerceIn(0, 255),
+            Color.red(color), Color.green(color), Color.blue(color))
+
     private fun scaled(value: Float) = dp(value) * settings.size / 100f * fit
+
+    // Approved grip preview sizes, new grip only: every grip control 0.75x,
+    // shoulders 0.75x then 1.10x, SMART 1.2/1.38x.
+    private fun gripFactor(control: Control): Float =
+        if (!settings.newGrip || editing) 1f else when (control.id) {
+            "lb", "rb", "lt", "rt" -> 0.825f
+            "smart" -> 1.2f / 1.38f
+            else -> 0.75f
+        }
+
+    private fun scaledOffset(control: Control, value: Float) = scaled(value * gripFactor(control))
 
     private fun fitScale(): Float {
         val metrics = resources.displayMetrics
@@ -146,9 +213,12 @@ class OnScreenControls(
     fun reload() {
         releaseAll()
         settings = ControllerPrefs.read(context)
+        loadCustomKeys()
         setSnap(settings.snap)
         applySettings()
         relayout()
+        gripHandler.removeCallbacks(gripTick)
+        if (settings.newGrip) gripHandler.post(gripTick)
     }
 
     private fun clearSnapGuides() {
@@ -211,7 +281,16 @@ class OnScreenControls(
         return super.onApplyWindowInsets(insets)
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (settings.newGrip) gripHandler.post(gripTick)
+    }
+
     override fun onDetachedFromWindow() {
+        gripHandler.removeCallbacks(gripTick)
+        gripLongPressCheck.values.forEach { gripHandler.removeCallbacks(it) }
+        gripLongPressCheck.clear()
+        gripTrackers.clear()
         releaseAll()
         super.onDetachedFromWindow()
     }
@@ -219,11 +298,14 @@ class OnScreenControls(
     private fun relayout() {
         if (width <= 0 || height <= 0) return
         fit = if (buttonsOnly && !editing) 1f else fitScale()
-        for (control in controls) control.radius = if (buttonsOnly && !editing && (control.id == "guide" || control.id == "qam")) dp(30f) else scaled(control.radiusDp)
+        for (control in controls) control.radius = if (buttonsOnly && !editing && (control.id == "guide" || control.id == "qam")) dp(30f) else scaled(control.radiusDp * gripFactor(control))
         if (buttonsOnly && !editing) {
             val inset = dp(44f)
             put("guide", safe.left + inset, height - safe.bottom - inset)
             put("qam", width - safe.right - inset, height - safe.bottom - inset)
+        } else if (settings.newGrip && !editing) {
+            placeAuto(width.toFloat(), height.toFloat())
+            placeGrip()
         } else {
             placeAuto(width.toFloat(), height.toFloat())
             if (!ignoreSaved) for ((group, pos) in ControllerPrefs.layout(context, width, height)) {
@@ -232,6 +314,33 @@ class OnScreenControls(
         }
         groups.forEach { clamp(it) }
         invalidate()
+    }
+
+    private fun placeGrip() {
+        val gap = dp(8f)
+        val colX = safe.left + dp(34f)
+        val quickY = height - safe.bottom - dp(34f)
+        var top = quickY - dp(26f) - gap
+        for (id in listOf("smart", "start", "moveToggle", "select", "qam", "guide")) {
+            val control = controlById(id)
+            control.cx = colX
+            control.cy = top - control.radius
+            top -= control.radius * 2f + gap
+            if (id == "smart" || id == "start") top -= dp(14f)
+        }
+        val saved = customKeys.firstOrNull()
+        val custom = controlById("customKey")
+        if (saved != null && isVisible(custom)) {
+            if (saved.xFrac < 0f) {
+                val (faceX, faceY) = centre("face")
+                custom.cx = faceX
+                custom.cy = faceY + extent("face") + gap + custom.radius
+                customKeys = listOf(saved.copy(xFrac = custom.cx / width, yFrac = custom.cy / height))
+            } else {
+                custom.cx = saved.xFrac * width
+                custom.cy = saved.yFrac * height
+            }
+        }
     }
 
     private fun pxPerMm(dpi: Float): Float {
@@ -329,19 +438,19 @@ class OnScreenControls(
 
     private fun centre(group: String): Pair<Float, Float> {
         val first = members(group).first()
-        return (first.cx - scaled(first.offsetXDp)) to (first.cy - scaled(first.offsetYDp))
+        return (first.cx - scaledOffset(first, first.offsetXDp)) to (first.cy - scaledOffset(first, first.offsetYDp))
     }
 
     private fun extent(group: String): Float = members(group).maxOf { control ->
-        sqrt(scaled(control.offsetXDp).let { it * it } + scaled(control.offsetYDp).let { it * it }) + control.halfW
+        sqrt(scaledOffset(control, control.offsetXDp).let { it * it } + scaledOffset(control, control.offsetYDp).let { it * it }) + control.halfW
     }
 
-    private fun halfH(group: String): Float = members(group).maxOf { abs(scaled(it.offsetYDp)) + it.halfH }
+    private fun halfH(group: String): Float = members(group).maxOf { abs(scaledOffset(it, it.offsetYDp)) + it.halfH }
 
     private fun put(group: String, x: Float, y: Float) {
         for (control in members(group)) {
-            control.cx = x + scaled(control.offsetXDp)
-            control.cy = y + scaled(control.offsetYDp)
+            control.cx = x + scaledOffset(control, control.offsetXDp)
+            control.cy = y + scaledOffset(control, control.offsetYDp)
         }
     }
 
@@ -381,28 +490,31 @@ class OnScreenControls(
         "start" -> "☰"
         "guide" -> if (buttonsOnly && !editing) "Steam" else "◉"
         "qam" -> "⋯"
+        "customKey" -> customKeys.firstOrNull()?.label ?: "M"
         else -> control.target.uppercase()
     }
 
     override fun onDraw(canvas: Canvas) {
         if (!quickHidden) for (control in controls) {
             if (!isVisible(control)) continue
-            if (control.stick >= 0 && settings.adaptiveSticks && !editing && control.pressedBy == -1) continue
+            if (control.stick >= 0 && settings.adaptiveSticks && !editing && control.pressedBy == -1 &&
+                !(settings.newGrip && !buttonsOnly && control.id == "ls")) continue
             val held = control.pressedBy != -1
             val radius = control.radius
             if (control.stick >= 0) {
+                val fade = if (settings.newGrip && !editing && !buttonsOnly && control.id == "ls") gripStickAlpha() else 1f
                 val bx = if (held) control.ax else control.cx
                 val by = if (held) control.ay else control.cy
-                fill.color = if (held) heldFill else stickFill
+                fill.color = if (held) faded(heldFill, fade) else faded(stickFill, fade)
                 canvas.drawCircle(bx, by, radius, fill)
-                stroke.color = if (held) heldStroke else idleStroke
+                stroke.color = if (held) faded(heldStroke, fade) else faded(idleStroke, fade)
                 canvas.drawCircle(bx, by, radius, stroke)
                 val knob = radius * 0.46f
-                fill.color = if (held || control.clicked) heldFill else knobFill
+                fill.color = if (held || control.clicked) faded(heldFill, fade) else faded(knobFill, fade)
                 canvas.drawCircle(bx + control.kx, by + control.ky, knob, fill)
-                stroke.color = if (held) heldStroke else idleStroke
+                stroke.color = if (held) faded(heldStroke, fade) else faded(idleStroke, fade)
                 canvas.drawCircle(bx + control.kx, by + control.ky, knob, stroke)
-                text.color = if (held) Color.WHITE else idleText
+                text.color = if (held) faded(Color.WHITE, fade) else faded(idleText, fade)
                 text.textSize = knob * 0.8f
                 canvas.drawText(label(control), bx + control.kx, by + control.ky + text.textSize * 0.35f, text)
             } else if (control.wide) {
@@ -416,6 +528,14 @@ class OnScreenControls(
                 text.textSize = control.halfH * 0.8f
                 canvas.drawText(label(control), control.cx, control.cy + text.textSize * 0.35f, text)
             } else {
+                if (settings.newGrip && !editing && !buttonsOnly && control.id == "smart") {
+                    drawSmartButton(canvas, control, held)
+                    continue
+                }
+                if (settings.newGrip && !editing && !buttonsOnly && control.id == "moveToggle") {
+                    drawMoveToggle(canvas, control, held)
+                    continue
+                }
                 fill.color = if (held) heldFill else idleFill
                 canvas.drawCircle(control.cx, control.cy, radius, fill)
                 stroke.color = if (held) heldStroke else idleStroke
@@ -429,6 +549,11 @@ class OnScreenControls(
                 val name = label(control)
                 text.textSize = if (name.length > 2) dp(11f) else radius * if (name.length == 2) 0.62f else 0.85f
                 canvas.drawText(name, control.cx, control.cy + text.textSize * 0.35f, text)
+                if (settings.newGrip && !editing && !buttonsOnly && control.id == "start") {
+                    text.color = if (held) Color.WHITE else idleText
+                    text.textSize = dp(10f)
+                    canvas.drawText("START", control.cx, control.cy + radius + text.textSize, text)
+                }
             }
         }
         if (editing) {
@@ -446,30 +571,62 @@ class OnScreenControls(
             }
         } else if (!buttonsOnly) {
             val (x, y) = quickCenter()
-            val radius = dp(18f)
+            val radius = dp(19.8f)
             fill.color = Color.argb(190, Color.red(idleFill), Color.green(idleFill), Color.blue(idleFill))
             canvas.drawCircle(x, y, radius, fill)
             stroke.color = idleStroke
             canvas.drawCircle(x, y, radius, stroke)
             text.color = idleText
-            text.textSize = dp(22f)
+            text.textSize = dp(24.2f)
             canvas.drawText(if (quickHidden) "+" else "−", x, y + text.textSize * 0.35f, text)
         }
         if (!editing && settings.keyboardButton && onKeyboard != null) {
             val (x, y) = keyboardCenter()
             fill.color = Color.argb(190, Color.red(idleFill), Color.green(idleFill), Color.blue(idleFill))
-            canvas.drawCircle(x, y, dp(18f), fill)
+            canvas.drawCircle(x, y, dp(19.8f), fill)
             stroke.color = if (keyboardPressedBy == -1) idleStroke else heldStroke
-            canvas.drawCircle(x, y, dp(18f), stroke)
-            box.set(x - dp(10f), y - dp(7f), x + dp(10f), y + dp(7f))
-            canvas.drawRoundRect(box, dp(2f), dp(2f), stroke)
+            canvas.drawCircle(x, y, dp(19.8f), stroke)
+            box.set(x - dp(11f), y - dp(7.7f), x + dp(11f), y + dp(7.7f))
+            canvas.drawRoundRect(box, dp(2.2f), dp(2.2f), stroke)
             for (row in 0..1) for (col in 0..2) {
-                val kx = x + dp(-6f + col * 5f)
-                val ky = y + dp(-3f + row * 4f)
-                canvas.drawLine(kx, ky, kx + dp(2f), ky, stroke)
+                val kx = x + dp(-6.6f + col * 5.5f)
+                val ky = y + dp(-3.3f + row * 4.4f)
+                canvas.drawLine(kx, ky, kx + dp(2.2f), ky, stroke)
             }
-            canvas.drawLine(x - dp(5f), y + dp(4f), x + dp(5f), y + dp(4f), stroke)
+            canvas.drawLine(x - dp(5.5f), y + dp(4.4f), x + dp(5.5f), y + dp(4.4f), stroke)
         }
+    }
+
+    private fun drawSmartButton(canvas: Canvas, control: Control, held: Boolean) {
+        fill.color = if (held) heldFill else idleFill
+        canvas.drawCircle(control.cx, control.cy, control.radius, fill)
+        stroke.color = if (held) heldStroke else idleStroke
+        canvas.drawCircle(control.cx, control.cy, control.radius, stroke)
+        fill.color = if (held) Color.WHITE else idleText
+        canvas.drawCircle(control.cx, control.cy, control.radius * 0.22f, fill)
+        text.color = if (held) Color.WHITE else idleText
+        text.textSize = dp(10f)
+        canvas.drawText("SMART", control.cx, control.cy + control.radius + text.textSize, text)
+    }
+
+    private fun drawMoveToggle(canvas: Canvas, control: Control, held: Boolean) {
+        fill.color = if (held) heldFill else idleFill
+        canvas.drawCircle(control.cx, control.cy, control.radius, fill)
+        stroke.color = if (held) heldStroke else idleStroke
+        canvas.drawCircle(control.cx, control.cy, control.radius, stroke)
+        val stickMode = settings.gripMovement == GripScheme.Movement.STICK
+        val top = control.cy - control.radius * 0.30f
+        val bottom = control.cy + control.radius * 0.30f
+        stroke.color = if (stickMode) heldStroke else idleText
+        canvas.drawCircle(control.cx, top, control.radius * 0.22f, stroke)
+        fill.color = if (stickMode) heldStroke else idleText
+        canvas.drawCircle(control.cx, top, control.radius * 0.08f, fill)
+        stroke.color = if (!stickMode) heldStroke else idleText
+        stroke.strokeWidth = dp(2f)
+        val arm = control.radius * 0.20f
+        canvas.drawLine(control.cx - arm, bottom, control.cx + arm, bottom, stroke)
+        canvas.drawLine(control.cx, bottom - arm, control.cx, bottom + arm, stroke)
+        stroke.strokeWidth = dp(1.5f)
     }
 
     private fun quickCenter() = (safe.left + dp(34f)) to (height - safe.bottom - dp(34f))
@@ -483,12 +640,12 @@ class OnScreenControls(
         val (cx, cy) = keyboardCenter()
         val dx = x - cx
         val dy = y - cy
-        return dx * dx + dy * dy <= dp(26f) * dp(26f)
+        return dx * dx + dy * dy <= dp(28.6f) * dp(28.6f)
     }
 
     private fun quickContains(x: Float, y: Float): Boolean {
         val (cx, cy) = quickCenter()
-        val radius = dp(26f)
+        val radius = dp(28.6f)
         val dx = x - cx
         val dy = y - cy
         return dx * dx + dy * dy <= radius * radius
@@ -513,6 +670,7 @@ class OnScreenControls(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (editing) return onEditTouch(event)
+        if (settings.newGrip && !buttonsOnly) return onGripTouch(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val index = event.actionIndex
@@ -618,6 +776,282 @@ class OnScreenControls(
         return false
     }
 
+    @SuppressLint("ClickableViewAccessibility")
+    private fun onGripTouch(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val index = event.actionIndex
+                val x = event.getX(index)
+                val y = event.getY(index)
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) forwardedPointerBits = 0
+                if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN && gripForwardMiss(event, x, y)) return true
+                if (forwardedPointerBits != 0) forwardPointers(event, forwardedPointerBits)
+                if (event.actionMasked == MotionEvent.ACTION_DOWN && keyboardContains(x, y)) {
+                    keyboardPressedBy = event.getPointerId(index)
+                    invalidate()
+                    return true
+                }
+                if (keyboardPressedBy != -1) return true
+                if (!buttonsOnly && event.actionMasked == MotionEvent.ACTION_DOWN && quickContains(x, y)) {
+                    quickPressedBy = event.getPointerId(index)
+                    return true
+                }
+                if (quickPressedBy != -1) return true
+                if (quickHidden) return false
+                val pointerId = event.getPointerId(index)
+                val keyButton = customKeyAt(x, y)
+                if (keyButton != null) {
+                    keyButton.pressedBy = pointerId
+                    customKeyDrag = keyButton
+                    customKeyDragMoved = false
+                    customKeyDownX = x
+                    customKeyDownY = y
+                    requestUnbufferedDispatch(event)
+                    apply()
+                    return true
+                }
+                val zone = GripScheme.zone(width.toFloat(), height.toFloat())
+                if (zone.contains(x, y)) {
+                    val button = controlAt(x, y)
+                    if (button != null) {
+                        button.pressedBy = pointerId
+                        val tracker = GripScheme.PressTracker(dp(GripScheme.DRAG_THRESHOLD_DP))
+                        tracker.onDown(x, y, gripNow())
+                        gripTrackers[pointerId] = tracker
+                        scheduleGripLongPress(pointerId)
+                        requestUnbufferedDispatch(event)
+                        apply()
+                        return true
+                    }
+                    if (settings.gripMovement == GripScheme.Movement.STICK) {
+                        val stick = controlById("ls")
+                        if (stick.pressedBy == -1) {
+                            stick.pressedBy = pointerId
+                            stick.clicked = settings.stickClick && stick.lastUp > 0L && event.eventTime - stick.lastUp < DOUBLE_TAP_MS
+                            stick.ax = x
+                            stick.ay = y
+                            stick.drag(x, y)
+                            requestUnbufferedDispatch(event)
+                            apply()
+                            return true
+                        }
+                        return true
+                    }
+                    return gripForwardMiss(event, x, y)
+                }
+                val control = controlAt(x, y) ?: gripAdaptiveStickAt(x, y) ?: return gripForwardMiss(event, x, y)
+                if (control.pressedBy != -1) return true
+                control.pressedBy = pointerId
+                if (control.stick >= 0) {
+                    control.clicked = settings.stickClick && control.lastUp > 0L && event.eventTime - control.lastUp < DOUBLE_TAP_MS
+                    val adaptive = settings.adaptiveSticks
+                    control.ax = if (adaptive) event.getX(index) else control.cx
+                    control.ay = if (adaptive) event.getY(index) else control.cy
+                    control.drag(event.getX(index), event.getY(index))
+                }
+                requestUnbufferedDispatch(event)
+                apply()
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (forwardedPointerBits != 0) forwardPointers(event, forwardedPointerBits)
+                if (keyboardPressedBy != -1) return true
+                if (quickPressedBy != -1) return true
+                var changed = false
+                for (index in 0 until event.pointerCount) {
+                    val pointer = event.getPointerId(index)
+                    if (forwardedPointerBits and (1 shl pointer) != 0) continue
+                    val x = event.getX(index)
+                    val y = event.getY(index)
+                    val drag = customKeyDrag
+                    if (drag != null && drag.pressedBy == pointer) {
+                        if (!customKeyDragMoved && hypot(x - customKeyDownX, y - customKeyDownY) > dp(GripScheme.DRAG_THRESHOLD_DP)) {
+                            customKeyDragMoved = true
+                        }
+                        if (customKeyDragMoved) {
+                            drag.cx = x.coerceIn(drag.radius, width - drag.radius)
+                            drag.cy = y.coerceIn(drag.radius, height - drag.radius)
+                            changed = true
+                        }
+                        continue
+                    }
+                    val tracker = gripTrackers[pointer]
+                    if (tracker != null) {
+                        val outcome = tracker.onMove(x, y, gripNow())
+                        if (settings.gripMovement == GripScheme.Movement.STICK) {
+                            if (outcome == GripScheme.PressOutcome.TO_STICK) {
+                                convertGripToStick(pointer, x, y)
+                                changed = true
+                            }
+                            continue
+                        }
+                        if (outcome == GripScheme.PressOutcome.TO_STICK) {
+                            gripTrackers.remove(pointer)
+                            cancelGripLongPress(pointer)
+                        } else {
+                            continue
+                        }
+                    }
+                    val stick = controls.firstOrNull { it.stick >= 0 && it.pressedBy == pointer }
+                    if (stick != null) { stick.drag(x, y); changed = true; continue }
+                    val over = controlAt(x, y)?.takeIf { it.stick < 0 }
+                    for (control in controls) {
+                        if (control.stick < 0 && control.pressedBy == pointer && control !== over) {
+                            control.pressedBy = -1
+                            changed = true
+                        }
+                    }
+                    if (over != null && over.pressedBy == -1) {
+                        over.pressedBy = pointer
+                        changed = true
+                    }
+                }
+                if (changed) apply()
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+                val pointer = event.getPointerId(event.actionIndex)
+                if (forwardedPointerBits != 0) forwardPointers(event, forwardedPointerBits)
+                if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    forwardedPointerBits = 0
+                    cancelGripLongPress(pointer)
+                    gripTrackers.remove(pointer)
+                    releaseAll()
+                    return true
+                }
+                if (forwardedPointerBits and (1 shl pointer) != 0) {
+                    forwardedPointerBits = forwardedPointerBits and (1 shl pointer).inv()
+                    return true
+                }
+                if (keyboardPressedBy == pointer) {
+                    keyboardPressedBy = -1
+                    if (event.actionMasked != MotionEvent.ACTION_CANCEL && quickHidden) {
+                        setQuickHidden(false)
+                        invalidate()
+                    } else if (event.actionMasked != MotionEvent.ACTION_CANCEL) {
+                        onKeyboard?.invoke()
+                    }
+                    invalidate()
+                    return true
+                }
+                if (quickPressedBy == pointer) {
+                    quickPressedBy = -1
+                    if (event.actionMasked != MotionEvent.ACTION_CANCEL) {
+                        setQuickHidden(!quickHidden)
+                        invalidate()
+                    }
+                    return true
+                }
+                if (quickHidden) return false
+                val drag = customKeyDrag
+                if (drag != null && drag.pressedBy == pointer) {
+                    val moved = customKeyDragMoved
+                    val button = customKeys.firstOrNull()
+                    drag.pressedBy = -1
+                    customKeyDrag = null
+                    if (moved) {
+                        if (button != null) {
+                            val movedButton = button.copy(xFrac = drag.cx / width, yFrac = drag.cy / height)
+                            GripScheme.CustomKeys.save(context, gameKey ?: GripScheme.DEFAULT_GAME_KEY, listOf(movedButton))
+                            customKeys = listOf(movedButton)
+                        }
+                    } else if (button != null) {
+                        sendCustomKeyTap(button)
+                    }
+                    apply()
+                    return true
+                }
+                val tracker = gripTrackers.remove(pointer)
+                cancelGripLongPress(pointer)
+                val tapped = controls.firstOrNull { it.pressedBy == pointer }
+                val outcome = tracker?.onUp() ?: GripScheme.PressOutcome.NONE
+                if (outcome == GripScheme.PressOutcome.TAP && tapped != null) {
+                    when (tapped.id) {
+                        "smart" -> {
+                            gripSmart.toggle(gripSessionElapsedMs(), gripNow())
+                            invalidate()
+                        }
+                        "moveToggle" -> {
+                            val next = if (settings.gripMovement == GripScheme.Movement.STICK) GripScheme.Movement.DPAD else GripScheme.Movement.STICK
+                            ControllerPrefs.setGripMovement(context, next)
+                            reload()
+                        }
+                    }
+                }
+                var changed = false
+                for (control in controls) {
+                    if (control.pressedBy == pointer || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                        if (control.pressedBy != -1) changed = true
+                        if (control.stick >= 0 && control.pressedBy != -1) control.lastUp = if (control.clicked || event.actionMasked == MotionEvent.ACTION_CANCEL) 0L else event.eventTime
+                        control.pressedBy = -1
+                        control.clicked = false
+                        if (control.stick >= 0 && (control.kx != 0f || control.ky != 0f)) control.dirty = true
+                        control.kx = 0f
+                        control.ky = 0f
+                    }
+                }
+                if (changed) apply()
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun customKeyAt(x: Float, y: Float): Control? {
+        val custom = controlById("customKey")
+        return if (isVisible(custom) && custom.contains(x, y, custom.radius)) custom else null
+    }
+
+    private fun sendCustomKeyTap(button: GripScheme.CustomKeyButton) {
+        val send = onKey ?: return
+        val now = System.currentTimeMillis()
+        send(KeyEvent(now, now, KeyEvent.ACTION_DOWN, button.keyCode, 0))
+        send(KeyEvent(now, now, KeyEvent.ACTION_UP, button.keyCode, 0))
+    }
+
+    private fun gripForwardMiss(event: MotionEvent, x: Float, y: Float): Boolean {
+        if (onTouchMiss == null || keyboardPressedBy != -1 || quickPressedBy != -1) return false
+        val zone = GripScheme.zone(width.toFloat(), height.toFloat())
+        if (settings.gripMovement == GripScheme.Movement.STICK && zone.contains(x, y)) return false
+        if (!quickHidden && (controlAt(x, y) ?: gripAdaptiveStickAt(x, y)) != null) return false
+        forwardedPointerBits = forwardedPointerBits or (1 shl event.getPointerId(event.actionIndex))
+        forwardPointers(event, forwardedPointerBits)
+        return true
+    }
+
+    private fun scheduleGripLongPress(pointerId: Int) {
+        cancelGripLongPress(pointerId)
+        val check = Runnable { onGripLongPressDue(pointerId) }
+        gripLongPressCheck[pointerId] = check
+        gripHandler.postDelayed(check, GripScheme.LONG_PRESS_MS)
+    }
+
+    private fun cancelGripLongPress(pointerId: Int) {
+        gripLongPressCheck.remove(pointerId)?.let { gripHandler.removeCallbacks(it) }
+    }
+
+    private fun onGripLongPressDue(pointerId: Int) {
+        gripLongPressCheck.remove(pointerId)
+        val tracker = gripTrackers[pointerId] ?: return
+        if (tracker.check(gripNow()) == GripScheme.PressOutcome.LONG_PRESS) invalidate()
+    }
+
+    private fun convertGripToStick(pointer: Int, x: Float, y: Float) {
+        val tracker = gripTrackers.remove(pointer) ?: return
+        cancelGripLongPress(pointer)
+        val button = controls.firstOrNull { it.pressedBy == pointer }
+        if (button != null) {
+            button.pressedBy = -1
+            button.clicked = false
+        }
+        val stick = controlById("ls")
+        stick.pressedBy = pointer
+        stick.clicked = false
+        stick.ax = tracker.downX
+        stick.ay = tracker.downY
+        stick.drag(x, y)
+    }
+
     override fun onPointerCaptureChange(hasCapture: Boolean) {
         super.onPointerCaptureChange(hasCapture)
         onPointerCaptureChange?.invoke(hasCapture)
@@ -683,7 +1117,7 @@ class OnScreenControls(
             !quickHidden && isVisible(it) && (editing || !settings.adaptiveSticks || it.stick < 0) && it.contains(x, y, it.radius)
         }
 
-    private fun adaptiveStickAt(x: Float, y: Float): Control? {
+    private fun adaptiveStickAt(x: Float, y: Float, onlyId: String? = null): Control? {
         if (!settings.adaptiveSticks || editing || buttonsOnly || quickHidden) return null
         if (x < safe.left || x >= width - safe.right || y < safe.top || y >= height - safe.bottom) return null
         if (controls.any { it.stick < 0 && isVisible(it) && it.contains(x, y, it.radius, 5f) }) return null
@@ -691,7 +1125,7 @@ class OnScreenControls(
             val dx = x - it.cx
             val dy = y - it.cy
             val reach = it.radius * 1.4f * sqrt(1.5f)
-            it.stick >= 0 && isVisible(it) && it.pressedBy == -1 && dx * dx + dy * dy <= reach * reach
+            it.stick >= 0 && (onlyId == null || it.id == onlyId) && isVisible(it) && it.pressedBy == -1 && dx * dx + dy * dy <= reach * reach
         }.minByOrNull {
             val dx = x - it.cx
             val dy = y - it.cy
@@ -699,7 +1133,20 @@ class OnScreenControls(
         }
     }
 
+    private fun gripAdaptiveStickAt(x: Float, y: Float): Control? = adaptiveStickAt(x, y, onlyId = "rs")
+
     private fun isVisible(control: Control): Boolean = when {
+        control.id in gripOnlyIds && !(settings.newGrip && !editing && !buttonsOnly) -> false
+        settings.newGrip && !editing && !buttonsOnly -> when (control.id) {
+            "guide" -> gripSmartOpen() && settings.steamButton
+            "qam" -> gripSmartOpen() && settings.qamButton
+            "select", "start", "moveToggle" -> gripSmartOpen()
+            "smart" -> true
+            "up", "right", "down", "left" -> settings.gripMovement == GripScheme.Movement.DPAD
+            "ls" -> settings.gripMovement == GripScheme.Movement.STICK
+            "customKey" -> customKeys.isNotEmpty()
+            else -> control.target != ControllerPrefs.OFF
+        }
         !editing && control.id == "guide" && !settings.steamButton -> false
         !editing && control.id == "qam" && !settings.qamButton -> false
         buttonsOnly && !editing -> control.id == "guide" || control.id == "qam"
@@ -728,7 +1175,8 @@ class OnScreenControls(
                             else { state.rightX = control.kx / control.radius; state.rightY = control.ky / control.radius }
                             control.dirty = false
                         }
-                        control.id == "qam" || control.target == ControllerPrefs.OFF -> {}
+                        control.id == "qam" || control.id == "smart" || control.id == "moveToggle" ||
+                            control.id == "customKey" || control.target == ControllerPrefs.OFF -> {}
                         else -> {
                             used.add(control.target)
                             if (control.pressedBy != -1) held.add(control.target)
@@ -766,6 +1214,11 @@ class OnScreenControls(
     fun releaseAll() {
         quickPressedBy = -1
         keyboardPressedBy = -1
+        gripTrackers.values.forEach { it.cancel() }
+        gripTrackers.clear()
+        gripLongPressCheck.values.forEach { gripHandler.removeCallbacks(it) }
+        gripLongPressCheck.clear()
+        customKeyDrag = null
         invalidate()
         if (controls.none { it.pressedBy != -1 || it.clicked } && !buttonsOnly) return
         controls.forEach {
@@ -790,6 +1243,7 @@ class OnScreenControls(
         const val SNAP_DP = 9f
         const val SNAP_TOLERANCE_PX = 1f
         val shoulderIds = setOf("lb", "rb", "lt", "rt")
+        val gripOnlyIds = setOf("smart", "moveToggle", "customKey")
         val directions = listOf("up", "right", "down", "left")
     }
 }

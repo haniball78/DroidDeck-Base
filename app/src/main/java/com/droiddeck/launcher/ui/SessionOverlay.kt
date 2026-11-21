@@ -146,6 +146,7 @@ import com.droiddeck.launcher.gpu.SteamVr
 import com.droiddeck.launcher.gpu.ScreenEffects
 import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.session.ComponentsManager
+import com.droiddeck.launcher.input.GripScheme
 import com.droiddeck.launcher.input.SecondScreenDisplay
 import com.droiddeck.launcher.input.SecondScreenMode
 import kotlinx.coroutines.flow.collect
@@ -253,6 +254,9 @@ class DrawerActions(
     val onSteamButton: (Boolean) -> Unit = {},
     val onQamButton: (Boolean) -> Unit = {},
     val onKeyboardButton: (Boolean) -> Unit = {},
+    val onNewGrip: (Boolean) -> Unit = {},
+    val customKey: String? = null,
+    val onCustomKey: (String) -> Unit = {},
     val onSuspendPolicy: (String) -> Unit,
     val onSteamDownloadsInBackground: (Boolean) -> Unit = {},
     val onBackActionsInverted: (Boolean) -> Unit,
@@ -578,6 +582,13 @@ internal fun SessionDrawer(open: Boolean, requestedPage: SessionDrawerPage, cont
                                     ActionRow(stringResource(R.string.osc_steam_layout), stringResource(R.string.osc_steam_layout_hint), stringResource(R.string.ctrl_edit), edit)
                                 }
                                 a.controller?.let { c ->
+                                    ToggleRow(host, "new-grip", stringResource(R.string.ctrl_new_grip), stringResource(R.string.ctrl_new_grip_hint), c.newGrip,
+                                        chipModifier = focus.track(page, "new-grip"), onChange = a.onNewGrip)
+                                    if (c.newGrip && a.customKey != null) {
+                                        ChoiceRow(host, "custom-key", stringResource(R.string.ctrl_custom_key), stringResource(R.string.ctrl_custom_key_hint),
+                                            GripScheme.KEY_OPTIONS.map { it.first to it.first },
+                                            a.customKey, chipModifier = focus.track(page, "custom-key"), onPick = a.onCustomKey)
+                                    }
                                     ToggleRow(host, "rumble", stringResource(R.string.ctrl_rumble), null, c.rumble,
                                         chipModifier = focus.track(page, "rumble"), onChange = a.onRumble)
                                     if (a.onScreenButtonsVisible) {

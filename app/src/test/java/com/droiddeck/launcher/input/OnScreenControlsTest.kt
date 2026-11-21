@@ -5,17 +5,23 @@ import kotlin.math.sqrt
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
+import android.os.Looper
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowSystemClock
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE, qualifiers = "mdpi")
@@ -322,6 +328,168 @@ class OnScreenControlsTest {
             assertFalse(touch(MotionEvent.ACTION_DOWN, 1 to (qx to qy)))
         }
     }
+    private fun newGrip() {
+        ControllerPrefs.setNewGrip(context, true)
+        view.reload()
+    }
+
+    @Test fun newGripPlacesStickInsideZoneAndHidesDpadInStickMode() {
+        newGrip()
+        val left = control("ls")
+        val lx = value(left, "cx")
+        val ly = value(left, "cy")
+        assertTrue(lx < 480f)
+        assertTrue(ly > 280f)
+        val up = control("up")
+        val ux = value(up, "cx")
+        val uy = value(up, "cy")
+        assertTrue(touch(MotionEvent.ACTION_DOWN, 1 to (ux to uy)))
+        assertEquals(1, field(left, "pressedBy"))
+        assertEquals(ux, value(left, "ax"), 0f)
+        assertEquals(uy, value(left, "ay"), 0f)
+        assertEquals(-1, field(up, "pressedBy"))
+        touch(MotionEvent.ACTION_UP, 1 to (ux to uy))
+    }
+
+    @Test fun newGripShowsDpadAndHidesStickInDpadMode() {
+        newGrip()
+        ControllerPrefs.setGripMovement(context, GripScheme.Movement.DPAD)
+        view.reload()
+        val up = control("up")
+        touch(MotionEvent.ACTION_DOWN, 1 to (value(up, "cx") to value(up, "cy")))
+        assertEquals(1, field(up, "pressedBy"))
+        assertEquals(-1, field(control("ls"), "pressedBy"))
+        touch(MotionEvent.ACTION_UP, 1 to (value(up, "cx") to value(up, "cy")))
+    }
+
+    @Test fun newGripStickIsVisibleThenVeryTransparentAfterThirtySeconds() {
+        newGrip()
+        val left = control("ls")
+        val x = value(left, "cx")
+        val y = value(left, "cy")
+        assertTrue(Color.alpha(pixel(x, y)) > 100)
+        ShadowSystemClock.advanceBy(31, TimeUnit.SECONDS)
+        assertTrue(Color.alpha(pixel(x, y)) < 50)
+    }
+
+    @Test fun newGripSmartButtonTapClosesAndReopensTheStack() {
+        newGrip()
+        val smart = control("smart")
+        val guide = control("guide")
+        val sx = value(smart, "cx")
+        val sy = value(smart, "cy")
+        val gx = value(guide, "cx")
+        val gy = value(guide, "cy")
+        touch(MotionEvent.ACTION_DOWN, 1 to (gx to gy))
+        assertEquals(1, field(guide, "pressedBy"))
+        touch(MotionEvent.ACTION_UP, 1 to (gx to gy))
+        touch(MotionEvent.ACTION_DOWN, 1 to (sx to sy))
+        touch(MotionEvent.ACTION_UP, 1 to (sx to sy))
+        assertTrue(touch(MotionEvent.ACTION_DOWN, 1 to (gx to gy)))
+        assertEquals(-1, field(guide, "pressedBy"))
+        assertEquals(1, field(control("ls"), "pressedBy"))
+        assertEquals(gx, value(control("ls"), "ax"), 0f)
+        touch(MotionEvent.ACTION_UP, 1 to (gx to gy))
+        touch(MotionEvent.ACTION_DOWN, 1 to (sx to sy))
+        touch(MotionEvent.ACTION_UP, 1 to (sx to sy))
+        touch(MotionEvent.ACTION_DOWN, 1 to (gx to gy))
+        assertEquals(1, field(guide, "pressedBy"))
+        touch(MotionEvent.ACTION_UP, 1 to (gx to gy))
+    }
+
+    @Test fun newGripEmptyZoneSpaceGrabsStickWithFloatingAnchor() {
+        newGrip()
+        val left = control("ls")
+        assertTrue(touch(MotionEvent.ACTION_DOWN, 1 to (400f to 350f)))
+        assertEquals(1, field(left, "pressedBy"))
+        assertEquals(400f, value(left, "ax"), 0f)
+        assertEquals(350f, value(left, "ay"), 0f)
+        touch(MotionEvent.ACTION_UP, 1 to (400f to 350f))
+        assertEquals(-1, field(left, "pressedBy"))
+    }
+
+    @Test fun newGripDragPastZoneEdgeDoesNotReleaseTheStick() {
+        newGrip()
+        val left = control("ls")
+        touch(MotionEvent.ACTION_DOWN, 1 to (400f to 350f))
+        touch(MotionEvent.ACTION_MOVE, 1 to (600f to 350f))
+        assertEquals(1, field(left, "pressedBy"))
+        assertTrue(value(left, "kx") > 0f)
+        touch(MotionEvent.ACTION_UP, 1 to (600f to 350f))
+        assertEquals(-1, field(left, "pressedBy"))
+    }
+
+    @Test fun newGripDragOnStackButtonConvertsToStick() {
+        newGrip()
+        val guide = control("guide")
+        val left = control("ls")
+        val gx = value(guide, "cx")
+        val gy = value(guide, "cy")
+        touch(MotionEvent.ACTION_DOWN, 1 to (gx to gy))
+        assertEquals(1, field(guide, "pressedBy"))
+        touch(MotionEvent.ACTION_MOVE, 1 to (gx + 30f to gy))
+        assertEquals(-1, field(guide, "pressedBy"))
+        assertEquals(1, field(left, "pressedBy"))
+        assertEquals(gx, value(left, "ax"), 0f)
+        assertEquals(gy, value(left, "ay"), 0f)
+        touch(MotionEvent.ACTION_MOVE, 1 to (gx + 60f to gy))
+        assertTrue(value(left, "kx") > 0f)
+        touch(MotionEvent.ACTION_UP, 1 to (gx + 60f to gy))
+        assertEquals(-1, field(left, "pressedBy"))
+    }
+
+    @Test fun newGripLongPressOnStackButtonLocksThePress() {
+        newGrip()
+        var fakeNow = 1000L
+        view.gripNow = { fakeNow }
+        val guide = control("guide")
+        val left = control("ls")
+        val gx = value(guide, "cx")
+        val gy = value(guide, "cy")
+        touch(MotionEvent.ACTION_DOWN, 1 to (gx to gy))
+        assertEquals(1, field(guide, "pressedBy"))
+        fakeNow = 1600L
+        shadowOf(Looper.getMainLooper()).idleFor(600, TimeUnit.MILLISECONDS)
+        touch(MotionEvent.ACTION_MOVE, 1 to (gx + 30f to gy))
+        assertEquals(1, field(guide, "pressedBy"))
+        assertEquals(-1, field(left, "pressedBy"))
+        touch(MotionEvent.ACTION_UP, 1 to (gx + 30f to gy))
+        assertEquals(-1, field(guide, "pressedBy"))
+    }
+
+    @Test fun newGripCustomKeyTapSendsTheMappedKey() {
+        val keys = mutableListOf<KeyEvent>()
+        view = OnScreenControls(context, null, onKey = { keys.add(it) })
+        view.layout(0, 0, 1200, 800)
+        newGrip()
+        val custom = control("customKey")
+        val x = value(custom, "cx")
+        val y = value(custom, "cy")
+        touch(MotionEvent.ACTION_DOWN, 1 to (x to y))
+        touch(MotionEvent.ACTION_UP, 1 to (x to y))
+        assertEquals(2, keys.size)
+        assertEquals(KeyEvent.ACTION_DOWN, keys[0].action)
+        assertEquals(KeyEvent.KEYCODE_M, keys[0].keyCode)
+        assertEquals(KeyEvent.ACTION_UP, keys[1].action)
+        assertEquals(KeyEvent.KEYCODE_M, keys[1].keyCode)
+    }
+
+    @Test fun newGripCustomKeyDragMovesAndSavesItsPosition() {
+        newGrip()
+        val custom = control("customKey")
+        val x = value(custom, "cx")
+        val y = value(custom, "cy")
+        touch(MotionEvent.ACTION_DOWN, 1 to (x to y))
+        touch(MotionEvent.ACTION_MOVE, 1 to (x + 60f to y + 40f))
+        touch(MotionEvent.ACTION_UP, 1 to (x + 60f to y + 40f))
+        assertEquals(x + 60f, value(custom, "cx"), 0f)
+        assertEquals(y + 40f, value(custom, "cy"), 0f)
+        val saved = GripScheme.CustomKeys.load(context, "default")
+        assertEquals(1, saved.size)
+        assertEquals((x + 60f) / 1200f, saved[0].xFrac, 0.001f)
+        assertEquals((y + 40f) / 800f, saved[0].yFrac, 0.001f)
+    }
+
     private fun field(owner: Any, name: String): Any = owner.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(owner)!!
     private fun nullableFloat(owner: Any, name: String) = owner.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(owner) as Float?
     private fun value(owner: Any, name: String) = field(owner, name) as Float

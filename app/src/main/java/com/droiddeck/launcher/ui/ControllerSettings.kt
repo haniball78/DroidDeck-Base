@@ -34,6 +34,7 @@ class ControllerActions(
     val onResetLayout: () -> Unit,
     val onMapping: () -> Unit,
     val onResetAll: () -> Unit,
+    val onNewGrip: (Boolean) -> Unit = {},
 )
 
 @Composable
@@ -68,6 +69,7 @@ fun ColumnScope.ControllerRows(host: MenuHost, oscMode: String, c: ControllerPre
     ChoiceRow(host, "controller-size", stringResource(R.string.ctrl_size), stringResource(R.string.ctrl_size_hint), ControllerPrefs.sizes.map { it to stringResource(R.string.ctrl_percent, it) }, c.size, onPick = a.onSize)
     ToggleRow(host, "controller-stick-click", stringResource(R.string.ctrl_stick_click), stringResource(R.string.ctrl_stick_click_hint), c.stickClick, onChange = a.onStickClick)
     ToggleRow(host, "controller-adaptive", stringResource(R.string.ctrl_adaptive), stringResource(R.string.ctrl_adaptive_hint), c.adaptiveSticks, onChange = a.onAdaptiveSticks)
+    ToggleRow(host, "controller-new-grip", stringResource(R.string.ctrl_new_grip), stringResource(R.string.ctrl_new_grip_hint), c.newGrip, onChange = a.onNewGrip)
     ToggleRow(host, "controller-rumble", stringResource(R.string.ctrl_rumble), null, c.rumble, onChange = a.onRumble)
     ToggleRow(host, "controller-steam", stringResource(R.string.ctrl_steam_button), null, c.steamButton, onChange = a.onSteamButton)
     ToggleRow(host, "controller-qam", stringResource(R.string.ctrl_qam_button), null, c.qamButton, onChange = a.onQamButton)

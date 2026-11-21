@@ -1089,6 +1089,10 @@
     <string name="ctrl_joycon_vr_hint">أثناء تشغيل SteamVR، يصبح كل Joy-Con يدًا. وجّهه إلى الأمام واضغط مطولًا على Home أو Capture لإعادة توسيطه.</string>
     <string name="setup_animations">الرسوم المتحركة</string>
     <string name="ctrl_adaptive_hint">تظهر العصي حيث تلمس وتُخفى عند الرفع</string>
+    <string name="ctrl_new_grip">قبضة تحكّم جديدة</string>
+    <string name="ctrl_new_grip_hint">عصا أساسية واحدة، وزر ذكي، وعصا تظهر 30 ثانية ثم تتلاشى</string>
+    <string name="ctrl_custom_key">زر مفتاح مخصّص</string>
+    <string name="ctrl_custom_key_hint">المفتاح الذي يرسله زر M لهذه اللعبة</string>
     <string name="ctrl_layout">التخطيط</string>
     <string name="ctrl_layout_custom">تم حفظ مواضع مخصّصة</string>
     <string name="ctrl_layout_default">مهيّأ لهذه الشاشة</string>

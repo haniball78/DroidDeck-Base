@@ -1101,6 +1101,7 @@ class FrontEndActivity : ComponentActivity() {
                             onSize = { v -> ControllerPrefs.setSize(this, v); refreshController() },
                             onStickClick = { on -> ControllerPrefs.setStickClick(this, on); refreshController() },
                             onAdaptiveSticks = { on -> ControllerPrefs.setAdaptiveSticks(this, on); refreshController() },
+                            onNewGrip = { on -> ControllerPrefs.setNewGrip(this, on); refreshController() },
                             onRumble = { on -> ControllerPrefs.setRumble(this, on); refreshController() },
                             onSteamButton = { on -> ControllerPrefs.setSteamButton(this, on); refreshController() },
                             onQamButton = { on -> ControllerPrefs.setQamButton(this, on); refreshController() },

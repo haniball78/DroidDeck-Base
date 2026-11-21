@@ -90,6 +90,7 @@ import com.droiddeck.launcher.input.GestureTouchStreamGate
 import com.droiddeck.launcher.input.InputSpace
 import com.droiddeck.launcher.input.KeyboardHost
 import com.droiddeck.launcher.input.ControllerPrefs
+import com.droiddeck.launcher.input.GripScheme
 import com.droiddeck.launcher.input.SessionClipboard
 import com.droiddeck.launcher.input.OnScreenControls
 import com.droiddeck.launcher.input.PadBridge
@@ -591,7 +592,8 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             uiHandler.removeCallbacks(cursorHide)
             cursorVisible = false
         }
-        onScreenControls = OnScreenControls(this, bridge, onKeyboard = ::togglePcKeyboard).also { controls ->
+        onScreenControls = OnScreenControls(this, bridge, onKeyboard = ::togglePcKeyboard, onKey = { dispatchKeyEvent(it) }).also { controls ->
+            controls.gameKey = gripGameKey()
             controls.onTouchMiss = miss@{ event ->
                 if (!gestureTouchStreamGate.accepts(GestureTouchStreamGate.Source.ON_SCREEN_CONTROLS, event)) return@miss
                 event.offsetLocation(controls.left - surfaceView.left.toFloat(), controls.top - surfaceView.top.toFloat())
@@ -749,14 +751,17 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                     cursorImage, cursorHotX, cursorHotY, cursorImageScale)
                 if (hud.text.isNotEmpty() || hud.graph.size >= 2) HudText(hud.text, hud.graph, hudColor, hudOpacity)
                 if (!drawerOpen && !pcKeyboardOpen && !loading.visible) {
+                    val gearBox = if (controllerSettings?.newGrip == true) 24.dp else 32.dp
+                    val gearCorner = if (controllerSettings?.newGrip == true) 6.dp else 8.dp
+                    val gearIcon = if (controllerSettings?.newGrip == true) 15.dp else 20.dp
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.TopEnd,
                     ) {
                         Box(
-                            modifier = Modifier.padding(top = 8.dp, end = 8.dp).size(32.dp)
+                            modifier = Modifier.padding(top = 8.dp, end = 8.dp).size(gearBox)
                                 .alpha(0.55f)
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(gearCorner))
                                 .background(Color.Black.copy(alpha = 0.5f))
                                 .clickable {
                                     drawerPage = com.droiddeck.launcher.ui.SessionDrawerPage.CONTROLLER
@@ -768,7 +773,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                                 Icons.Outlined.Settings,
                                 contentDescription = getString(R.string.drawer_page_controller),
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(gearIcon),
                             )
                         }
                     }
@@ -993,6 +998,9 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                     onSteamButton = { on -> updateControllerPrefs { ControllerPrefs.setSteamButton(this@SessionActivity, on) } },
                     onQamButton = { on -> updateControllerPrefs { ControllerPrefs.setQamButton(this@SessionActivity, on) } },
                     onKeyboardButton = { on -> updateControllerPrefs { ControllerPrefs.setKeyboardButton(this@SessionActivity, on) } },
+                    onNewGrip = { on -> updateControllerPrefs { ControllerPrefs.setNewGrip(this@SessionActivity, on) } },
+                    customKey = GripScheme.CustomKeys.load(this@SessionActivity, gripGameKey()).firstOrNull()?.label,
+                    onCustomKey = { label -> GripScheme.CustomKeys.setKey(this@SessionActivity, gripGameKey(), label, GripScheme.keyCodeFor(label), -1f, -1f); updateControllerPrefs {} },
                     onSteamMenu = if (SessionState.mode == SessionService.MODE_STEAM) ({ sendSteamGuide() }) else null,
                     onQam = if (SessionState.mode == SessionService.MODE_STEAM) ({ triggerSteamQam() }) else null,
                     onAchievements = achievementsInFront?.let { { drawerOpen = false; achievementsOpen = true } },
@@ -1378,9 +1386,12 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         }, "drawer-components").start()
     }
 
+    private fun gripGameKey() = drawerGameProfileId?.toString() ?: SessionState.program ?: GripScheme.DEFAULT_GAME_KEY
+
     private fun selectDrawerGameProfile(appId: Long?) {
         drawerGameProfileFollowState.selectManually()
         drawerGameProfileId = appId
+        onScreenControls?.gameKey = gripGameKey()
         drawerGameProfileRefresh = drawerGameProfileRefresh.retrying()
         readDrawerTextureFiltering(appId)
         refreshDrawerGameProfile()

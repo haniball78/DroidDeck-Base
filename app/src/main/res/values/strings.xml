@@ -1111,6 +1111,10 @@
     <string name="ctrl_joycon_vr_hint">While SteamVR runs, each Joy-Con becomes a hand. Point it ahead and hold Home or Capture to recenter it.</string>
     <string name="setup_animations">Animations</string>
     <string name="ctrl_adaptive_hint">Sticks appear where you touch and hide on release</string>
+    <string name="ctrl_new_grip">New grip controls</string>
+    <string name="ctrl_new_grip_hint">One primary stick, a smart button, and a 30-second visible stick that then fades</string>
+    <string name="ctrl_custom_key">Custom key button</string>
+    <string name="ctrl_custom_key_hint">The key the M button sends for this game</string>
     <string name="ctrl_layout">Layout</string>
     <string name="ctrl_layout_custom">Custom positions saved</string>
     <string name="ctrl_layout_default">Fitted to this screen</string>

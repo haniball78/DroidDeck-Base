@@ -51,6 +51,8 @@ object ControllerPrefs {
         val snap: Boolean,
         val customLayout: Boolean,
         val mapping: Map<String, String>,
+        val newGrip: Boolean,
+        val gripMovement: GripScheme.Movement,
     )
 
     internal fun prefs(context: Context) = context.getSharedPreferences("controller", Context.MODE_PRIVATE)
@@ -72,6 +74,10 @@ object ControllerPrefs {
             snap = p.getBoolean("snap", true),
             customLayout = p.all.keys.any { it.startsWith("layout.") },
             mapping = mappable.associate { (id, _) -> id to target(context, id) },
+            newGrip = p.getBoolean("newGrip", false),
+            gripMovement = p.getString("gripMovement", null)?.let {
+                runCatching { GripScheme.Movement.valueOf(it) }.getOrNull()
+            } ?: GripScheme.Movement.STICK,
         )
     }
 
@@ -137,6 +143,14 @@ object ControllerPrefs {
 
     fun setSnap(context: Context, on: Boolean) {
         prefs(context).edit().putBoolean("snap", on).apply()
+    }
+
+    fun setNewGrip(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("newGrip", on).apply()
+    }
+
+    fun setGripMovement(context: Context, movement: GripScheme.Movement) {
+        prefs(context).edit().putString("gripMovement", movement.name).apply()
     }
 
     fun layout(context: Context, width: Int, height: Int): Map<String, Pair<Float, Float>> {
