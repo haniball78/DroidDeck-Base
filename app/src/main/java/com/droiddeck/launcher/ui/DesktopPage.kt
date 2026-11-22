@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -73,6 +74,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -117,6 +119,7 @@ internal fun DesktopPage(s: FrontEndState, a: FrontEndActions, modifier: Modifie
         onSelect(page)
     }
 
+    if (narrow) {
     LiftHero(
         key = "desktop", tabs = tabs,
         onOpen = a.onDesktopSettings, onPrimary = a.onDesktop,
@@ -167,7 +170,223 @@ internal fun DesktopPage(s: FrontEndState, a: FrontEndActions, modifier: Modifie
             else a.modeSheet(mode, tab, SheetExtras())
         },
     )
+    } else {
+        DesktopWideLayout(
+            s, a, installed, apps, tabs, open, modifier,
+            rows = { tab ->
+                if (tab == SheetTab.FILES) DesktopFiles(s, a)
+                else a.modeSheet(mode, tab, SheetExtras())
+            },
+            openFrom = ::openFrom, onAdd = { if (!s.busy) adding = true },
+        )
+    }
     if (adding && !s.busy) AddAppDialog(s.ready, onDismiss = { adding = false }) { request, label -> UserAppsState.add(ctx, request, label) }
+}
+
+@Composable
+private fun DesktopWideLayout(
+    s: FrontEndState, a: FrontEndActions,
+    installed: List<Library.Emulator>, apps: List<UserApps.App>,
+    tabs: List<Pair<String, String>>, open: String, modifier: Modifier,
+    rows: @Composable (String) -> Unit,
+    openFrom: (Rect?, Any?, String) -> Unit,
+    onAdd: () -> Unit,
+) {
+    val pal = LocalPalette.current
+    Box(modifier.background(Color(0xFF0B1220)).clipToBounds()) {
+        DesktopWall(installed.map { it.iconRes } + apps.mapNotNull { it.icon })
+        WallFade()
+        Row(Modifier.fillMaxSize()) {
+            DesktopDockColumn(s, a, installed, apps, openFrom = openFrom)
+            Box(Modifier.width(1.dp).fillMaxHeight().background(pal.line2))
+            DesktopStage(s, a, tabs, open, rows = rows, openFrom = openFrom, onAdd = onAdd, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun DesktopStage(
+    s: FrontEndState, a: FrontEndActions,
+    tabs: List<Pair<String, String>>, open: String,
+    rows: @Composable (String) -> Unit,
+    openFrom: (Rect?, Any?, String) -> Unit,
+    onAdd: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val settingsLabel = stringResource(R.string.drawer_page_settings)
+    var tab by rememberSaveable { mutableStateOf(0) }
+    val scroll = rememberScrollState()
+    Column(
+        modifier.fillMaxHeight().testTag("desktop-stage")
+            .padding(start = 28.dp, end = 28.dp, top = 24.dp, bottom = 16.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.rail_desktop), fontSize = 42.sp, lineHeight = 46.sp,
+                fontWeight = FontWeight.Black, color = colors.onBackground,
+            )
+            BusyChip(s)
+        }
+        Column(
+            Modifier.weight(1f).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            PrimaryButton(open, enabled = !s.busy, main = true, large = true, icon = Icons.Outlined.DesktopWindows, buttonShape = RoundedCornerShape(6.dp), onClick = a.onDesktop)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 14.dp)) {
+                HeroIconButton(Icons.Outlined.Storefront, stringResource(R.string.flathub_name), FlathubTeal, "desktop:flathub") { at -> openFrom(at, null, "store") }
+                HeroIconButton(Icons.Filled.Add, stringResource(R.string.user_apps_add), null, "desktop:add") { onAdd() }
+                HeroIconButton(Icons.Outlined.Terminal, "Dev Terminal", null, "desktop:terminal") { a.onDevTerminal() }
+            }
+            if (s.desktopPresent) Box(Modifier.padding(top = 14.dp)) { UninstallDesktop(enabled = !s.runtimeActionsBlocked, onUninstall = a.onRemoveDesktop) }
+            Box(Modifier.padding(top = 10.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.height(44.dp).testTag("sheet-open")
+                        .semantics { contentDescription = settingsLabel }
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = LocalIndication.current, role = Role.Button) { a.onDesktopSettings() }
+                        .controllerConfirm { a.onDesktopSettings() },
+                ) {
+                    Text(settingsLabel, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurfaceVariant, maxLines = 1)
+                    Icon(Icons.Filled.KeyboardArrowUp, null, tint = colors.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                }
+            }
+        }
+        DesktopTabStrip(tabs, tab, onPick = { tab = it })
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(top = 12.dp)) {
+            rows(tabs[tab].first)
+        }
+    }
+}
+
+@Composable
+private fun DesktopTabStrip(tabs: List<Pair<String, String>>, selected: Int, onPick: (Int) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val pal = LocalPalette.current
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            tabs.forEachIndexed { i, (_, label) ->
+                val on = i == selected
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp)
+                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                        .background(if (on) colors.surface.copy(alpha = 0.55f) else Color.Transparent)
+                        .clickable(role = Role.Tab) { onPick(i) }
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                ) {
+                    Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (on) colors.onBackground else colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (on) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth(0.55f).height(2.dp).background(pal.signal))
+                }
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(pal.line2))
+    }
+}
+
+// Two 148dp tiles + 8dp gap + 12dp side padding need 328dp; a 300dp column cannot hold them.
+private val DockColumnWidth = 336.dp
+
+@Composable
+private fun DesktopDockColumn(
+    s: FrontEndState, a: FrontEndActions, installed: List<Library.Emulator>, apps: List<UserApps.App>,
+    openFrom: (Rect?, Any?, String) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val pal = LocalPalette.current
+    val available = s.emulators.filter { !it.installed }
+    val flatpaks = com.droiddeck.launcher.store.StoreState.installed
+    val keys = installed.map { "emu:${it.id}" } + apps.map { "user:${it.key}" } + flatpaks.map { "flatpak:${it.id}" }
+    var lastAt by remember { mutableStateOf<Rect?>(null) }
+    var dockAt by remember { mutableStateOf<Rect?>(null) }
+    val seen = remember { mutableSetOf<String>() }
+    val mounted = remember { booleanArrayOf(false) }
+    LaunchedEffect(Unit) { mounted[0] = true }
+    val scroll = rememberScrollState()
+    Column(
+        Modifier.width(DockColumnWidth).fillMaxHeight().testTag("desktop-dock")
+            .background(colors.surface.copy(alpha = 0.88f))
+            .padding(start = 12.dp, end = 12.dp, top = 18.dp, bottom = 12.dp),
+    ) {
+        Text(
+            stringResource(R.string.user_apps_section).uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp,
+            color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
+        )
+        Column(
+            Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { dockAt = it.boundsInRoot() }
+                .verticalScroll(scroll),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            keys.chunked(2).forEachIndexed { row, chunk ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    chunk.forEachIndexed { j, k ->
+                        val i = row * 2 + j
+                        key(k) {
+                            val state = remember { MutableTransitionState(!mounted[0] || k in seen) }.apply { targetState = true }
+                            LaunchedEffect(Unit) { seen += k }
+                            AnimatedVisibility(state, enter = expandHorizontally(Motion.sp(0.75f)) + fadeIn(Motion.tw(300, 80))) {
+                                Box(if (i == keys.lastIndex) Modifier.onGloballyPositioned { lastAt = it.boundsInRoot() } else Modifier) {
+                                    val e = installed.firstOrNull { "emu:${it.id}" == k }
+                                    val flatpak = flatpaks.firstOrNull { "flatpak:${it.id}" == k }
+                                    val app = apps.firstOrNull { "user:${it.key}" == k }
+                                    if (e != null) {
+                                        val system = if (e.systemRes != 0) stringResource(e.systemRes) else e.system.replaceFirstChar { c -> c.uppercase() }
+                                        DesktopCard(
+                                            k, e.name,
+                                            if (e.id == "retroarch") system else "$system · " + pluralStringResource(R.plurals.mode_added_count, e.games.size, e.games.size),
+                                            art = e.iconRes, first = i == 0,
+                                        ) { at -> openFrom(at, e.iconRes, k) }
+                                    } else if (flatpak != null) DesktopCard(
+                                        k, flatpak.name, flatpak.summary ?: stringResource(R.string.flathub_name),
+                                        art = flatpak.icon ?: com.droiddeck.launcher.store.FlathubApi.iconUrl(flatpak.id), first = i == 0,
+                                    ) { at ->
+                                        com.droiddeck.launcher.store.StoreState.openRequest = flatpak.id
+                                        openFrom(at, flatpak.icon, "store")
+                                    } else if (app != null) DesktopCard(k, app.name, stringResource(app.kind.label()), art = app.icon, fallback = if (app.kind == UserApps.Kind.SCRIPT) Icons.Outlined.Terminal else Icons.Outlined.Apps, first = i == 0) { at ->
+                                        openFrom(at, app.icon, k)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (chunk.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+            if (keys.isNotEmpty() && available.isNotEmpty()) Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(pal.line2))
+            available.chunked(2).forEach { chunk ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    chunk.forEach { e ->
+                        key(e.id) {
+                            val pkg = Library.packageId(e.id)?.let { id -> s.packages?.firstOrNull { it.id == id } }
+                            val busyHere = pkg != null && s.packageBusyId == pkg.id
+                            val canGet = pkg != null && !s.busy && s.packageBusyId == null && s.ready && !s.packageCatalogLoading && !s.sessionRunning
+                            val system = if (e.systemRes != 0) stringResource(e.systemRes) else e.system.replaceFirstChar { c -> c.uppercase() }
+                            DesktopCard(
+                                "emu:${e.id}", e.name, if (busyHere) (s.packageStage ?: stringResource(R.string.store_installing)) else system,
+                                art = e.iconRes, badge = if (busyHere) null else stringResource(R.string.comp_get),
+                                progress = if (busyHere) s.packagePercent else null, first = keys.isEmpty() && e == available.first(),
+                            ) { at ->
+                                if (canGet && pkg != null && at != null) {
+                                    a.onInstallPackage(pkg.id)
+                                    val end = lastAt
+                                    val dock = dockAt
+                                    Flights.fly(Flight(at, to = {
+                                        val r = dock ?: return@Flight null
+                                        end?.center ?: Offset(r.center.x, r.bottom)
+                                    }))
+                                } else openFrom(at, e.iconRes, "emu:${e.id}")
+                            }
+                        }
+                    }
+                    if (chunk.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+        if (UserAppsState.working != null || UserAppsState.lastError != null) {
+            Box(Modifier.padding(top = 8.dp)) { UserAppsProgressLine() }
+        }
+    }
 }
 
 @Composable
