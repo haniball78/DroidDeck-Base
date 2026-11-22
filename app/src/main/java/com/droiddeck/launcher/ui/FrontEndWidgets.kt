@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -161,10 +162,13 @@ internal fun PrimaryButton(
     fill: Boolean = false,
     brush: Brush? = null,
     ink: Color? = null,
+    buttonShape: Shape? = null,
+    outlineColor: Color? = null,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
+    val resolvedShape = buttonShape ?: Shape12
     val frontFocus = if (main) LocalFrontFocus.current else null
     if (frontFocus != null) DisposableEffect(Unit) {
         frontFocus.primaryAttached++
@@ -184,11 +188,11 @@ internal fun PrimaryButton(
             .onGloballyPositioned { placed[0] = it }
             .heightIn(min = if (compact) 44.dp else 48.dp)
             .then(if (frontFocus != null) Modifier.focusRequester(frontFocus.primary).onFocusChanged { if (it.isFocused) frontFocus.last = FrontFocus.PRIMARY } else Modifier)
-            .graphicsLayer { alpha = if (LaunchOrigin.flooding === placed) 0f else 1f; scaleX = scale; scaleY = scale; shadowElevation = if (enabled) lift.dp.toPx() else 0f; shape = Shape12; clip = false; ambientShadowColor = pal.signal; spotShadowColor = pal.signal }
-            .clip(Shape12)
+            .graphicsLayer { alpha = if (LaunchOrigin.flooding === placed) 0f else 1f; scaleX = scale; scaleY = scale; shadowElevation = if (enabled) lift.dp.toPx() else 0f; shape = resolvedShape; clip = false; ambientShadowColor = pal.signal; spotShadowColor = pal.signal }
+            .clip(resolvedShape)
             .background(if (enabled) brush ?: Brush.linearGradient(listOf(colors.primary, pal.primary2)) else Brush.linearGradient(listOf(colors.surfaceVariant, colors.surfaceVariant)))
-            .then(if (enabled) Modifier else Modifier.border(1.dp, pal.line2, Shape12))
-            .then(if (hot) Modifier.border(2.dp, pal.signal, Shape12) else Modifier)
+            .then(if (enabled) { if (outlineColor != null) Modifier.border(1.5.dp, outlineColor, resolvedShape) else Modifier } else Modifier.border(1.dp, pal.line2, resolvedShape))
+            .then(if (hot) Modifier.border(2.dp, pal.signal, resolvedShape) else Modifier)
             .hoverable(src).clickable(role = Role.Button, interactionSource = src, indication = null, enabled = enabled) {
                 placed[0]?.takeIf { it.isAttached }?.let { LaunchOrigin.mark(it.boundsInRoot(), placed) }
                 onClick()

@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.Storefront
@@ -119,6 +120,15 @@ internal fun DesktopPage(s: FrontEndState, a: FrontEndActions, modifier: Modifie
     LiftHero(
         key = "desktop", tabs = tabs,
         onOpen = a.onDesktopSettings, onPrimary = a.onDesktop,
+        lipContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.height(44.dp),
+            ) {
+                Text(stringResource(R.string.drawer_page_settings), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurfaceVariant, maxLines = 1)
+                Icon(Icons.Filled.KeyboardArrowUp, null, tint = colors.onSurfaceVariant, modifier = Modifier.size(16.dp))
+            }
+        },
         modifier = modifier.clipToBounds(),
         start = if (narrow) 20.dp else 44.dp, bottom = if (narrow) 20.dp else 44.dp,
         background = {
@@ -140,7 +150,7 @@ internal fun DesktopPage(s: FrontEndState, a: FrontEndActions, modifier: Modifie
             }
         },
         button = { click ->
-            PrimaryButton(open, enabled = !s.busy, main = true, large = true, icon = Icons.Outlined.DesktopWindows, onClick = click)
+            PrimaryButton(open, enabled = !s.busy, main = true, large = true, icon = Icons.Outlined.DesktopWindows, buttonShape = RoundedCornerShape(50), outlineColor = AttentionAmber, onClick = click)
         },
         beside = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
