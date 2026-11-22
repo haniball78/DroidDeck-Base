@@ -27,7 +27,7 @@ class ComponentsPageProfileTest {
         compose.onNodeWithText(context.getString(R.string.comp_scope_general)).performClick()
         compose.onNodeWithText("Game A").performClick()
         compose.onNodeWithText(context.getString(R.string.comp_game_hint)).assertExists()
-        compose.onNodeWithText(stackHeading).assertDoesNotExist()
+        compose.onNodeWithText(stackHeading).assertExists()
 
         compose.onNodeWithText("Game A").performClick()
         compose.onNodeWithText(context.getString(R.string.comp_scope_general)).performClick()
@@ -39,7 +39,7 @@ class ComponentsPageProfileTest {
         show { gameB.profileKey }
         compose.onNodeWithText("Game B").assertExists()
         compose.onNodeWithText(context.getString(R.string.comp_game_hint)).assertExists()
-        compose.onNodeWithText(context.getString(R.string.comp_this_proton).uppercase()).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.comp_this_proton).uppercase()).assertExists()
 
         compose.onNodeWithText("Game B").performClick()
         compose.onNodeWithText(context.getString(R.string.comp_scope_general)).performClick()

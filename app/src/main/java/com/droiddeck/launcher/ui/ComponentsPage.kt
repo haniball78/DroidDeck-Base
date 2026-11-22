@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +73,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -697,30 +699,8 @@ fun ComponentsPage(
         }
     }
 
-    Box(Modifier.fillMaxSize().onGloballyPositioned { pageAt = it.positionInRoot() }.onFocusChanged { pageFocused = it.hasFocus }) {
-        Column(
-            Modifier.fillMaxSize().padding(horizontal = if (narrow) 16.dp else 22.dp, vertical = if (narrow) 12.dp else 18.dp)
-                .then(if (selectedGame == null) Modifier.bumpers(
-                    onPrevious = { pick(layerStep(layer, -1)) },
-                    onNext = { pick(layerStep(layer, 1)) },
-                ) else Modifier),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.comp_title), fontSize = if (narrow) 22.sp else 26.sp, fontWeight = FontWeight.Bold, color = colors.onBackground, maxLines = 1)
-                if (!narrow) DeviceChip(gpu)
-                Spacer(Modifier.weight(1f))
-                HopBackChip(onBack)
-                if (!narrow) Text(
-                    if (busy != null) "$busy…" else stringResource(R.string.comp_checked, checked),
-                    fontSize = 13.sp, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-                val refreshing = checking || gpu.checking
-                ToolIcon(Icons.Outlined.Refresh, stringResource(R.string.comp_check_all), busy = refreshing, enabled = !refreshing && gpu.busy == null) {
-                    onRefresh(); gpuActions.onRefresh()
-                }
-            }
-            if (narrow) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) { DeviceChip(gpu) }
-            Spacer(Modifier.height(14.dp))
+    val perGameBench: @Composable () -> Unit = {
+        Column(Modifier.fillMaxSize()) {
             if (games.isNotEmpty()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -758,10 +738,10 @@ fun ComponentsPage(
                     }
                 }
             }
-
-            if (selectedGame != null) {
+            val game = selectedGame
+            if (game != null) {
                 GameComponentOverrides(
-                    game = selectedGame,
+                    game = game,
                     config = environment,
                     generalFexPreset = generalFexPreset,
                     generalProton = view?.proton,
@@ -787,7 +767,7 @@ fun ComponentsPage(
                     onWinComponents = { winComponentsOpen = false },
                     onReset = {
                         ask(
-                            ctx.getString(R.string.comp_game_reset_title, selectedGame.name),
+                            ctx.getString(R.string.comp_game_reset_title, game.name),
                             ctx.getString(R.string.comp_game_reset_body),
                             R.string.comp_game_reset,
                             ::resetGameProfile,
@@ -796,29 +776,73 @@ fun ComponentsPage(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
             } else {
-                Row(Modifier.weight(1f).fillMaxWidth()) {
-                    Box(
-                        (if (narrow) Modifier.fillMaxWidth() else Modifier.width(250.dp)).fillMaxHeight()
-                            .onGloballyPositioned { stackAt = it.positionInRoot() }
-                            .focusProperties { enter = { layerFocus.getValue(layer) } }.focusGroup(),
-                    ) {
-                        val tint = rememberUpdatedState(pal.signal)
-                        val local = cardsAt[layer]?.translate(-stackAt)
-                        Stack(
-                            layer, view, gpu, focus = layerFocus, landed = landed, rings = rings,
-                            onPlaced = { l, r -> cardsAt[l] = r },
-                            onFocus = { l -> pick(l) },
-                            onOpen = { l ->
-                                pick(l)
-                                if (narrow) narrowOpen = l
-                                else runCatching { firstRow.requestFocus() }
-                            },
-                        )
-                        ChipGlide(LAYERS.indexOf(layer), local, tint, GlideAxis.Vertical, corner = 12.dp)
+                Column(
+                    Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                        .padding(top = 2.dp, bottom = 16.dp).testTag("components-general-summary"),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SettingsRow(stringResource(R.string.comp_proton), view?.proton?.name ?: stringResource(R.string.comp_no_proton_short)) {}
+                    SettingsRow(stringResource(R.string.fex_preset_title), stringResource(FexPreset.byId(generalFexPreset).label)) {}
+                    Note(stringResource(R.string.comp_scope_general_detail))
+                }
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize().onGloballyPositioned { pageAt = it.positionInRoot() }.onFocusChanged { pageFocused = it.hasFocus }) {
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = if (narrow) 16.dp else 22.dp, vertical = if (narrow) 12.dp else 18.dp)
+                .bumpers(
+                    onPrevious = { pick(layerStep(layer, -1)) },
+                    onNext = { pick(layerStep(layer, 1)) },
+                ),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.comp_title), fontSize = if (narrow) 22.sp else 26.sp, fontWeight = FontWeight.Bold, color = colors.onBackground, maxLines = 1)
+                if (!narrow) DeviceChip(gpu)
+                Spacer(Modifier.weight(1f))
+                HopBackChip(onBack)
+                if (!narrow) Text(
+                    if (busy != null) "$busy…" else stringResource(R.string.comp_checked, checked),
+                    fontSize = 13.sp, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                val refreshing = checking || gpu.checking
+                ToolIcon(Icons.Outlined.Refresh, stringResource(R.string.comp_check_all), busy = refreshing, enabled = !refreshing && gpu.busy == null) {
+                    onRefresh(); gpuActions.onRefresh()
+                }
+            }
+            if (narrow) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) { DeviceChip(gpu) }
+            Spacer(Modifier.height(14.dp))
+            Column(Modifier.weight(1f).fillMaxWidth()) {
+                Box(
+                    Modifier.fillMaxWidth()
+                        .onGloballyPositioned { stackAt = it.positionInRoot() }
+                        .focusProperties { enter = { layerFocus.getValue(layer) } }.focusGroup()
+                        .testTag("components-top-rail"),
+                ) {
+                    Stack(
+                        layer, view, gpu, focus = layerFocus, landed = landed, rings = rings,
+                        onPlaced = { l, r -> cardsAt[l] = r },
+                        onFocus = { l -> pick(l) },
+                        onOpen = { l ->
+                            pick(l)
+                            if (narrow) narrowOpen = l
+                            else runCatching { firstRow.requestFocus() }
+                        },
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                if (narrow) {
+                    Column(Modifier.weight(1f).fillMaxWidth()) {
+                        Box(Modifier.weight(0.58f).fillMaxWidth().testTag("components-detail-bench")) { detail(layer, false) }
+                        Spacer(Modifier.height(12.dp))
+                        Box(Modifier.weight(0.42f).fillMaxWidth().testTag("components-pergame-bench")) { perGameBench() }
                     }
-                    if (!narrow) {
+                } else {
+                    Row(Modifier.weight(1f).fillMaxWidth()) {
+                        Box(Modifier.weight(0.6f).fillMaxHeight().testTag("components-detail-bench")) { detail(layer, false) }
                         Spacer(Modifier.width(16.dp))
-                        Box(Modifier.weight(1f).fillMaxHeight()) { detail(layer, false) }
+                        Box(Modifier.weight(0.4f).fillMaxHeight().testTag("components-pergame-bench")) { perGameBench() }
                     }
                 }
             }
@@ -956,6 +980,8 @@ private fun Stack(
     val pal = LocalPalette.current
     val original = stringResource(R.string.comp_tag_original)
     val auto = stringResource(R.string.common_auto)
+    val localAt = remember { mutableStateMapOf<String, Rect>() }
+    var railAt by remember { mutableStateOf(Offset.Zero) }
     val card: @Composable (String) -> Unit = { l ->
         val st = view?.components?.get(l)
         LayerCard(
@@ -968,22 +994,47 @@ private fun Stack(
             swapped = l in ComponentsManager.COMPONENTS && st?.activeFile != null,
             selected = l == layer,
             landed = landed[l] ?: 0, ring = rings[l] ?: 0,
-            modifier = Modifier.focusRequester(focus.getValue(l)).onGloballyPositioned { onPlaced(l, it.boundsInRoot()) },
+            modifier = Modifier.focusRequester(focus.getValue(l)).onGloballyPositioned {
+                localAt[l] = it.boundsInRoot()
+                onPlaced(l, it.boundsInRoot())
+            },
             onFocus = { onFocus(l) }, onClick = { onOpen(l) },
         )
     }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        StackHeading(stringResource(R.string.comp_this_device))
-        card(GPU_TAB)
-        Spacer(Modifier.height(6.dp))
-        StackHeading(stringResource(R.string.comp_this_proton))
-        card(PROTON_TAB)
-        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-            Box(Modifier.padding(start = 8.dp, top = 4.dp, bottom = 4.dp).width(2.dp).fillMaxHeight().background(pal.line2))
-            Column(Modifier.weight(1f).padding(start = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                card("dxvk"); card("vkd3d"); card("fex")
+    Box(Modifier.fillMaxWidth().onGloballyPositioned { railAt = it.positionInRoot() }) {
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val narrowRail = maxWidth < 600.dp
+            val railScroll = rememberScrollState()
+            Row(
+                (if (narrowRail) Modifier.horizontalScroll(railScroll) else Modifier.fillMaxWidth())
+                    .height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(if (narrowRail) Modifier.width(190.dp) else Modifier.weight(1.15f)) {
+                    StackHeading(stringResource(R.string.comp_this_device))
+                    Box(Modifier.fillMaxWidth().padding(top = 7.dp)) { card(GPU_TAB) }
+                }
+                Box(Modifier.width(1.dp).fillMaxHeight().background(pal.line2))
+                Column(if (narrowRail) Modifier.width(780.dp) else Modifier.weight(4f)) {
+                    StackHeading(stringResource(R.string.comp_this_proton))
+                    Box(
+                        Modifier.fillMaxWidth().border(1.dp, pal.line, LAYER_SHAPE).padding(6.dp)
+                            .testTag("components-proton-bracket"),
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Box(Modifier.weight(1f)) { card(PROTON_TAB) }
+                            Box(Modifier.weight(1f)) { card("dxvk") }
+                            Box(Modifier.weight(1f)) { card("vkd3d") }
+                            Box(Modifier.weight(1f)) { card("fex") }
+                        }
+                    }
+                }
             }
         }
+        val tint = rememberUpdatedState(pal.signal)
+        val local = localAt[layer]?.translate(-railAt)
+        ChipGlide(LAYERS.indexOf(layer), local, tint, GlideAxis.Horizontal, corner = 12.dp)
     }
 }
 
