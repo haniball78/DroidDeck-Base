@@ -1147,6 +1147,7 @@
     <string name="content_linux_desktop">سطح مكتب Linux</string>
     <string name="content_linux_desktop_hint">KDE Plasma وFirefox ومحاكياتك</string>
     <string name="games_empty">الألعاب التي تثبّتها في Steam تظهر هنا بعد الجلسة.</string>
+    <string name="games_search_empty">لا توجد ألعاب تطابق «%1$s».</string>
     <string name="games_play_steam">تشغيل Steam</string>
     <string name="games_play_steamvr">تشغيل SteamVR</string>
     <string name="games_launch_settings">إعدادات التشغيل</string>

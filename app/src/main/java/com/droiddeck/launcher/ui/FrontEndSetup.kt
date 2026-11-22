@@ -4,6 +4,7 @@ import android.widget.Toast
 import android.content.Context
 import android.view.InputDevice
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.focus.focusRequester
@@ -2320,7 +2321,7 @@ internal fun LaunchSettings(s: FrontEndState, a: FrontEndActions, host: MenuHost
     val cards = if (game?.library == com.droiddeck.launcher.frontend.Library.EPIC_LAUNCHER) listOfNotNull(steamCard) else buildList<@Composable (Modifier) -> Unit> {
         add { m ->
             val back = stringResource(R.string.hop_from_games)
-            SettingCard(stringResource(R.string.setup_card_components), stringResource(R.string.setup_card_components_hint), "card:components", m.hopSource("card:components")) {
+            SettingCard(stringResource(R.string.setup_card_components), stringResource(R.string.setup_card_components_hint), "card:components", m.hopSource("card:components"), kind = SettingCardKind.NAVIGATE) {
                 val at = Hops.sources["card:components"]
                 val open = { if (game == null) a.onComponents(true) else a.onGameComponents(game) }
                 if (at == null) open()
@@ -2329,18 +2330,18 @@ internal fun LaunchSettings(s: FrontEndState, a: FrontEndActions, host: MenuHost
         }
         add { m ->
             Box(m) {
-                SettingCard(stringResource(R.string.frame_gen_title), s.frameGenLabel, "card:fg", Modifier.fillMaxSize()) {
+                SettingCard(stringResource(R.string.frame_gen_title), s.frameGenLabel, "card:fg", Modifier.fillMaxSize(), kind = SettingCardKind.MENU) {
                     host.open = if (host.open == "fg") null else "fg"
                 }
                 FrameGenMenu(s, a, host)
             }
         }
-        if (controller != null) add { m -> SettingCard(stringResource(R.string.setup_card_controls), stringResource(R.string.setup_card_controls_hint), "card:controls", m, controller.onMapping) }
+        if (controller != null) add { m -> SettingCard(stringResource(R.string.setup_card_controls), stringResource(R.string.setup_card_controls_hint), "card:controls", m, kind = SettingCardKind.NAVIGATE, onClick = controller.onMapping) }
         add { m ->
             SettingCard(
                 stringResource(R.string.second_player),
                 if (secondPlayer) stringResource(R.string.second_player_on) else stringResource(R.string.second_player_add),
-                "card:second-player", m,
+                "card:second-player", m, kind = SettingCardKind.TOGGLE, checked = secondPlayer,
             ) {
                 secondPlayer = !secondPlayer
                 SessionPrefs.setSecondPlayer(context, secondPlayer)
@@ -2357,7 +2358,7 @@ internal fun LaunchSettings(s: FrontEndState, a: FrontEndActions, host: MenuHost
             SettingCard(
                 stringResource(R.string.wincomp_title),
                 if (wincompPicks.isEmpty()) stringResource(R.string.wincomp_card_none) else wincompPicks.joinToString(", ") { com.droiddeck.launcher.session.WinComponentNames.of(it) },
-                "card:wincomp", m,
+                "card:wincomp", m, kind = SettingCardKind.MENU,
             ) { wincompOpen = inputMode.inputMode == androidx.compose.ui.input.InputMode.Keyboard }
         }
     }
@@ -2416,7 +2417,7 @@ private fun GameSettingsCard(host: MenuHost, game: com.droiddeck.launcher.fronte
     val custom = stringResource(R.string.comp_game_fex_custom)
     val customSync = stringResource(R.string.game_sync_custom)
     val resetDone = stringResource(R.string.comp_game_reset_done, game.name)
-    SettingCard(stringResource(R.string.game_settings_card), stringResource(if (noSteam) R.string.game_steam_without else R.string.game_steam_with), "card:$key", Modifier.fillMaxSize()) {
+    SettingCard(stringResource(R.string.game_settings_card), stringResource(if (noSteam) R.string.game_steam_without else R.string.game_steam_with), "card:$key", Modifier.fillMaxSize(), kind = SettingCardKind.MENU) {
         host.open = if (host.open == key) null else key
     }
     AnchoredMenu(host.open == key, onDismiss = { if (host.open == key) host.open = null }, title = stringResource(R.string.game_settings_menu_title, game.name)) { first ->
@@ -2522,7 +2523,7 @@ private fun StoreLaunchCard(host: MenuHost, folder: java.io.File, store: com.dro
             com.droiddeck.launcher.stores.StoresState.post { sidecar = written ?: com.droiddeck.launcher.stores.StoreGameSidecar.read(folder) }
         }, "epic-options").start()
     }
-    SettingCard(store.shortLabel, value, "card:$key", Modifier.fillMaxSize()) {
+    SettingCard(store.shortLabel, value, "card:$key", Modifier.fillMaxSize(), kind = SettingCardKind.MENU) {
         host.open = if (host.open == key) null else key
     }
     AnchoredMenu(host.open == key, onDismiss = { if (host.open == key) host.open = null }, title = store.shortLabel) { first ->
@@ -2551,17 +2552,20 @@ private fun StoreLaunchCard(host: MenuHost, folder: java.io.File, store: com.dro
     }
 }
 
+private enum class SettingCardKind { NAVIGATE, MENU, TOGGLE }
+
 @Composable
-private fun SettingCard(label: String, value: String, id: String, modifier: Modifier, onClick: () -> Unit) {
+private fun SettingCard(label: String, value: String, id: String, modifier: Modifier, kind: SettingCardKind = SettingCardKind.NAVIGATE, checked: Boolean? = null, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
     val src = remember { MutableInteractionSource() }
     val hot = rememberHot(src)
     val pressed by src.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, Motion.sp(0.5f, Spring.StiffnessMedium), label = "cardScale")
-    Column(
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-        modifier = modifier.paneItem(id)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier.paneItem(id).testTag(id)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(Shape14)
             .background(if (hot) pal.signal.copy(alpha = 0.10f) else colors.surface)
@@ -2570,8 +2574,15 @@ private fun SettingCard(label: String, value: String, id: String, modifier: Modi
             .controllerConfirm(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        Text(label, fontSize = 13.sp, color = if (hot) pal.signal else colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(value, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = colors.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(label, fontSize = 13.sp, color = if (kind == SettingCardKind.NAVIGATE || hot) pal.signal else colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(value, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = colors.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        when (kind) {
+            SettingCardKind.NAVIGATE -> Text("›", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = pal.signal)
+            SettingCardKind.MENU -> Text("▾", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.onSurfaceVariant)
+            SettingCardKind.TOGGLE -> ToggleSwitch(checked == true) { onClick() }
+        }
     }
 }
 

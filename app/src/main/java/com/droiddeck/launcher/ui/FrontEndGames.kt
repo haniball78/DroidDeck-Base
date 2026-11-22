@@ -37,7 +37,12 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -77,20 +82,26 @@ internal fun GamesPage(s: FrontEndState, a: FrontEndActions, selected: String, o
     val launcherArt by androidx.compose.runtime.produceState<java.io.File?>(null, epic.version) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { EpicClient.icon(pageContext, epic.version) }
     }
-    val games = remember(s.steamGames, s.shortcutPicker, epic, launcherName, launcherArt) {
+    var query by remember { androidx.compose.runtime.mutableStateOf("") }
+    var sortByName by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val allGames = remember(s.steamGames, s.shortcutPicker, epic, launcherName, launcherArt) {
         val sorted = s.steamGames.sortedByDescending { it.lastPlayed }
         if (s.shortcutPicker) sorted else EpicClient.withLauncher(sorted, EpicClient.launcherEntry(pageContext, launcherName, epic, launcherArt))
     }
-    val gameCount = games.count { it.library != Library.EPIC_LAUNCHER }
+    val games = remember(allGames, query, sortByName) {
+        val q = query.trim()
+        val filtered = if (q.isEmpty()) allGames else allGames.filter { it.name.contains(q, ignoreCase = true) }
+        if (sortByName) filtered.sortedBy { it.name.lowercase() } else filtered
+    }
+    val gameCount = allGames.count { it.library != Library.EPIC_LAUNCHER }
     val narrow = LocalNarrowPane.current
-    val current = games.firstOrNull { "app:${it.appId}" == selected } ?: games.firstOrNull()
     GamesDialogs(a, s.steamGames)
     val onAdd: (() -> Unit)? = if (s.shortcutPicker) null else ({ GamesDialogState.adding = true })
     val launch: (Library.SteamGame) -> Unit = { g -> if (g.library == Library.EPIC_LAUNCHER) a.onEpicLauncher() else a.onSteamGame(g) }
     val onEdit: (Library.SteamGame) -> Unit = { g ->
         g.gameFiles?.let { GamesDialogState.editing = EditRequest(it.path, openTarget = false, fromSummary = false, preview = EditPreview.of(pageContext, g, it.path)) }
     }
-    if (current == null || gameCount == 0) {
+    if (gameCount == 0) {
         Column(modifier = modifier.padding(horizontal = if (narrow) 16.dp else 22.dp, vertical = if (narrow) 12.dp else 18.dp)) {
             Rise(0) {
                 PageHeader(stringResource(R.string.content_games)) {
@@ -102,21 +113,32 @@ internal fun GamesPage(s: FrontEndState, a: FrontEndActions, selected: String, o
             if (!s.shortcutPicker) Rise(2) {
                 Actions {
                     PrimaryButton(stringResource(R.string.games_play_steam), enabled = !s.busy, main = true, icon = Icons.Filled.PlayArrow, modifier = Modifier.padding(top = 12.dp).testTag("play-steam"), onClick = a.onPlay)
-                    games.firstOrNull { it.library == Library.EPIC_LAUNCHER }?.let { SecondaryButton(it.name, enabled = !s.busy, modifier = Modifier.padding(top = 12.dp)) { a.onEpicLauncher() } }
+                    allGames.firstOrNull { it.library == Library.EPIC_LAUNCHER }?.let { SecondaryButton(it.name, enabled = !s.busy, modifier = Modifier.padding(top = 12.dp)) { a.onEpicLauncher() } }
                 }
             }
             GameFileFolderActions(s, a)
         }
         return
     }
+    if (games.isEmpty()) {
+        Column(modifier = modifier.padding(horizontal = if (narrow) 16.dp else 22.dp, vertical = if (narrow) 12.dp else 18.dp)) {
+            Rise(0) {
+                GamesHeader(gameCount, s.steamGamesX64, onAdd, query, { query = it }, sortByName, { sortByName = !sortByName }, Modifier.padding(bottom = 10.dp))
+            }
+            Rise(1) { Note(stringResource(R.string.games_search_empty, query.trim())) }
+            GameFileFolderActions(s, a)
+        }
+        return
+    }
+    val current = games.firstOrNull { "app:${it.appId}" == selected } ?: games.firstOrNull() ?: return
     val host = rememberMenuHost()
     if (games.size == 1) {
         Column(modifier = modifier.verticalScroll(rememberScrollState()).padding(horizontal = if (narrow) 16.dp else 22.dp, vertical = if (narrow) 12.dp else 18.dp)) {
-            if (onAdd != null) Rise(0) { GamesHeader(gameCount, s.steamGamesX64, onAdd, Modifier.padding(bottom = 10.dp)) }
+            if (onAdd != null) Rise(0) { GamesHeader(gameCount, s.steamGamesX64, onAdd, query, { query = it }, sortByName, { sortByName = !sortByName }, Modifier.padding(bottom = 10.dp)) }
             Rise(0) {
                 Row(verticalAlignment = Alignment.Bottom) {
-                    GameHero(current, Modifier.weight(1f).heightIn(min = if (narrow) 190.dp else 250.dp), corner = { GameRemoveButton(current, s, a) }) {
-                        GameHeroCopy(current, if (narrow) 28.sp else 38.sp)
+                    GameHero(current, Modifier.weight(1f).heightIn(min = if (narrow) 170.dp else 190.dp), corner = { GameRemoveButton(current, s, a) }) {
+                        GameHeroCopy(current, if (narrow) 26.sp else 32.sp)
                         GameActions(current, s, a, onEdit, launch)
                     }
                     if (!narrow) Poster(current.art, current.name, Modifier.width(168.dp))
@@ -130,15 +152,15 @@ internal fun GamesPage(s: FrontEndState, a: FrontEndActions, selected: String, o
     }
     val pal = LocalPalette.current
     Row(modifier = modifier) {
-        GameList(games, gameCount, s.steamGamesX64, current, onSelect = { onSelect("app:${it.appId}") }, onLaunch = launch, onAdd = onAdd,
+        GameList(games, gameCount, s.steamGamesX64, current, query, { query = it }, sortByName, { sortByName = !sortByName }, onSelect = { onSelect("app:${it.appId}") }, onLaunch = launch, onAdd = onAdd,
             modifier = Modifier.width(if (narrow) 168.dp else 250.dp).fillMaxHeight())
         Box(Modifier.width(1.dp).fillMaxHeight().background(pal.line))
         Column(
             modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())
                 .padding(horizontal = if (narrow) 14.dp else 20.dp, vertical = 16.dp),
         ) {
-            GameHero(current, Modifier.fillMaxWidth().heightIn(min = if (narrow) 170.dp else 200.dp), corner = { GameRemoveButton(current, s, a) }) {
-                GameHeroCopy(current, if (narrow) 24.sp else 32.sp)
+            GameHero(current, Modifier.fillMaxWidth().heightIn(min = if (narrow) 150.dp else 170.dp), corner = { GameRemoveButton(current, s, a) }) {
+                GameHeroCopy(current, if (narrow) 22.sp else 28.sp)
                 GameActions(current, s, a, onEdit, launch)
             }
             SectionTitle(stringResource(R.string.games_launch_settings), null)
@@ -172,35 +194,35 @@ private fun GameActions(g: Library.SteamGame, s: FrontEndState, a: FrontEndActio
     val packJobs by GamePackJobs.jobs.collectAsState()
     val packJob = packJobs[g.appId]
     val packed = packSnap?.isPacked == true
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PrimaryButton(stringResource(if (s.shortcutPicker) R.string.game_shortcut_choose else R.string.games_launch), enabled = !s.busy && !packed, main = true, icon = Icons.Filled.PlayArrow, modifier = Modifier.fillMaxWidth(), fill = true) { launch(g) }
         Actions {
-            PrimaryButton(stringResource(if (s.shortcutPicker) R.string.game_shortcut_choose else R.string.games_launch), enabled = !s.busy && !packed, main = true, icon = Icons.Filled.PlayArrow) { launch(g) }
             if (g.library == Library.EPIC_LAUNCHER) {
                 if (!s.shortcutPicker) UninstallEpicLauncher(s, a)
                 BusyChip(s)
-                return@Actions
-            }
-            g.gameFiles?.takeIf { it.isDirectory }?.let { dir ->
-                SecondaryButton(stringResource(R.string.games_files), compact = true) { a.onBrowseFiles(dir) }
-            }
-            g.protonPrefix?.takeIf { it.isDirectory }?.let { dir ->
-                SecondaryButton(stringResource(R.string.games_prefix), compact = true) { a.onBrowseFiles(dir) }
-                if (g.library == Library.ADDED) ManageSaves(g, dir, a)
-            }
-            if (!s.shortcutPicker && g.gameFiles?.isDirectory == true) {
-                val label = when {
-                    packJob != null && !packJob.done -> stringResource(if (packJob.unpack) R.string.gamepack_unpacking else R.string.gamepack_packing)
-                    packed -> stringResource(R.string.gamepack_unpack)
-                    else -> stringResource(R.string.gamepack_pack)
+            } else {
+                g.gameFiles?.takeIf { it.isDirectory }?.let { dir ->
+                    SecondaryButton(stringResource(R.string.games_files), compact = true) { a.onBrowseFiles(dir) }
                 }
-                val progress = if (packJob != null && !packJob.done) packJob.fraction else null
-                SecondaryButton(label, compact = true, progress = progress) { GamesDialogState.packGame = g }
+                g.protonPrefix?.takeIf { it.isDirectory }?.let { dir ->
+                    SecondaryButton(stringResource(R.string.games_prefix), compact = true) { a.onBrowseFiles(dir) }
+                    if (g.library == Library.ADDED) ManageSaves(g, dir, a)
+                }
+                if (!s.shortcutPicker && g.gameFiles?.isDirectory == true) {
+                    val label = when {
+                        packJob != null && !packJob.done -> stringResource(if (packJob.unpack) R.string.gamepack_unpacking else R.string.gamepack_packing)
+                        packed -> stringResource(R.string.gamepack_unpack)
+                        else -> stringResource(R.string.gamepack_pack)
+                    }
+                    val progress = if (packJob != null && !packJob.done) packJob.fraction else null
+                    SecondaryButton(label, compact = true, progress = progress) { GamesDialogState.packGame = g }
+                }
+                if (!s.shortcutPicker) GameShortcutMenu(g, a)
+                if (!s.shortcutPicker && g.library == Library.ADDED && g.source == Library.ADDED && g.gameFiles != null) EditGameButton { onEdit(g) }
+                else if (!s.shortcutPicker && g.library != Library.ADDED && g.source == Library.SOURCE_STEAM) EditGameButton { GamesDialogState.steamArt = g }
+                else if (!s.shortcutPicker && g.library == Library.ADDED && g.source != Library.ADDED && g.gameFiles != null) EditGameButton { GamesDialogState.storeArt = g }
+                BusyChip(s)
             }
-            if (!s.shortcutPicker) GameShortcutMenu(g, a)
-            if (!s.shortcutPicker && g.library == Library.ADDED && g.source == Library.ADDED && g.gameFiles != null) EditGameButton { onEdit(g) }
-            else if (!s.shortcutPicker && g.library != Library.ADDED && g.source == Library.SOURCE_STEAM) EditGameButton { GamesDialogState.steamArt = g }
-            else if (!s.shortcutPicker && g.library == Library.ADDED && g.source != Library.ADDED && g.gameFiles != null) EditGameButton { GamesDialogState.storeArt = g }
-            BusyChip(s)
         }
         if (packed) Note(stringResource(R.string.gamepack_note_packed))
     }
@@ -361,7 +383,7 @@ private fun ColumnScope.GameHeroCopy(g: Library.SteamGame, titleSize: androidx.c
         )
     }
     GameTitle(g, titleSize)
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(6.dp))
 }
 
 @Composable
@@ -372,7 +394,7 @@ private fun GameTitle(g: Library.SteamGame, titleSize: androidx.compose.ui.unit.
         AsyncImage(
             model = logo, contentDescription = g.name, contentScale = ContentScale.Fit, alignment = Alignment.CenterStart,
             onError = { failed = true },
-            modifier = Modifier.padding(vertical = 4.dp).height((titleSize.value * 2.2f).dp).widthIn(max = (titleSize.value * 9f).dp).testTag("game-logo"),
+            modifier = Modifier.padding(vertical = 4.dp).height((titleSize.value * 1.5f).dp).widthIn(max = (titleSize.value * 7f).dp).testTag("game-logo"),
         )
     } else Text(
         g.name, fontSize = titleSize, lineHeight = titleSize * 1.15f, fontWeight = FontWeight.Bold,
@@ -383,6 +405,7 @@ private fun GameTitle(g: Library.SteamGame, titleSize: androidx.compose.ui.unit.
 @Composable
 private fun GameList(
     games: List<Library.SteamGame>, count: Int, x64: Boolean, current: Library.SteamGame,
+    query: String, onQueryChange: (String) -> Unit, sortByName: Boolean, onSortToggle: () -> Unit,
     onSelect: (Library.SteamGame) -> Unit, onLaunch: (Library.SteamGame) -> Unit, onAdd: (() -> Unit)?, modifier: Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -390,7 +413,7 @@ private fun GameList(
         verticalArrangement = Arrangement.spacedBy(2.dp),
         modifier = modifier.verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 10.dp, top = 16.dp, bottom = 16.dp),
     ) {
-        GamesHeader(count, x64, onAdd, Modifier.padding(start = 6.dp, bottom = 10.dp))
+        GamesHeader(count, x64, onAdd, query, onQueryChange, sortByName, onSortToggle, Modifier.padding(start = 6.dp, bottom = 10.dp))
         val seen = remember { HashSet<Int>() }
         var settled by remember { androidx.compose.runtime.mutableStateOf(false) }
         for (g in games) key(g.appId) {
@@ -406,7 +429,7 @@ private fun GameList(
 }
 
 @Composable
-private fun GamesHeader(count: Int, x64: Boolean, onAdd: (() -> Unit)?, modifier: Modifier) {
+private fun GamesHeader(count: Int, x64: Boolean, onAdd: (() -> Unit)?, query: String, onQueryChange: (String) -> Unit, sortByName: Boolean, onSortToggle: () -> Unit, modifier: Modifier) {
     val colors = MaterialTheme.colorScheme
     val narrow = LocalNarrowPane.current
     Column(modifier) {
@@ -417,6 +440,22 @@ private fun GamesHeader(count: Int, x64: Boolean, onAdd: (() -> Unit)?, modifier
             if (onAdd != null) AddGameButton(onAdd)
         }
         if (x64 && narrow) Box(Modifier.padding(top = 4.dp)) { ClientTag() }
+        OutlinedTextField(
+            value = query, onValueChange = onQueryChange,
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp).testTag("games-search"),
+            singleLine = true, shape = RoundedCornerShape(12.dp),
+            placeholder = { Text(stringResource(R.string.stores_search_library)) },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) IconButton(onClick = { onQueryChange("") }) {
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_close))
+                }
+            },
+        )
+        SecondaryButton(
+            stringResource(if (sortByName) R.string.stores_sort_title_asc else R.string.stores_sort_last_played),
+            compact = true, modifier = Modifier.padding(top = 8.dp).testTag("games-sort"),
+        ) { onSortToggle() }
     }
 }
 
@@ -524,7 +563,7 @@ private fun GameRemoveButton(g: Library.SteamGame, s: FrontEndState, a: FrontEnd
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier.paneItem("game:remove").downToFirstTile().size(44.dp).clip(Shape12)
-            .background(if (hot) colors.error.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.34f))
+            .background(if (hot) colors.error.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.72f))
             .glideBorder(hot, Shape12, colors.error, pal.line2)
             .hoverable(src).clickable(interactionSource = src, indication = LocalIndication.current, role = androidx.compose.ui.semantics.Role.Button) { asking = true }
             .controllerConfirm { asking = true }
@@ -566,7 +605,6 @@ private fun EditGameButton(onClick: () -> Unit) {
 
 @Composable
 private fun AddGameButton(onClick: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
     val src = remember { MutableInteractionSource() }
     val focused by src.collectIsFocusedAsState()
@@ -574,14 +612,14 @@ private fun AddGameButton(onClick: () -> Unit) {
     val label = stringResource(R.string.games_add)
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier.paneItem("games:add").size(32.dp).clip(CircleShape)
-            .background(if (focused || hovered) pal.signal.copy(alpha = 0.18f) else colors.surfaceVariant)
-            .glideBorder(focused, CircleShape, pal.signal)
+        modifier = Modifier.paneItem("games:add").size(44.dp).clip(CircleShape)
+            .background(if (focused || hovered) pal.signal.copy(alpha = 0.30f) else pal.signal.copy(alpha = 0.16f))
+            .glideBorder(focused || hovered, CircleShape, pal.signal, pal.signal.copy(alpha = 0.35f))
             .hoverable(src).clickable(interactionSource = src, indication = LocalIndication.current, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
             .controllerConfirm(onClick = onClick)
             .semantics { contentDescription = label },
     ) {
-        androidx.compose.material3.Icon(Icons.Filled.Add, contentDescription = null, tint = colors.onBackground, modifier = Modifier.size(20.dp))
+        androidx.compose.material3.Icon(Icons.Filled.Add, contentDescription = null, tint = pal.signal, modifier = Modifier.size(24.dp))
     }
 }
 
@@ -677,7 +715,7 @@ private fun libraryLabel(g: Library.SteamGame): String = when {
 @Composable
 private fun GameHero(g: Library.SteamGame, modifier: Modifier, corner: @Composable BoxScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
     val colors = MaterialTheme.colorScheme
-    Box(modifier = modifier.clip(Shape16).background(artBrush(hueOf(g.name)))) {
+    Box(modifier = modifier.testTag("game-hero").clip(Shape16).background(artBrush(hueOf(g.name)))) {
         val image = g.hero ?: g.art.takeIf { g.library != Library.EPIC_LAUNCHER }
         if (image != null) AsyncImage(
             model = image, contentDescription = null, contentScale = ContentScale.Crop,
@@ -693,9 +731,18 @@ private fun GameHero(g: Library.SteamGame, modifier: Modifier, corner: @Composab
                 ),
             ),
         )
+        Spacer(
+            Modifier.matchParentSize().background(
+                Brush.verticalGradient(
+                    0f to Color.Transparent,
+                    0.45f to Color.Transparent,
+                    1f to colors.background.copy(alpha = 0.8f),
+                ),
+            ),
+        )
         Column(
             verticalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 22.dp, vertical = 18.dp),
+            modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp, vertical = 12.dp),
             content = content,
         )
         Box(Modifier.align(Alignment.TopEnd).padding(12.dp), content = corner)
