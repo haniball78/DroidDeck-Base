@@ -162,6 +162,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 
 private const val DOWNLOADS = "downloads"
 
+private val StoresPremiumCharcoal = Color(0xFF101318)
+
 private val TABS = listOf("library", "store")
 
 internal fun tabsFor(store: Store?): List<String> = if (store == Store.AMAZON) TABS.take(1) else TABS
@@ -393,7 +395,7 @@ internal fun StoresPage(s: FrontEndState, a: FrontEndActions, modifier: Modifier
 
     Box(modifier.onGloballyPositioned { hostAt = it.positionInRoot() }) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = padH, vertical = if (narrow) 10.dp else 14.dp)
+        modifier = Modifier.fillMaxSize().background(StoresPremiumCharcoal).padding(horizontal = padH, vertical = if (narrow) 10.dp else 14.dp)
             .bumpers(
                 onPrevious = {
                     val picked = Store.byId(focusedChip)
@@ -806,9 +808,8 @@ private fun StoreChip(
     val pressed by src.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.95f else 1f, Motion.sp(0.5f, Spring.StiffnessMedium), label = "chipScale")
     val shape = RoundedCornerShape(99.dp)
-    val brand = remember(key) { if (key == DOWNLOADS) null else sourceColours(key) }
-    val filledBg = brand?.fill ?: mark
-    val filledInk = brand?.ink ?: if (mark.luminance() > 0.18f) Color(0xFF0B0B0D) else Color.White
+    val filledBg = AttentionAmber
+    val filledInk = Color(0xFF2B1A00)
     val ink = if (on) filledInk else if (hot) colors.onBackground else colors.onSurfaceVariant
     var picked by remember { mutableStateOf(0) }
     val wasOn = remember { booleanArrayOf(on) }
@@ -1168,8 +1169,8 @@ private fun Storefront(
                         downloadLabel(first), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.onBackground,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
-                    Box(Modifier.weight(1f)) {
-                        ProgressBarThin(first.fraction, paused = first.state == DownloadState.PAUSED, verify = first.stage == DownloadStage.VERIFY)
+                    Box(Modifier.weight(1f).testTag("downloads-progress")) {
+                        ProgressBarThin(first.fraction, paused = first.state == DownloadState.PAUSED, verify = first.stage == DownloadStage.VERIFY, fillColor = AttentionAmber, height = 6.dp)
                     }
                     if (activeDownloads.size > 1) Text(
                         "+${activeDownloads.size - 1}", fontSize = 11.sp, color = colors.onSurfaceVariant, maxLines = 1,
@@ -1199,7 +1200,7 @@ private fun FeaturedStoreCard(item: CatalogItem, store: Store, onOpen: (String) 
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp)
+        modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp)
             .onGloballyPositioned { placed[0] = it }
             .paneItem("featured:${item.key}").testTag("featured:${item.key}")
             .clip(RoundedCornerShape(14.dp)).background(colors.surface)
@@ -1207,12 +1208,12 @@ private fun FeaturedStoreCard(item: CatalogItem, store: Store, onOpen: (String) 
             .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = open)
             .controllerConfirm(onClick = open),
     ) {
-        CardArt(item, Modifier.width(if (narrow) 140.dp else 200.dp).fillMaxHeight())
+        CardArt(item, Modifier.width(if (narrow) 160.dp else 240.dp).fillMaxHeight().testTag("featured-art:${item.key}"))
         Column(
             Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(item.title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(item.title, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = colors.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (price.isNotEmpty()) Text(price, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurfaceVariant, maxLines = 1)
             PrimaryButton(
                 stringResource(R.string.stores_install), compact = true,
@@ -1539,8 +1540,8 @@ private fun LazyGridScope.storeGrid(games: List<CatalogItem>, empty: String, car
     else items(games, key = { it.key }, contentType = { "game" }) { card(it) }
 }
 
-private val CardWidth = 112.dp
-private val CapsuleWidth = 92.dp
+private val CardWidth = 128.dp
+private val CapsuleWidth = 104.dp
 
 @Composable
 private fun GameCard(
@@ -1645,7 +1646,7 @@ private fun CardFace(
                 modifier = Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 8.dp, vertical = 6.dp),
             ) {
                 Text(
-                    item.title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.onBackground, maxLines = 1,
+                    item.title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.onBackground, maxLines = 1,
                     overflow = if (hot) TextOverflow.Clip else TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).then(if (hot) Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 700, velocity = 40.dp) else Modifier),
                 )
@@ -1653,6 +1654,14 @@ private fun CardFace(
             }
         }
     }
+}
+
+@Composable
+private fun PriceChip(price: String, key: String) {
+    Text(
+        price, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2B1A00), maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(AttentionAmber).padding(horizontal = 6.dp, vertical = 2.dp).testTag("price-chip:$key"),
+    )
 }
 
 @Composable
@@ -1675,9 +1684,9 @@ private fun CardMarker(item: CatalogItem, installed: Boolean, download: com.droi
         item.isFree -> Text(stringResource(R.string.stores_free), fontSize = small, fontWeight = FontWeight.Bold, color = pal.good, maxLines = 1)
         item.isDiscounted -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             StateChip("-${item.discountPercent}%", ChipTone.DEAL, small = true)
-            Text(item.finalPrice, fontSize = small, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+            PriceChip(item.finalPrice, item.key)
         }
-        item.hasPrice -> Text(item.finalPrice, fontSize = small, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+        item.hasPrice -> PriceChip(item.finalPrice, item.key)
     }
 }
 
@@ -1694,10 +1703,10 @@ internal fun CardArt(item: CatalogItem, modifier: Modifier) {
 }
 
 @Composable
-internal fun ProgressBarThin(fraction: Float, paused: Boolean = false, verify: Boolean = false, height: Dp = 4.dp, done: Boolean = false) {
+internal fun ProgressBarThin(fraction: Float, paused: Boolean = false, verify: Boolean = false, height: Dp = 4.dp, done: Boolean = false, fillColor: Color? = null) {
     val pal = LocalPalette.current
     val colors = MaterialTheme.colorScheme
-    val fill = when { done -> pal.good; paused -> Color(0xFFFFC24D); verify -> Color(0xFF9B6DFF); else -> pal.signal }
+    val fill = fillColor ?: when { done -> pal.good; paused -> Color(0xFFFFC24D); verify -> Color(0xFF9B6DFF); else -> pal.signal }
     val shown = androidx.compose.animation.core.animateFloatAsState(
         fraction.coerceIn(0f, 1f), androidx.compose.animation.core.tween(250, easing = androidx.compose.animation.core.LinearEasing), label = "bar",
     )
