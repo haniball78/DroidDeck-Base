@@ -393,46 +393,24 @@ internal fun StoresPage(s: FrontEndState, a: FrontEndActions, modifier: Modifier
     val gridScale by animateFloatAsState(if (covering) 0.95f else 1f, if (covering) Motion.tw(480) else Motion.tw(460, 40), label = "gridSink")
     val gridAlpha by animateFloatAsState(if (covering) 0f else 1f, if (covering) Motion.tw(320, 80) else Motion.tw(300, 100), label = "gridFade")
 
-    Box(modifier.onGloballyPositioned { hostAt = it.positionInRoot() }) {
-    Column(
-        modifier = Modifier.fillMaxSize().background(StoresPremiumCharcoal).padding(horizontal = padH, vertical = if (narrow) 10.dp else 14.dp)
-            .bumpers(
-                onPrevious = {
-                    val picked = Store.byId(focusedChip)
-                    if (arranging) { if (picked != null) shiftTab(picked, -1) }
-                    else if (openGame == null) cycleStore(-1)
-                },
-                onNext = {
-                    val picked = Store.byId(focusedChip)
-                    if (arranging) { if (picked != null) shiftTab(picked, 1) }
-                    else if (openGame == null) cycleStore(1)
-                },
-            ),
-    ) {
-        Text(
-            stringResource(R.string.stores_title), fontSize = 20.sp, fontWeight = FontWeight.Bold,
-            color = colors.onBackground, maxLines = 1,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag("stores-title"),
+    val wide = !narrow
+    val pageModifier = Modifier.fillMaxSize().background(StoresPremiumCharcoal).padding(horizontal = padH, vertical = if (narrow) 10.dp else 14.dp)
+        .bumpers(
+            onPrevious = {
+                val picked = Store.byId(focusedChip)
+                if (arranging) { if (picked != null) shiftTab(picked, -1) }
+                else if (openGame == null) cycleStore(-1)
+            },
+            onNext = {
+                val picked = Store.byId(focusedChip)
+                if (arranging) { if (picked != null) shiftTab(picked, 1) }
+                else if (openGame == null) cycleStore(1)
+            },
         )
-        Box(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-            StoreTheme(Store.byId(focusedChip ?: chip)) {
-                Rise(0) {
-                    StoreChips(
-                        chip, focusedChip, s.storeDownloadsActive, tabs, arranging,
-                        onStore = { st -> openModes(st) },
-                        onDownloads = { if (chip != DOWNLOADS) pickChip(DOWNLOADS) else move("first") },
-                        onFocusChip = { focusedChip = it },
-                        onArrangeDone = { arranging = false },
-                        onMoveTab = { st, to -> moveTab(st, to) },
-                        onToggleTab = { toggleTab(it) },
-                        onSettings = { at -> if (at != null) StoresMotion.ask(storesSettingsStep(at, liveState, a, pal.signal) { arranging = true }) },
-                    )
-                }
-            }
-        }
-        val fade = with(androidx.compose.ui.platform.LocalDensity.current) { 14.dp.toPx() }
+    val fade = with(androidx.compose.ui.platform.LocalDensity.current) { 14.dp.toPx() }
+    val paneBox: @Composable (Modifier) -> Unit = { paneModifier ->
         Box(
-            Modifier.fillMaxWidth().weight(1f).clipToBounds()
+            paneModifier.clipToBounds()
                 .onGloballyPositioned { viewportAt = it.positionInRoot(); viewportH = with(density) { it.size.height.toDp() } }
                 .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
                 .drawWithContent {
@@ -531,6 +509,53 @@ internal fun StoresPage(s: FrontEndState, a: FrontEndActions, modifier: Modifier
                 }
             }
         }
+    }
+    Box(modifier.onGloballyPositioned { hostAt = it.positionInRoot() }) {
+    if (wide) {
+        Row(pageModifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StoreTheme(Store.byId(focusedChip ?: chip)) {
+                Rise(0) {
+                    StoreRail(
+                        chip, focusedChip, s.storeDownloadsActive, tabs, arranging,
+                        onStore = { st -> openModes(st) },
+                        onDownloads = { if (chip != DOWNLOADS) pickChip(DOWNLOADS) else move("first") },
+                        onFocusChip = { focusedChip = it },
+                        onArrangeDone = { arranging = false },
+                        onMoveTab = { st, to -> moveTab(st, to) },
+                        onToggleTab = { toggleTab(it) },
+                        onSettings = { at -> if (at != null) StoresMotion.ask(storesSettingsStep(at, liveState, a, pal.signal) { arranging = true }) },
+                    )
+                }
+            }
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                paneBox(Modifier.fillMaxWidth().weight(1f))
+            }
+        }
+    } else {
+    Column(pageModifier) {
+        Text(
+            stringResource(R.string.stores_title), fontSize = 20.sp, fontWeight = FontWeight.Bold,
+            color = colors.onBackground, maxLines = 1,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag("stores-title"),
+        )
+        Box(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            StoreTheme(Store.byId(focusedChip ?: chip)) {
+                Rise(0) {
+                    StoreChips(
+                        chip, focusedChip, s.storeDownloadsActive, tabs, arranging,
+                        onStore = { st -> openModes(st) },
+                        onDownloads = { if (chip != DOWNLOADS) pickChip(DOWNLOADS) else move("first") },
+                        onFocusChip = { focusedChip = it },
+                        onArrangeDone = { arranging = false },
+                        onMoveTab = { st, to -> moveTab(st, to) },
+                        onToggleTab = { toggleTab(it) },
+                        onSettings = { at -> if (at != null) StoresMotion.ask(storesSettingsStep(at, liveState, a, pal.signal) { arranging = true }) },
+                    )
+                }
+            }
+        }
+        paneBox(Modifier.fillMaxWidth().weight(1f))
+    }
     }
     FlightLayer(hostAt)
     StoresMotion.step?.let { ask ->
@@ -650,6 +675,7 @@ private class ChipDrag {
     var from by mutableIntStateOf(-1)
     var target by mutableIntStateOf(-1)
     var x by mutableFloatStateOf(0f)
+    var y by mutableFloatStateOf(0f)
 }
 
 @Composable
@@ -689,6 +715,7 @@ private fun RowScope.ArrangeStoreChip(
         drag.from = -1
         drag.target = -1
         drag.x = 0f
+        drag.y = 0f
     }
     fun commit() {
         val from = drag.from
@@ -795,9 +822,159 @@ private fun StoreChips(
 }
 
 @Composable
+private fun ArrangeStoreChipVertical(
+    tab: StoreTab, index: Int, last: Int, gapPx: Float, drag: ChipDrag,
+    onFocusChip: (String?) -> Unit, onMoveTab: (Store, Int) -> Unit, onToggleTab: (Store) -> Unit,
+) {
+    val store = tab.store
+    val box = remember(store) { mutableFloatStateOf(0f) }
+    val pitch = box.floatValue + gapPx
+    val held = drag.store == store
+    val lift by animateFloatAsState(if (held) 1f else 0f, Motion.sp(0.7f, Spring.StiffnessMediumLow), label = "chipLift")
+    val shift by animateFloatAsState(
+        when {
+            drag.store == null || held -> 0f
+            drag.from < index && drag.target >= index -> -pitch
+            drag.from > index && drag.target <= index -> pitch
+            else -> 0f
+        },
+        Motion.sp(0.6f, Spring.StiffnessMediumLow), label = "chipShift",
+    )
+    val pill = remember { RoundedCornerShape(99.dp) }
+    val signedIn = StoresState.isSignedIn(store) && StoresState.expired[store] != true
+    fun reset() {
+        drag.store = null
+        drag.from = -1
+        drag.target = -1
+        drag.x = 0f
+        drag.y = 0f
+    }
+    fun commit() {
+        val from = drag.from
+        val to = drag.target
+        reset()
+        if (from >= 0 && to >= 0 && to != from) onMoveTab(store, to)
+    }
+    StoreChip(
+        label = store.shortLabel, on = false, under = false, key = store.id, mark = sourceColours(store.id).dot, lift = lift,
+        modifier = Modifier.fillMaxWidth()
+            .zIndex(if (held) 2f else 0f)
+            .onSizeChanged { box.floatValue = it.height.toFloat() }
+            .graphicsLayer {
+                translationY = if (held) drag.y else shift
+                shadowElevation = 14.dp.toPx() * lift
+                shape = pill
+                clip = false
+            }
+            .pointerInput(store, index) {
+                detectDragGestures(
+                    onDragStart = {
+                        drag.store = store
+                        drag.from = index
+                        drag.target = index
+                        drag.y = 0f
+                    },
+                    onDragEnd = { commit() },
+                    onDragCancel = { reset() },
+                ) { change, amount ->
+                    change.consume()
+                    val step = box.floatValue + gapPx
+                    if (step <= 0f) return@detectDragGestures
+                    drag.y = (drag.y + amount.y).coerceIn(-drag.from * step, (last - drag.from) * step)
+                    drag.target = (drag.from + (drag.y / step).roundToInt()).coerceIn(0, last)
+                }
+            }
+            .alpha(if (tab.shown) 1f else 0.32f),
+        lead = { StoreDot(store, signedIn) },
+        onFocused = onFocusChip, alignStart = true,
+    ) { onToggleTab(store) }
+}
+
+@Composable
+private fun StoreRail(
+    selected: String, focused: String?, active: Int, tabs: List<StoreTab>, arranging: Boolean,
+    onStore: (Store) -> Unit, onDownloads: () -> Unit, onSettings: (Rect?) -> Unit, onFocusChip: (String?) -> Unit,
+    onArrangeDone: () -> Unit, onMoveTab: (Store, Int) -> Unit, onToggleTab: (Store) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val pal = LocalPalette.current
+    val keys = tabs.filter { it.shown }.map { it.store.id } + DOWNLOADS
+    val bounds = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
+    val highlighted = focused ?: selected
+    val inputMode = androidx.compose.ui.platform.LocalInputModeManager.current.inputMode
+    val fillShown = inputMode != androidx.compose.ui.input.InputMode.Keyboard && !arranging
+    val tint = androidx.compose.animation.animateColorAsState(
+        Store.byId(highlighted)?.let { sourceColours(it.id).dot } ?: pal.signal, Motion.tw(160), label = "chipTint",
+    )
+    val gap = 8.dp
+    val gapPx = with(androidx.compose.ui.platform.LocalDensity.current) { gap.toPx() }
+    val drag = remember { ChipDrag() }
+    Box(
+        Modifier.width(200.dp).fillMaxHeight().testTag("stores-rail")
+            .background(colors.surface, RoundedCornerShape(14.dp)).border(1.dp, pal.line, RoundedCornerShape(14.dp)),
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(gap),
+        ) {
+            Text(
+                stringResource(R.string.stores_title), fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                color = colors.onBackground, maxLines = 1,
+                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 2.dp, bottom = 2.dp).testTag("stores-title"),
+            )
+            Box(Modifier.fillMaxWidth().height(1.dp).background(pal.line))
+            for (tab in tabs) {
+                val store = tab.store
+                if (arranging) {
+                    val index = tabs.indexOfFirst { it.store == store }
+                    key(store) { ArrangeStoreChipVertical(tab, index, tabs.lastIndex, gapPx, drag, onFocusChip, onMoveTab, onToggleTab) }
+                } else if (tab.shown) {
+                    val signedIn = StoresState.isSignedIn(store) && StoresState.expired[store] != true
+                    key(store) {
+                        StoreChip(
+                            label = store.shortLabel, on = selected == store.id, under = fillShown && highlighted == store.id, key = store.id, mark = sourceColours(store.id).dot,
+                            modifier = Modifier.fillMaxWidth().onGloballyPositioned { bounds[store.id] = it.boundsInParent() },
+                            lead = { StoreDot(store, signedIn) },
+                            description = store.label + if (signedIn || !StoresState.accountsLoaded) "" else " " + stringResource(R.string.stores_chip_signed_out),
+                            onFocused = onFocusChip, alignStart = true,
+                        ) { onStore(store) }
+                    }
+                }
+            }
+            if (!arranging) {
+                StoreChip(
+                    label = stringResource(R.string.stores_tab_downloads), on = selected == DOWNLOADS, under = fillShown && highlighted == DOWNLOADS, key = DOWNLOADS, mark = pal.signal,
+                    modifier = Modifier.fillMaxWidth().onGloballyPositioned {
+                        bounds[DOWNLOADS] = it.boundsInParent()
+                        StoresMotion.downloadsChip = it.boundsInRoot()
+                    },
+                    lead = { Icon(Icons.Outlined.Download, null, modifier = Modifier.size(18.dp)) },
+                    trail = if (active > 0) { { CountPill(active, inverted = selected == DOWNLOADS) } } else null,
+                    description = stringResource(R.string.stores_tab_downloads),
+                    onFocused = onFocusChip, alignStart = true,
+                ) { onDownloads() }
+            }
+            Spacer(Modifier.weight(1f))
+            if (arranging) {
+                IconChip(Icons.Filled.Check, stringResource(R.string.stores_tabs_arrange_done)) { onArrangeDone() }
+            } else {
+                var cogAt by remember { mutableStateOf<Rect?>(null) }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(start = 4.dp)) {
+                    Box(Modifier.onGloballyPositioned { cogAt = it.boundsInRoot() }) {
+                        IconChip(Icons.Filled.Settings, stringResource(R.string.stores_settings)) { onSettings(cogAt) }
+                    }
+                    Text(stringResource(R.string.stores_settings), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        ChipGlide(keys.indexOf(highlighted), bounds[highlighted], tint, GlideAxis.Vertical, visible = fillShown)
+    }
+}
+
+@Composable
 private fun StoreChip(
     label: String?, on: Boolean, under: Boolean, key: String, mark: Color, modifier: Modifier, lead: @Composable () -> Unit,
-    trail: (@Composable () -> Unit)? = null, description: String? = null, lift: Float = 0f,
+    trail: (@Composable () -> Unit)? = null, description: String? = null, lift: Float = 0f, alignStart: Boolean = false,
     onFocused: (String?) -> Unit = {}, onClick: () -> Unit,
 ) {
     val inputMode = androidx.compose.ui.platform.LocalInputModeManager.current
@@ -818,7 +995,7 @@ private fun StoreChip(
         wasOn[0] = on
     }
     Row(
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp, if (alignStart) Alignment.Start else Alignment.CenterHorizontally),
         modifier = modifier.paneItem("storechip:$key").testTag("storechip:$key")
             .onFocusChanged { f ->
                 if (f.isFocused && inputMode.inputMode == androidx.compose.ui.input.InputMode.Keyboard) onFocused(key)
@@ -952,8 +1129,8 @@ internal fun StoreLogo(store: Store, size: Dp) {
 internal fun pickFeatured(visible: List<CatalogItem>, whatsNew: List<CatalogItem>?, trending: List<CatalogItem>?): CatalogItem? =
     visible.firstOrNull() ?: whatsNew?.firstOrNull() ?: trending?.firstOrNull()
 
-internal fun storeGridHeaderItems(sizeSortPending: Boolean, hasSyncBar: Boolean, hasProblem: Boolean, hasFeatured: Boolean): Int =
-    1 + (if (sizeSortPending) 1 else 0) + (if (hasSyncBar) 1 else 0) + (if (hasProblem) 1 else 0) + (if (hasFeatured) 1 else 0)
+internal fun storeGridHeaderItems(sizeSortPending: Boolean, hasSyncBar: Boolean, hasProblem: Boolean, hasFeatured: Boolean, inGridHeader: Boolean = true): Int =
+    (if (inGridHeader) 1 else 0) + (if (sizeSortPending) 1 else 0) + (if (hasSyncBar) 1 else 0) + (if (hasProblem) 1 else 0) + (if (hasFeatured && inGridHeader) 1 else 0)
 
 @Composable
 private fun Storefront(
@@ -964,6 +1141,7 @@ private fun Storefront(
 ) {
     val ctx = LocalContext.current
     val colors = MaterialTheme.colorScheme
+    val wide = !LocalNarrowPane.current
     val library = StoresState.library[store] ?: emptyList()
     val shelves = StoresState.shelves[store]
     val found = StoresState.found[store] ?: emptyList()
@@ -1041,7 +1219,7 @@ private fun Storefront(
     val barLine = StoresState.status[store]?.takeIf { gridEmpty && syncCount(it) != null }
     val featured = remember(visible, shelves) { pickFeatured(visible, shelves?.whatsNew, shelves?.trending) }
     val activeDownloads = StoresState.downloads.filter { it.isActive }
-    val headerItems = storeGridHeaderItems(sizeSortPending, barLine != null, StoresState.problems[store] != null, featured != null)
+    val headerItems = storeGridHeaderItems(sizeSortPending, barLine != null, StoresState.problems[store] != null, featured != null, inGridHeader = !wide)
     val listMode = s.storesView == "list" && tab == "library"
     val capsules = s.storesView == "capsules" && tab == "library"
     val tileWidth = if (capsules) CapsuleWidth else CardWidth
@@ -1078,8 +1256,19 @@ private fun Storefront(
         if (listMode) GameListRow(item, store, installedKeys, onOpen, first, navigation)
         else GameCard(item, store, s, a, installedKeys, onOpen, first, navigation, capsule = capsules)
     }
-    LazyVerticalGrid(
-        columns = if (listMode) GridCells.Fixed(1) else GridCells.Adaptive(tileWidth), state = grid, modifier = Modifier.fillMaxSize().focusGroup().onSizeChanged {
+    Column(Modifier.fillMaxSize()) {
+        if (wide) {
+            Box(Modifier.fillMaxWidth().testTag("stores-topbar")) {
+                StorefrontTopBar(store, tab, query, s, a, library.size, loaded, clearSearchFocus, onQuery = onQuery, onTab = onTab)
+            }
+            featured?.let { item ->
+                Box(Modifier.fillMaxWidth().padding(top = 8.dp).testTag("stores-stage")) {
+                    FeaturedStage(item, onOpen, onInstall = { StoresState.requestInstall(ctx, item) })
+                }
+            }
+        }
+        LazyVerticalGrid(
+            columns = if (listMode) GridCells.Fixed(1) else GridCells.Adaptive(tileWidth), state = grid, modifier = (if (wide) Modifier.weight(1f) else Modifier.fillMaxSize()).focusGroup().onSizeChanged {
             val gap = with(density) { 10.dp.roundToPx() }
             val minimum = with(density) { (if (listMode) CardWidth * 2 else tileWidth).roundToPx() }
             columns = ((it.width + gap) / (minimum + gap)).toInt().coerceAtLeast(1)
@@ -1087,36 +1276,10 @@ private fun Storefront(
         horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(top = 4.dp, bottom = 16.dp),
     ) {
-        item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
-            Rise(1) {
-                val tabs = tabsFor(store)
-                val libraryLabel = if (loaded) stringResource(R.string.stores_tab_count, stringResource(R.string.stores_tab_library), library.size)
-                    else stringResource(R.string.stores_tab_library)
-                ModeHeader(
-                    libraryLabel,
-                    query, onQuery,
-                    placeholder = if (tab == "store") stringResource(R.string.stores_search_catalog, store.label) else stringResource(R.string.stores_search_library),
-                    clearSearchFocus = clearSearchFocus,
-                    lead = if (tabs.size < 2) null else { {
-                        val labels = tabs.map { if (it == "store") stringResource(R.string.stores_tab_store) else libraryLabel }
-                        HeaderTabs(labels, tabs.indexOf(tab).coerceAtLeast(0)) { onTab(tabs[it]) }
-                    } },
-                ) {
-                    if (tab == "library") {
-                        SortButton(s, a)
-                        ViewButton(s, a)
-                    }
-                    if (store == Store.EPIC) SmallTextButton(stringResource(R.string.epic_client_title)) {
-                        if (EpicClient.status.installed) a.onEpicLauncher()
-                        else { EpicClient.install(ctx); StoresState.openDownloads = true }
-                    }
-                    SmallTextButton(stringResource(R.string.stores_refresh)) { StoresState.open(ctx, store, force = true) }
-                    val name = StoresState.accounts[store] ?: ""
-                    SignOutButton(store, name)
-                }
-            }
+        if (!wide) item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
+            StorefrontTopBar(store, tab, query, s, a, library.size, loaded, clearSearchFocus, onQuery = onQuery, onTab = onTab)
         }
-        featured?.let { item ->
+        if (!wide) featured?.let { item ->
             item(key = "featured", span = { GridItemSpan(maxLineSpan) }) {
                 FeaturedStoreCard(item, store, onOpen, onInstall = { StoresState.requestInstall(ctx, item) })
             }
@@ -1158,25 +1321,114 @@ private fun Storefront(
                 }
             }
         }
-        if (activeDownloads.isNotEmpty()) {
-            val first = activeDownloads.first()
-            item(key = "downloads-strip", span = { GridItemSpan(maxLineSpan) }) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp).testTag("downloads-strip"),
-                ) {
-                    Text(
-                        downloadLabel(first), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.onBackground,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                    )
-                    Box(Modifier.weight(1f).testTag("downloads-progress")) {
-                        ProgressBarThin(first.fraction, paused = first.state == DownloadState.PAUSED, verify = first.stage == DownloadStage.VERIFY, fillColor = AttentionAmber, height = 6.dp)
-                    }
-                    if (activeDownloads.size > 1) Text(
-                        "+${activeDownloads.size - 1}", fontSize = 11.sp, color = colors.onSurfaceVariant, maxLines = 1,
-                    )
-                }
+        if (!wide && activeDownloads.isNotEmpty()) {
+            item(key = "downloads-strip", span = { GridItemSpan(maxLineSpan) }) { DownloadsBar(activeDownloads) }
+        }
+    }
+    if (wide && activeDownloads.isNotEmpty()) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.surfaceVariant))
+        Box(Modifier.fillMaxWidth().testTag("stores-downloads-bar")) { DownloadsBar(activeDownloads) }
+    }
+    }
+}
+
+@Composable
+private fun StorefrontTopBar(
+    store: Store, tab: String, query: String, s: FrontEndState, a: FrontEndActions,
+    librarySize: Int, loaded: Boolean, clearSearchFocus: Boolean,
+    onQuery: (String) -> Unit, onTab: (String) -> Unit,
+) {
+    val ctx = LocalContext.current
+    Rise(1) {
+        val tabs = tabsFor(store)
+        val libraryLabel = if (loaded) stringResource(R.string.stores_tab_count, stringResource(R.string.stores_tab_library), librarySize)
+            else stringResource(R.string.stores_tab_library)
+        ModeHeader(
+            libraryLabel,
+            query, onQuery,
+            placeholder = if (tab == "store") stringResource(R.string.stores_search_catalog, store.label) else stringResource(R.string.stores_search_library),
+            clearSearchFocus = clearSearchFocus,
+            lead = if (tabs.size < 2) null else { {
+                val labels = tabs.map { if (it == "store") stringResource(R.string.stores_tab_store) else libraryLabel }
+                HeaderTabs(labels, tabs.indexOf(tab).coerceAtLeast(0)) { onTab(tabs[it]) }
+            } },
+        ) {
+            if (tab == "library") {
+                SortButton(s, a)
+                ViewButton(s, a)
             }
+            if (store == Store.EPIC) SmallTextButton(stringResource(R.string.epic_client_title)) {
+                if (EpicClient.status.installed) a.onEpicLauncher()
+                else { EpicClient.install(ctx); StoresState.openDownloads = true }
+            }
+            SmallTextButton(stringResource(R.string.stores_refresh)) { StoresState.open(ctx, store, force = true) }
+            val name = StoresState.accounts[store] ?: ""
+            SignOutButton(store, name)
+        }
+    }
+}
+
+@Composable
+private fun DownloadsBar(activeDownloads: List<com.droiddeck.launcher.stores.download.DownloadEntry>) {
+    if (activeDownloads.isEmpty()) return
+    val first = activeDownloads.first()
+    val colors = MaterialTheme.colorScheme
+    Row(
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp).testTag("downloads-strip"),
+    ) {
+        Text(
+            downloadLabel(first), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.onBackground,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+        )
+        Box(Modifier.weight(1f).testTag("downloads-progress")) {
+            ProgressBarThin(first.fraction, paused = first.state == DownloadState.PAUSED, verify = first.stage == DownloadStage.VERIFY, fillColor = AttentionAmber, height = 6.dp)
+        }
+        if (activeDownloads.size > 1) Text(
+            "+${activeDownloads.size - 1}", fontSize = 11.sp, color = colors.onSurfaceVariant, maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun FeaturedStage(item: CatalogItem, onOpen: (String) -> Unit, onInstall: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val placed = remember { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(1) }
+    val corner = with(androidx.compose.ui.platform.LocalDensity.current) { 10.dp.toPx() }
+    val open = {
+        placed[0]?.takeIf { it.isAttached }?.let { StoresMotion.markCard(CardMark(item.key, it.boundsInRoot(), corner, item.imageUrl ?: item.tallImageUrl)) }
+        onOpen(item.key)
+    }
+    val price = when {
+        item.isFree -> stringResource(R.string.stores_free)
+        item.isDiscounted -> "-${item.discountPercent}% · ${item.finalPrice}"
+        item.hasPrice -> item.finalPrice
+        else -> ""
+    }
+    val art = cardArtRequest(item.imageUrl ?: item.tallImageUrl, item.tallImageUrl)
+    Box(
+        modifier = Modifier.fillMaxWidth().height(220.dp)
+            .onGloballyPositioned { placed[0] = it }
+            .paneItem("featured:${item.key}").testTag("featured:${item.key}")
+            .clip(RoundedCornerShape(14.dp)).background(colors.surfaceVariant)
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = open)
+            .controllerConfirm(onClick = open),
+    ) {
+        if (art != null) AsyncImage(
+            model = art, contentDescription = null, contentScale = ContentScale.Crop,
+            modifier = Modifier.matchParentSize().testTag("featured-art:${item.key}"),
+        ) else Box(Modifier.matchParentSize().background(artBrush(hueOf(item.title))).testTag("featured-art:${item.key}"))
+        Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.78f))))
+        Column(
+            Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(item.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (price.isNotEmpty()) Text(price, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.85f), maxLines = 1)
+            PrimaryButton(
+                stringResource(R.string.stores_install), compact = true,
+                brush = Brush.linearGradient(listOf(AttentionAmber, Color(0xFFE8960B))), ink = Color(0xFF2B1A00),
+            ) { onInstall() }
         }
     }
 }
