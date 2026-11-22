@@ -129,7 +129,7 @@ internal fun DesktopPage(s: FrontEndState, a: FrontEndActions, modifier: Modifie
                 Icon(Icons.Filled.KeyboardArrowUp, null, tint = colors.onSurfaceVariant, modifier = Modifier.size(16.dp))
             }
         },
-        modifier = modifier.clipToBounds(),
+        modifier = modifier.background(Color(0xFF0B1220)).clipToBounds(),
         start = if (narrow) 20.dp else 44.dp, bottom = if (narrow) 20.dp else 44.dp,
         background = {
             DesktopWall(installed.map { it.iconRes } + apps.mapNotNull { it.icon })
@@ -150,7 +150,7 @@ internal fun DesktopPage(s: FrontEndState, a: FrontEndActions, modifier: Modifie
             }
         },
         button = { click ->
-            PrimaryButton(open, enabled = !s.busy, main = true, large = true, icon = Icons.Outlined.DesktopWindows, buttonShape = RoundedCornerShape(50), outlineColor = AttentionAmber, onClick = click)
+            PrimaryButton(open, enabled = !s.busy, main = true, large = true, icon = Icons.Outlined.DesktopWindows, buttonShape = RoundedCornerShape(6.dp), onClick = click)
         },
         beside = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -190,7 +190,7 @@ private fun DesktopDock(
     if (keys.isEmpty() && available.isEmpty() && UserAppsState.working == null && UserAppsState.lastError == null) return
     Column(Modifier.fillMaxWidth().padding(top = if (narrow) 14.dp else 22.dp)) {
         Text(
-            stringResource(R.string.user_apps_section).uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp,
+            stringResource(R.string.user_apps_section).uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp,
             color = colors.onSurfaceVariant, modifier = Modifier.padding(start = if (narrow) 20.dp else 44.dp, bottom = 8.dp),
         )
         Row(
@@ -284,7 +284,7 @@ private fun HeroIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector
 @Composable
 private fun DesktopWall(icons: List<Any>) {
     val pal = LocalPalette.current
-    val ground = remember(pal) { Brush.linearGradient(listOf(pal.surfaceVariant, pal.surface)) }
+    val ground = remember(pal) { Brush.linearGradient(listOf(Color(0xFF16233D), Color(0xFF0E1524))) }
     TiltedWall(icons.size, if (icons.isEmpty()) 75_000 else 50_000, capW = 132.dp, capH = 84.dp, gap = 14.dp, corner = 8.dp) { i ->
         WallCapsule(ground, edge = pal.line2, icon = icons.getOrNull(i), bar = pal.background.copy(alpha = 0.7f))
     }
@@ -305,7 +305,7 @@ private fun DesktopCard(
     val scale by animateFloatAsState(if (pressed) 0.96f else if (hot) 1.03f else 1f, Motion.sp(0.5f, Spring.StiffnessMedium), label = "deskCard")
     val shape = RoundedCornerShape(16.dp)
     var artAt by remember { mutableStateOf<Rect?>(null) }
-    val width = if (LocalNarrowPane.current) 116.dp else 132.dp
+    val width = if (LocalNarrowPane.current) 128.dp else 148.dp
     val artH = width * 0.62f
     val ground = tint?.copy(alpha = 0.25f) ?: if (accent) pal.signal.copy(alpha = 0.12f) else colors.surfaceVariant
     Column(
@@ -355,7 +355,7 @@ private fun DesktopCard(
             }
         }
         Column(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 10.dp)) {
-            Text(name, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, lineHeight = 17.sp, color = colors.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(name, fontSize = 14.sp, fontWeight = FontWeight.Bold, lineHeight = 17.sp, color = colors.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(detail, fontSize = 12.sp, lineHeight = 15.sp, color = colors.onSurfaceVariant, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
         }
     }
