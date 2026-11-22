@@ -8,7 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +44,10 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.outlined.DesktopWindows
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,11 +62,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -92,12 +100,15 @@ import kotlinx.coroutines.withContext
 private const val WALL_MIN_GAMES = 4
 private const val WALL_DISTINCT = 40
 
-private val GoldBrush = Brush.linearGradient(listOf(AttentionAmber, Color(0xFFE8960B)))
 private val GoldInk = Color(0xFF2B1A00)
 
 private val Crimson = Color(0xFFB3123B)
-private val CrimsonBrush = Brush.linearGradient(listOf(Crimson, Color(0xFF7A0C26)))
-private val CrimsonTint = Crimson.copy(alpha = 0.16f)
+
+// Glass-orbs design (Steam section only): orb sizes and the arc dip.
+private val OrbSize = 76.dp
+private val OrbArcDip = 12.dp
+private val PlayOrbSize = 120.dp
+private val PlayOrbSizeNarrow = 96.dp
 
 private const val DRIFT_STEP_NS = 15_000_000L
 
@@ -127,6 +138,11 @@ internal fun SteamHome(s: FrontEndState, a: FrontEndActions, modifier: Modifier)
     val showRuntime = s.busy || !s.ready || (s.available != null && s.available != s.installed)
     val narrow = LocalNarrowPane.current
     var words by remember { mutableStateOf<Rect?>(null) }
+    // Glass orbs float: one transition, one duration per orb (same pattern as the shelf bob).
+    val orbTransition = rememberInfiniteTransition(label = "orbFloat")
+    val orbFloats = listOf(2800, 3200, 3600, 3000).map { ms ->
+        orbTransition.animateFloat(0f, 1f, infiniteRepeatable(tween(ms, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "orbFloat")
+    }
     val mode = com.droiddeck.launcher.session.SessionService.MODE_STEAM
     val tabs = modeSheetTabs(steam = true).map { it to sheetTabLabel(it) }
     val back = stringResource(R.string.hop_from_play)
@@ -167,9 +183,7 @@ internal fun SteamHome(s: FrontEndState, a: FrontEndActions, modifier: Modifier)
         onOpen = a.onSteamSettings, onPrimary = a.onPlay,
         modifier = modifier.clipToBounds(),
         start = if (narrow) 20.dp else 44.dp, bottom = if (narrow) 20.dp else 44.dp,
-        lipAccent = AttentionAmber,
         lipBeside = !narrow,
-        lipTint = CrimsonTint,
         background = {
             when {
                 hero != null -> HeroBackdrop(hero)
@@ -195,15 +209,32 @@ internal fun SteamHome(s: FrontEndState, a: FrontEndActions, modifier: Modifier)
             }
         },
         button = { click ->
-            PrimaryButton(stringResource(R.string.games_play_steam), enabled = !s.busy, main = true, large = true, icon = Icons.Filled.PlayArrow,
-                brush = CrimsonBrush, ink = Color.White, modifier = Modifier.testTag("play-steam"), onClick = click)
+            GlassOrb(
+                label = stringResource(R.string.games_play_steam), icon = Icons.Filled.PlayArrow, glow = Crimson,
+                arcOffset = 0.dp, float = orbFloats[0].value, enabled = !s.busy,
+                modifier = Modifier.testTag("play-steam"), onClick = { click() },
+            )
         },
         beside = {
             if (hero != null) {
                 val show = LocalShowSection.current
-                QuickPill(stringResource(R.string.rail_desktop), narrow) { show("desktop") }
-                QuickPill(stringResource(R.string.connections_second_player), narrow) { show("second_player") }
+                val pal = LocalPalette.current
+                GlassOrb(
+                    label = stringResource(R.string.rail_desktop), icon = Icons.Outlined.DesktopWindows, glow = pal.signal,
+                    arcOffset = OrbArcDip, float = orbFloats[1].value, onClick = { show("desktop") },
+                )
+                GlassOrb(
+                    label = stringResource(R.string.connections_second_player), icon = Icons.Filled.SportsEsports, glow = pal.good,
+                    arcOffset = OrbArcDip, float = orbFloats[2].value, onClick = { show("second_player") },
+                )
             }
+        },
+        lipContent = {
+            // Visual only: the lip's own Box handles the click (opens settings).
+            GlassOrb(
+                label = stringResource(R.string.drawer_page_settings), icon = Icons.Filled.Settings, glow = AttentionAmber,
+                arcOffset = 0.dp, float = orbFloats[3].value, onClick = null,
+            )
         },
         afterButton = {
             if (hero != null) SteamHeroShelf(shelf, narrow)
@@ -260,11 +291,133 @@ private fun SteamHeroWords(hero: Library.SteamGame, s: FrontEndState, a: FrontEn
         )
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PrimaryButton(
-                stringResource(R.string.games_launch), enabled = !s.busy, large = true, icon = Icons.Filled.PlayArrow,
-                brush = GoldBrush, ink = GoldInk, modifier = Modifier.testTag("hero-play"),
+            PlayOrb(
+                enabled = !s.busy, narrow = narrow, modifier = Modifier.testTag("hero-play"),
             ) { a.onSteamGame(hero) }
             if (s.busy || !s.ready || (s.available != null && s.available != s.installed)) RuntimeChip(s)
+        }
+    }
+}
+
+// Glass orb: a translucent circle with a coloured glow, a big icon and a label.
+// When onClick is null the orb is visual only (the lip's own Box handles clicks).
+@Composable
+private fun GlassOrb(
+    label: String,
+    icon: ImageVector,
+    glow: Color,
+    arcOffset: Dp,
+    float: Float,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)?,
+) {
+    val src = remember { MutableInteractionSource() }
+    val hot = rememberHot(src)
+    val still = Motion.scale == 0f
+    val floatY = if (still) 0.dp else (-3).dp * float
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(OrbSize)
+            .offset(y = arcOffset + floatY)
+            .shadow(16.dp, CircleShape, spotColor = glow, ambientColor = glow.copy(alpha = 0.35f))
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.12f))
+            .drawBehind {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(glow.copy(alpha = 0.30f), Color.White.copy(alpha = 0.08f), Color.Transparent),
+                        center = center,
+                        radius = size.minDimension / 2f,
+                    ),
+                    radius = size.minDimension / 2f,
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color.White.copy(alpha = 0.30f), Color.Transparent),
+                        center = Offset(size.width * 0.30f, size.height * 0.26f),
+                        radius = size.minDimension * 0.30f,
+                    ),
+                    radius = size.minDimension * 0.30f,
+                    center = Offset(size.width * 0.30f, size.height * 0.26f),
+                )
+            }
+            .border(1.dp, Color.White.copy(alpha = if (hot) 0.55f else 0.30f), CircleShape)
+            .hoverable(src)
+            .then(
+                if (onClick != null) Modifier
+                    .clickable(interactionSource = src, indication = LocalIndication.current, role = Role.Button, enabled = enabled) { onClick() }
+                    .controllerConfirm(enabled = enabled, onClick = onClick)
+                else Modifier,
+            )
+            .graphicsLayer { alpha = if (enabled) 1f else 0.5f },
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        ) {
+            Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp))
+            Text(
+                label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+    }
+}
+
+// Large glowing golden orb: the hero play button. Radial gold, pulsing scale,
+// glass shine, play triangle + label inside. Same handler and testTag as before.
+@Composable
+private fun PlayOrb(
+    enabled: Boolean,
+    narrow: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val orbSize = if (narrow) PlayOrbSizeNarrow else PlayOrbSize
+    val still = Motion.scale == 0f
+    val pulse = rememberInfiniteTransition(label = "playOrbPulse")
+    val glow by pulse.animateFloat(0.55f, 1f, infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "glow")
+    val src = remember { MutableInteractionSource() }
+    val scale = if (still) 1f else 1f + 0.03f * glow
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(orbSize)
+            .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled) 1f else 0.5f }
+            .shadow(24.dp, CircleShape, spotColor = AttentionAmber, ambientColor = AttentionAmber.copy(alpha = 0.4f))
+            .clip(CircleShape)
+            .drawBehind {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color(0xFFFFF3C4), AttentionAmber, Color(0xFFD97E06)),
+                        center = Offset(size.width * 0.5f, size.height * 0.38f),
+                        radius = size.minDimension * 0.62f,
+                    ),
+                    radius = size.minDimension / 2f,
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color.White.copy(alpha = 0.45f), Color.Transparent),
+                        center = Offset(size.width * 0.30f, size.height * 0.24f),
+                        radius = size.minDimension * 0.30f,
+                    ),
+                    radius = size.minDimension * 0.30f,
+                    center = Offset(size.width * 0.30f, size.height * 0.24f),
+                )
+            }
+            .hoverable(src)
+            .clickable(interactionSource = src, indication = LocalIndication.current, role = Role.Button, enabled = enabled) { onClick() }
+            .controllerConfirm(enabled = enabled, onClick = onClick),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Filled.PlayArrow, null, tint = GoldInk, modifier = Modifier.size(if (narrow) 36.dp else 44.dp))
+            Text(
+                stringResource(R.string.games_launch), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = GoldInk,
+                maxLines = 1, modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }
@@ -292,6 +445,10 @@ private fun SteamHeroShelf(shelf: List<Library.SteamGame>, narrow: Boolean) {
     }
 }
 
+// Images-only shelf card: no name text below, no flat coloured side panels. The
+// title painted inside the art must survive, so the full art is fitted over a
+// blurred, enlarged copy of itself filling the card (the Games hero's backdrop
+// trick) — never a plain Crop, which cut titles before.
 @Composable
 private fun RecentBubble(game: Library.SteamGame, w: Dp, h: Dp, bob: Float, onOpen: () -> Unit) {
     val still = Motion.scale == 0f
@@ -299,50 +456,29 @@ private fun RecentBubble(game: Library.SteamGame, w: Dp, h: Dp, bob: Float, onOp
     val art = game.art ?: game.hero
     val src = remember { MutableInteractionSource() }
     val hot = rememberHot(src)
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(w)) {
-        Box(
-            Modifier.size(w, h)
-                .graphicsLayer { translationY = if (still) 0f else -4.dp.toPx() * bob }
-                .clip(shape)
-                .background(artBrush(hueOf(game.name)))
-                .hoverable(src)
-                .clickable(interactionSource = src, indication = LocalIndication.current, role = Role.Button, onClick = onOpen)
-                .controllerConfirm(onClick = onOpen)
-                .testTag("shelf-bubble:${game.appId}"),
-        ) {
-            if (art != null) {
-                AsyncImage(
-                    model = art, contentDescription = game.name, contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize().clip(shape),
-                )
-            }
-            Box(Modifier.fillMaxSize().clip(shape).background(Brush.verticalGradient(0f to Color.White.copy(alpha = 0.10f), 0.35f to Color.Transparent)))
-            Box(Modifier.fillMaxSize().border(1.dp, Color.White.copy(alpha = if (hot) 0.45f else 0.25f), shape))
-        }
-        Text(
-            game.name, fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-        )
-    }
-}
-
-@Composable
-private fun QuickPill(label: String, narrow: Boolean, onClick: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val src = remember { MutableInteractionSource() }
-    val hot = rememberHot(src)
-    val shape = RoundedCornerShape(12.dp)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.heightIn(min = 44.dp).clip(shape)
-            .background(CrimsonTint)
-            .glideBorder(hot, shape, AttentionAmber, AttentionAmber.copy(alpha = 0.35f))
+    Box(
+        Modifier.size(w, h)
+            .graphicsLayer { translationY = if (still) 0f else -4.dp.toPx() * bob }
+            .clip(shape)
+            .background(artBrush(hueOf(game.name)))
             .hoverable(src)
-            .clickable(interactionSource = src, indication = LocalIndication.current, role = Role.Button, onClick = onClick)
-            .controllerConfirm(onClick = onClick)
-            .padding(horizontal = if (narrow) 12.dp else 16.dp, vertical = 8.dp),
+            .clickable(interactionSource = src, indication = LocalIndication.current, role = Role.Button, onClick = onOpen)
+            .controllerConfirm(onClick = onOpen)
+            .testTag("shelf-bubble:${game.appId}"),
     ) {
-        Text(label, fontSize = if (narrow) 13.sp else 14.sp, fontWeight = FontWeight.SemiBold, color = colors.onBackground, maxLines = 1)
+        if (art != null) {
+            AsyncImage(
+                model = art, contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().blur(24.dp).graphicsLayer { scaleX = 1.3f; scaleY = 1.3f },
+            )
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.20f)))
+            AsyncImage(
+                model = art, contentDescription = game.name, contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().clip(shape),
+            )
+        }
+        Box(Modifier.fillMaxSize().clip(shape).background(Brush.verticalGradient(0f to Color.White.copy(alpha = 0.10f), 0.35f to Color.Transparent)))
+        Box(Modifier.fillMaxSize().border(1.dp, Color.White.copy(alpha = if (hot) 0.45f else 0.25f), shape))
     }
 }
 

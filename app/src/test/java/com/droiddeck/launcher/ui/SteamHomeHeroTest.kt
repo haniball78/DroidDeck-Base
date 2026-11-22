@@ -37,7 +37,8 @@ class SteamHomeHeroTest {
         show(listOf(game(440, "World of Sea Battle", hoursAgo(12)), game(441, "Microworks", hoursAgo(30)), game(442, "Reanimal Demo", hoursAgo(50))))
         compose.onNodeWithText("Resume playing").assertExists()
         compose.onNodeWithText("Last played", substring = true).assertExists()
-        compose.onAllNodesWithText("World of Sea Battle", substring = true).assertCountEquals(2)
+        // The shelf is images-only now: the hero name appears only in the subtitle.
+        compose.onAllNodesWithText("World of Sea Battle", substring = true).assertCountEquals(1)
         compose.onAllNodesWithContentDescription("DroidDeck").assertCountEquals(0)
         compose.onNodeWithTag("hero-play").performClick()
         assertEquals(440, launchedAppId)
@@ -73,6 +74,40 @@ class SteamHomeHeroTest {
         val bubbleTop = compose.onNodeWithTag("shelf-bubble:440").fetchSemanticsNode().boundsInRoot.top
         assertTrue("heading ($headingTop) must sit below the pills ($playTop)", playTop < headingTop)
         assertTrue("heading ($headingTop) must sit above the bubbles ($bubbleTop)", headingTop < bubbleTop)
+    }
+
+    @Test fun orbsArcAndHandlers() {
+        show(listOf(game(440, "World of Sea Battle", hoursAgo(12)), game(441, "Microworks", hoursAgo(30)), game(442, "Reanimal Demo", hoursAgo(50))))
+        compose.onNodeWithTag("play-steam").performClick()
+        assertEquals(1, steamStarts)
+        compose.onNodeWithText("Desktop").performClick()
+        compose.onNodeWithText("Second player").performClick()
+        assertEquals(listOf("desktop", "second_player"), shown)
+        compose.onNodeWithTag("play-steam").requestFocus()
+        settle()
+        compose.onNodeWithTag("sheet-open").assertExists()
+        // Gentle arc: the inner orbs sit lower than the outer ones.
+        val playTop = compose.onNodeWithTag("play-steam").fetchSemanticsNode().boundsInRoot.top
+        val desktopTop = compose.onNodeWithText("Desktop").fetchSemanticsNode().boundsInRoot.top
+        val secondTop = compose.onNodeWithText("Second player").fetchSemanticsNode().boundsInRoot.top
+        val lipTop = compose.onNodeWithTag("sheet-open").fetchSemanticsNode().boundsInRoot.top
+        assertTrue("Desktop orb ($desktopTop) must sit lower than Play Steam ($playTop)", desktopTop > playTop)
+        assertTrue("Second player orb ($secondTop) must sit lower than Play Steam ($playTop)", secondTop > playTop)
+        assertTrue("Settings orb ($lipTop) must sit higher than the inner orbs ($desktopTop)", lipTop < desktopTop)
+        compose.onNodeWithTag("sheet-open").performClick()
+        settle()
+        assertEquals(1, settingsOpens)
+    }
+
+    @Test fun shelfShowsImagesOnly() {
+        show(listOf(game(440, "World of Sea Battle", hoursAgo(12)), game(441, "Microworks", hoursAgo(30)), game(442, "Reanimal Demo", hoursAgo(50))))
+        // The other games' names appear nowhere as text: the shelf is images only.
+        compose.onAllNodesWithText("Microworks").assertCountEquals(0)
+        compose.onAllNodesWithText("Reanimal Demo").assertCountEquals(0)
+        compose.onNodeWithTag("shelf-bubble:441").assertExists()
+        compose.onNodeWithTag("shelf-bubble:441").performClick()
+        assertEquals(listOf("app:441"), shown)
+        assertEquals(-1, launchedAppId)
     }
 
     @Test fun pillsKeepPlaySteamAndSettingsAndNavigate() {

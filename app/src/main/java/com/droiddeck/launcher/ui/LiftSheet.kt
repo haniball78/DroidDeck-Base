@@ -195,6 +195,8 @@ internal fun LiftHero(
     lipAccent: Color? = null,
     lipBeside: Boolean = false,
     lipTint: Color? = null,
+    // Steam-only override for the lip content (glass orb). Null keeps the old Handle.
+    lipContent: (@Composable () -> Unit)? = null,
     overlay: @Composable BoxWithConstraintsScope.(lifted: () -> Float) -> Unit = {},
 ) {
     val density = LocalDensity.current
@@ -624,6 +626,10 @@ internal fun LiftHero(
         val r0 = restRect
         if (r0 != null && r0.top >= 0f && r0.top < h && (lipShow.value > 0.01f || pull.value > 0.5f || (!downOpens && !open && !shown))) {
             var handleW by remember { mutableStateOf(0f) }
+            // Measured lip height: the old Handle is 44dp tall, so the centring below
+            // used to hard-code 44dp. A custom lip (Steam's orb) is taller and must
+            // still centre on the button rect; measuring keeps both cases exact.
+            var lipHMeasured by remember { mutableStateOf(0f) }
             val lipH = 32.dp + pull.value.dp
             val lift = { if (!open) open = true }
             Box(
@@ -632,13 +638,13 @@ internal fun LiftHero(
                         if (lipBeside) {
                             IntOffset(
                                 (r0.right + 20.dp.toPx() + besideW + (lipShow.value - 1f) * 8.dp.toPx()).roundToInt(),
-                                (r0.top + raise * ride.value + (r0.height - 44.dp.toPx()) / 2f).roundToInt(),
+                                (r0.top + raise * ride.value + (r0.height - (if (lipHMeasured > 0f) lipHMeasured else 44.dp.toPx())) / 2f).roundToInt(),
                             )
                         } else {
                             IntOffset((r0.center.x - handleW / 2f).roundToInt(), (r0.bottom + raise * ride.value + (lipShow.value - 1f) * 8.dp.toPx()).roundToInt())
                         }
                     }
-                    .onSizeChanged { handleW = it.width.toFloat() }
+                    .onSizeChanged { handleW = it.width.toFloat(); lipHMeasured = it.height.toFloat() }
                     .graphicsLayer { alpha = lipShow.value * (1f - lipGone.value) * (1f - (drop?.sink?.value ?: 0f)) }
                     .heightIn(min = 44.dp).testTag("sheet-open")
                     .semantics { contentDescription = settingsLabel }
@@ -648,8 +654,12 @@ internal fun LiftHero(
                     )
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, role = Role.Button, onClick = lift),
             ) {
-                Box(Modifier.glideBorder(lipFocused, if (lipBeside) RoundedCornerShape(12.dp) else RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp), LocalPalette.current.signal)) {
-                    Handle(lipH, accent = lipAccent, pill = lipBeside, pillTint = lipTint)
+                if (lipContent != null) {
+                    lipContent()
+                } else {
+                    Box(Modifier.glideBorder(lipFocused, if (lipBeside) RoundedCornerShape(12.dp) else RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp), LocalPalette.current.signal)) {
+                        Handle(lipH, accent = lipAccent, pill = lipBeside, pillTint = lipTint)
+                    }
                 }
             }
         }
